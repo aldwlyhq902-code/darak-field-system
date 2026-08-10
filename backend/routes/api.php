@@ -41,6 +41,8 @@ Route::prefix('v1')->group(function () {
         Route::get('media/{clientMediaId}/status', [MediaController::class, 'status']);
         Route::post('media/{clientMediaId}/chunk', [MediaController::class, 'chunk']);
         Route::post('media/{clientMediaId}/complete', [MediaController::class, 'complete']);
+        // The way out for evidence that will never upload.
+        Route::post('media/{clientMediaId}/discard', [MediaController::class, 'discard']);
 
         // Inventory — back office only. A field device has no business creating
         // warehouse receipts or reading the whole company's stock.

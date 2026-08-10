@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MediaFile;
+use App\Services\AuditLogger;
 use App\Services\PhotoStamper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,8 +24,10 @@ class MediaController extends Controller
 {
     private const CHUNK_LIMIT = 8 * 1024 * 1024;
 
-    public function __construct(private readonly PhotoStamper $stamper)
-    {
+    public function __construct(
+        private readonly PhotoStamper $stamper,
+        private readonly AuditLogger $audit,
+    ) {
     }
 
     /**
@@ -168,6 +171,55 @@ class MediaController extends Controller
             'upload_state' => $media->upload_state,
             'original_hash' => $media->original_hash,
             'has_derived' => $media->derived_path !== null,
+        ]);
+    }
+
+    /**
+     * Drop a file that will never upload, optionally naming its replacement.
+     *
+     * Without this a failed upload blocked the close permanently: retaking added
+     * a second row while the first went on raising UPLOADS_FAILED, and there was
+     * no endpoint to remove it. The record is kept, not deleted — who dropped
+     * what and why is part of the trail.
+     */
+    public function discard(Request $request, string $clientMediaId): JsonResponse
+    {
+        $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
+        $this->authorizeMedia($media);
+
+        if ($media->upload_state === 'complete') {
+            return response()->json([
+                'code' => 'CANNOT_DISCARD_COMPLETE',
+                'message' => 'Evidence that uploaded successfully cannot be discarded from the app.',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:190'],
+            'superseded_by' => ['nullable', 'uuid'],
+        ]);
+
+        $replacement = isset($data['superseded_by'])
+            ? MediaFile::where('client_media_id', $data['superseded_by'])
+                ->where('visit_id', $media->visit_id)
+                ->first()
+            : null;
+
+        $media->forceFill([
+            'discarded_at' => now(),
+            'discard_reason' => $data['reason'],
+            'discarded_by' => $request->user()->id,
+            'superseded_by_id' => $replacement?->id,
+        ])->save();
+
+        $this->audit->record('media.discarded', $media, null, [
+            'reason' => $data['reason'],
+            'superseded_by' => $replacement?->client_media_id,
+        ]);
+
+        return response()->json([
+            'client_media_id' => $media->client_media_id,
+            'discarded_at' => $media->discarded_at->toIso8601String(),
         ]);
     }
 

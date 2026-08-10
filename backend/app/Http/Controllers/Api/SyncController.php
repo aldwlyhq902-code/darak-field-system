@@ -89,6 +89,23 @@ class SyncController extends Controller
         return response()->json($result);
     }
 
+    /**
+     * The frozen requirement, resolved to live rows for display.
+     *
+     * Falls back to the site's assets only when a visit predates the snapshot,
+     * so an old row cannot end up requiring nothing at all.
+     */
+    private function requiredAssets(Visit $visit)
+    {
+        $required = $visit->required_asset_ids;
+
+        if ($required === null || $required === []) {
+            return $visit->site->assets;
+        }
+
+        return $visit->site->assets->whereIn('id', $required)->values();
+    }
+
     private function visitPayload(Visit $visit, CarbonImmutable $now): array
     {
         $contract = $visit->workOrder?->contract;
@@ -130,7 +147,12 @@ class SyncController extends Controller
                 'dwell_threshold_s' => $visit->site->dwell_threshold_s,
                 'access_notes' => $visit->site->access_notes,
             ],
-            'assets' => $visit->site->assets->map(fn ($a) => [
+            // The assets this visit was SCHEDULED to cover, not whatever the site
+            // holds today. Sending the live list meant an asset added after
+            // scheduling became required on the phone though the server had
+            // frozen it out, and one deleted vanished from the phone while the
+            // server still demanded it — a visit impossible to close either way.
+            'assets' => $this->requiredAssets($visit)->map(fn ($a) => [
                 'id' => $a->id,
                 'name' => $a->name,
                 'type' => $a->type,

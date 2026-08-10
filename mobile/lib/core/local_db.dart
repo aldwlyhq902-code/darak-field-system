@@ -124,10 +124,33 @@ class LocalDb {
     final db = await dbFactory.openDatabase(
       resolved,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         onCreate: (db, _) async {
           for (final statement in _schema) {
             await db.execute(statement);
+          }
+        },
+        // CREATE TABLE IF NOT EXISTS never alters a table that already exists, so
+        // a phone carrying the v1 database would have kept the old single-column
+        // key on `assets` forever — and gone on losing one visit's asset list
+        // whenever two visits shared a site. A fix that only reaches fresh
+        // installs is not a fix.
+        onUpgrade: (db, from, to) async {
+          if (from < 2) {
+            await db.execute('ALTER TABLE assets RENAME TO assets_v1');
+
+            for (final statement in _schema) {
+              await db.execute(statement);
+            }
+
+            // Carried over rather than re-fetched: the phone may be offline, and
+            // discarding the cache would strip a technician mid-visit.
+            await db.execute('''
+              INSERT OR IGNORE INTO assets (id, visit_id, name, type, location, qr_code, under_warranty)
+              SELECT id, visit_id, name, type, location, qr_code, under_warranty FROM assets_v1
+            ''');
+
+            await db.execute('DROP TABLE assets_v1');
           }
         },
         onOpen: (db) async {

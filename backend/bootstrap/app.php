@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnsureBackOfficeRole;
 use App\Http\Middleware\EnsureDeviceIsActive;
+use App\Http\Middleware\EnsurePanelUserIsActive;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -21,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'device.active' => EnsureDeviceIsActive::class,
             'role.backoffice' => EnsureBackOfficeRole::class,
+            'panel.active' => EnsurePanelUserIsActive::class,
         ]);
 
         // Two surfaces, two behaviours. A guest on the panel belongs at the login

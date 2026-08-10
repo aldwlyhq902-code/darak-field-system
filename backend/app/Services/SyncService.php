@@ -375,7 +375,11 @@ class SyncService
         // An upload in flight lands by itself. Everything else — a missing
         // signature, an unopened checklist, an upload that has given up — needs
         // the technician, and retrying it silently forever tells them nothing.
-        $transient = ['UPLOADS_PENDING', 'ASSET_PHOTO_UPLOAD_PENDING'];
+        $transient = [
+            'UPLOADS_PENDING',
+            'ASSET_PHOTO_UPLOAD_PENDING',
+            'SIGNATURE_UPLOAD_PENDING',
+        ];
 
         foreach ($blockers as $blocker) {
             if (! in_array($blocker['code'] ?? null, $transient, true)) {

@@ -24,6 +24,11 @@ class CloseGate
 
         $visit->loadMissing(['checklistInstances.asset', 'mediaFiles', 'stockMoves', 'site.assets']);
 
+        // Discarded evidence is out of the reckoning entirely: it is recorded for
+        // audit, but a file the supervisor dropped must not go on blocking a
+        // close that a retake has already satisfied.
+        $visit->setRelation('mediaFiles', $visit->mediaFiles->whereNull('discarded_at'));
+
         $instances = $visit->checklistInstances;
 
         if ($instances->isEmpty()) {
@@ -121,12 +126,33 @@ class CloseGate
             ->where('upload_state', 'complete')
             ->isNotEmpty();
 
+        // Same three-way distinction as the asset photos. Collapsing it here was
+        // the identical regression, just in the parallel path: a signature mid
+        // upload produced a permanent refusal and the client stopped retrying.
         if (! $hasSignature) {
-            $blockers[] = [
-                'code' => 'SIGNATURE_MISSING',
-                'message_ar' => 'توقيع مسؤول الموقع مطلوب لإقفال الزيارة.',
-                'message_en' => 'The site representative signature is required to close the visit.',
-            ];
+            $signatures = $visit->mediaFiles->where('kind', 'signature');
+            $signatureInFlight = $signatures->first(fn ($m) => in_array($m->upload_state, ['pending', 'uploading'], true));
+            $signatureFailed = $signatures->firstWhere('upload_state', 'failed');
+
+            if ($signatureInFlight !== null) {
+                $blockers[] = [
+                    'code' => 'SIGNATURE_UPLOAD_PENDING',
+                    'message_ar' => 'توقيع مسؤول الموقع ما زال يُرفع.',
+                    'message_en' => 'The site representative signature is still uploading.',
+                ];
+            } elseif ($signatureFailed !== null) {
+                $blockers[] = [
+                    'code' => 'SIGNATURE_UPLOAD_FAILED',
+                    'message_ar' => 'فشل رفع التوقيع — أعد أخذه.',
+                    'message_en' => 'The signature failed to upload — capture it again.',
+                ];
+            } else {
+                $blockers[] = [
+                    'code' => 'SIGNATURE_MISSING',
+                    'message_ar' => 'توقيع مسؤول الموقع مطلوب لإقفال الزيارة.',
+                    'message_en' => 'The site representative signature is required to close the visit.',
+                ];
+            }
         }
 
         // Still moving vs given up. An upload that has failed will never finish on

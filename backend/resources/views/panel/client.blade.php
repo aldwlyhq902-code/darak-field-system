@@ -210,6 +210,21 @@
                     </div>
                     <div class="field"><label>الموعد</label><input type="datetime-local" name="scheduled_start" required></div>
                 </div>
+                <div class="field">
+                    <label>الأصل المعني (للبلاغ)</label>
+                    <select name="asset_id">
+                        <option value="">جولة كاملة — كل أصول الموقع</option>
+                        @foreach ($client->sites as $site)
+                            @foreach ($site->assets as $asset)
+                                <option value="{{ $asset->id }}">{{ $site->name }} — {{ $asset->name }}</option>
+                            @endforeach
+                        @endforeach
+                    </select>
+                    <div style="font-size:12px;color:var(--muted);margin-top:4px">
+                        اترك الحقل فارغاً للجولة الوقائية. تحديد أصل يجعل الزيارة تتطلبه وحده —
+                        وبلاغ عن مكيف واحد كان يطالب الفني بفحص كل أصول الموقع قبل الإقفال.
+                    </div>
+                </div>
                 <div class="field"><label>العنوان</label><input name="title" required></div>
                 <div class="field"><label>الوصف</label><textarea name="description" rows="2"></textarea></div>
                 <button class="btn">إنشاء أمر العمل والزيارة</button>

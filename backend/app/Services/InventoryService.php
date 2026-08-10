@@ -73,6 +73,14 @@ class InventoryService
                 (int) ($attributes['from_location_id'] ?? $attributes['to_location_id'] ?? 0),
             );
 
+            // A return is serialised on the ISSUE it reverses, not on the
+            // destination. Two returns of the same issue sent to two different
+            // vehicles took two different locks, read the same returned total,
+            // and both passed — together giving back more than was ever taken.
+            if (isset($attributes['assert_within_issue'])) {
+                $this->lockOriginalMove((int) $attributes['assert_within_issue']->id);
+            }
+
             $moveType = $attributes['move_type'];
 
             if (! in_array($moveType, StockMove::TYPES, true)) {
@@ -327,6 +335,19 @@ class InventoryService
 
         if ($driver === 'pgsql') {
             DB::statement('SELECT pg_advisory_xact_lock(?, ?)', [$partId, $locationId]);
+        }
+    }
+
+    /**
+     * Serialises every return of one issue, whatever their destinations.
+     *
+     * A second namespace keeps it from colliding with the (part, location) lock:
+     * a move id and a part id can share a number.
+     */
+    private function lockOriginalMove(int $originalMoveId): void
+    {
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('SELECT pg_advisory_xact_lock(?, ?)', [-1, $originalMoveId]);
         }
     }
 

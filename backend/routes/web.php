@@ -23,7 +23,9 @@ Route::get('/', fn () => redirect()->route('panel.board'));
 Route::get('login', [PanelAuthController::class, 'show'])->name('panel.login');
 Route::post('login', [PanelAuthController::class, 'login'])->middleware('throttle:10,1');
 
-Route::middleware('auth:web')->group(function () {
+// `auth:web` alone only asks "is someone signed in", never "are they still
+// allowed to be". A disabled account kept its cookie session and the whole panel.
+Route::middleware(['auth:web', 'panel.active'])->group(function () {
     Route::post('logout', [PanelAuthController::class, 'logout'])->name('panel.logout');
 
     Route::get('board', [BoardController::class, 'index'])->name('panel.board');
