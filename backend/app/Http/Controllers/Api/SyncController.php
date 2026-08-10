@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\Visit;
+use App\Services\RequiredAssets;
 use App\Services\SlaCalculator;
 use App\Services\SyncService;
 use Carbon\CarbonImmutable;
@@ -16,6 +17,7 @@ class SyncController extends Controller
     public function __construct(
         private readonly SyncService $sync,
         private readonly SlaCalculator $sla,
+        private readonly RequiredAssets $requiredAssets,
     ) {
     }
 
@@ -89,23 +91,6 @@ class SyncController extends Controller
         return response()->json($result);
     }
 
-    /**
-     * The frozen requirement, resolved to live rows for display.
-     *
-     * Falls back to the site's assets only when a visit predates the snapshot,
-     * so an old row cannot end up requiring nothing at all.
-     */
-    private function requiredAssets(Visit $visit)
-    {
-        $required = $visit->required_asset_ids;
-
-        if ($required === null || $required === []) {
-            return $visit->site->assets;
-        }
-
-        return $visit->site->assets->whereIn('id', $required)->values();
-    }
-
     private function visitPayload(Visit $visit, CarbonImmutable $now): array
     {
         $contract = $visit->workOrder?->contract;
@@ -152,7 +137,7 @@ class SyncController extends Controller
             // scheduling became required on the phone though the server had
             // frozen it out, and one deleted vanished from the phone while the
             // server still demanded it — a visit impossible to close either way.
-            'assets' => $this->requiredAssets($visit)->map(fn ($a) => [
+            'assets' => $this->requiredAssets->for($visit)->map(fn ($a) => [
                 'id' => $a->id,
                 'name' => $a->name,
                 'type' => $a->type,

@@ -43,6 +43,37 @@ class _SyncScreenState extends State<SyncScreen> {
     }
   }
 
+  Future<void> _confirmDiscard(Map<String, dynamic> upload) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('إسقاط الملف؟'),
+        content: const Text(
+          'لن يُرفع هذا الملف ولن يمنع إقفال الزيارة بعد الآن. '
+          'التقط بديلاً إن كان الدليل ما زال مطلوباً.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('تراجع')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('إسقاط'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await widget.state.sync.discardUpload(
+      upload['client_media_id'] as String,
+      reason: 'أسقطه الفني بعد فشل الرفع',
+    );
+
+    await widget.state.runSync();
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -125,14 +156,27 @@ class _SyncScreenState extends State<SyncScreen> {
                                   style: TextStyle(fontSize: 11, color: Colors.orange.shade900)),
                           ],
                         ),
-                        trailing: IconButton(
-                          tooltip: 'إعادة الرفع',
-                          icon: const Icon(Icons.upload_file),
-                          onPressed: () async {
-                            await widget.state.sync.retryUpload(upload['client_media_id'] as String);
-                            await widget.state.runSync();
-                            await _load();
-                          },
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'إعادة الرفع',
+                              icon: const Icon(Icons.upload_file),
+                              onPressed: () async {
+                                await widget.state.sync.retryUpload(upload['client_media_id'] as String);
+                                await widget.state.runSync();
+                                await _load();
+                              },
+                            ),
+                            // The way out. Without it a file that will never
+                            // upload holds the visit open indefinitely and the
+                            // technician has nothing to press.
+                            IconButton(
+                              tooltip: 'إسقاط الملف',
+                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              onPressed: () => _confirmDiscard(upload),
+                            ),
+                          ],
                         ),
                       ),
                     )),

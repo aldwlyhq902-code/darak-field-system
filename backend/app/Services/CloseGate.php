@@ -15,6 +15,10 @@ use App\Models\Visit;
  */
 class CloseGate
 {
+    public function __construct(private readonly RequiredAssets $requiredAssets)
+    {
+    }
+
     /**
      * @return array<int, array{code:string, message_ar:string, message_en:string, ref?:mixed}>
      */
@@ -198,32 +202,21 @@ class CloseGate
      */
     private function missingRequiredAssets(Visit $visit, $instances): array
     {
-        $required = $visit->required_asset_ids;
+        // Resolved by the same service bootstrap uses. Two readers of one fact
+        // drift; that drift is what made a deleted asset vanish from the phone
+        // while the server went on demanding it.
+        $required = $this->requiredAssets->for($visit);
 
-        if ($required === null) {
-            $required = $visit->site?->assets->pluck('id')->all() ?? [];
-        }
-
-        if ($required === []) {
+        if ($required->isEmpty()) {
             return [];
         }
 
         $inspected = $instances->pluck('asset_id')->map(fn ($id) => (int) $id)->all();
-        $names = $visit->site?->assets->keyBy('id') ?? collect();
 
-        $missing = [];
-
-        foreach ($required as $assetId) {
-            if (in_array((int) $assetId, $inspected, true)) {
-                continue;
-            }
-
-            $missing[] = [
-                'id' => (int) $assetId,
-                'name' => $names[$assetId]->name ?? ('#' . $assetId),
-            ];
-        }
-
-        return $missing;
+        return $required
+            ->reject(fn ($asset) => in_array((int) $asset->id, $inspected, true))
+            ->map(fn ($asset) => ['id' => (int) $asset->id, 'name' => $asset->name])
+            ->values()
+            ->all();
     }
 }

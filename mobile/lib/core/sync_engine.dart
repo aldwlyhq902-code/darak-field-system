@@ -122,6 +122,10 @@ class SyncEngine {
     _running = true;
 
     try {
+      // Discards first: a file the technician dropped must stop being uploaded,
+      // and must stop blocking the close, before anything else is attempted.
+      await _flushDiscards();
+
       final outcome = await _pushEvents();
       await _pushMedia();
       await _pruneUploadedEvidence();
@@ -334,6 +338,58 @@ class SyncEngine {
       where: 'client_media_id = ?',
       whereArgs: [clientMediaId],
     );
+  }
+
+  /// Drops a file the technician has given up on.
+  ///
+  /// Marked locally first so the engine stops trying immediately, then told to
+  /// the server. If that call fails the row stays 'discard_pending' and is
+  /// retried — the technician has already decided, and making them decide again
+  /// because a packet was lost is how a dead end reappears.
+  Future<void> discardUpload(String clientMediaId, {required String reason}) async {
+    await db.raw.update(
+      'pending_media',
+      {'state': 'discard_pending', 'last_error': reason},
+      where: 'client_media_id = ?',
+      whereArgs: [clientMediaId],
+    );
+
+    await _flushDiscards();
+  }
+
+  Future<void> _flushDiscards() async {
+    final rows = await db.raw.query(
+      'pending_media',
+      where: 'state = ?',
+      whereArgs: ['discard_pending'],
+    );
+
+    for (final row in rows) {
+      try {
+        await api.discardMedia(
+          clientMediaId: row['client_media_id'] as String,
+          reason: (row['last_error'] as String?) ?? 'تعذّر الرفع',
+        );
+
+        await db.raw.update(
+          'pending_media',
+          {'state': 'discarded'},
+          where: 'client_media_id = ?',
+          whereArgs: [row['client_media_id']],
+        );
+      } on ApiException catch (e) {
+        // 404 means the server never registered it; nothing to drop there.
+        if (e.statusCode == 404) {
+          await db.raw.update(
+            'pending_media',
+            {'state': 'discarded'},
+            where: 'client_media_id = ?',
+            whereArgs: [row['client_media_id']],
+          );
+        }
+        // Anything else: leave it pending and try on the next sync.
+      }
+    }
   }
 
   Future<void> _uploadOne(Map<String, dynamic> row) async {

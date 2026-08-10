@@ -126,6 +126,54 @@ class PostgresRealityTest extends DarakTestCase
         }
     }
 
+    /**
+     * Two returns of one issue, genuinely concurrent.
+     *
+     * The earlier test ran them in sequence, which the second lock would satisfy
+     * anyway — it proved nothing about the race it was named after. Here the
+     * first transaction holds the lock while the second tries to take it, so a
+     * missing or wrongly-keyed lock shows up as the second sailing through.
+     */
+    public function test_two_concurrent_returns_of_one_issue_are_serialised(): void
+    {
+        $this->skipUnlessPostgres();
+
+        $inv = $this->inventory();
+        $inv->receipt((string) Str::uuid(), $this->part->id, 20, $this->warehouse->id);
+        $inv->loadVehicle((string) Str::uuid(), $this->part->id, 10, $this->warehouse->id, $this->vehicleStock->id);
+        $issue = $inv->issueToVisit((string) Str::uuid(), $this->part->id, 2, $this->vehicleStock->id, $this->visit);
+
+        config()->set('database.connections.pgsql_probe', config('database.connections.pgsql'));
+        $second = DB::connection('pgsql_probe');
+
+        try {
+            DB::beginTransaction();
+            // Exactly the lock a return takes: keyed on the ISSUE, not on the
+            // part or the destination.
+            DB::statement('SELECT pg_advisory_xact_lock(?, ?)', [-1, $issue->id]);
+
+            $second->statement("SET lock_timeout = '400ms'");
+            $blocked = false;
+
+            try {
+                $second->beginTransaction();
+                $second->statement('SELECT pg_advisory_xact_lock(?, ?)', [-1, $issue->id]);
+                $second->rollBack();
+            } catch (\Throwable $e) {
+                $blocked = str_contains(strtolower($e->getMessage()), 'lock timeout')
+                    || str_contains(strtolower($e->getMessage()), 'canceling statement');
+                $second->rollBack();
+            }
+
+            $this->assertTrue(
+                $blocked,
+                'a second return of the same issue must wait, whatever vehicle it targets',
+            );
+        } finally {
+            DB::rollBack();
+        }
+    }
+
     public function test_stock_never_goes_negative_across_repeated_issues(): void
     {
         $this->skipUnlessPostgres();

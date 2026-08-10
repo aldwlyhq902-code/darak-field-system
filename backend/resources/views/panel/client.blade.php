@@ -184,7 +184,7 @@
                 @csrf
                 <div class="field">
                     <label>الموقع</label>
-                    <select name="site_id" required>
+                    <select name="site_id" id="siteSelect" required onchange="filterAssets()">
                         @foreach ($client->sites as $site)
                             <option value="{{ $site->id }}">{{ $site->name }}</option>
                         @endforeach
@@ -212,11 +212,15 @@
                 </div>
                 <div class="field">
                     <label>الأصل المعني (للبلاغ)</label>
-                    <select name="asset_id">
+                    <select name="asset_id" id="assetSelect">
                         <option value="">جولة كاملة — كل أصول الموقع</option>
                         @foreach ($client->sites as $site)
                             @foreach ($site->assets as $asset)
-                                <option value="{{ $asset->id }}">{{ $site->name }} — {{ $asset->name }}</option>
+                                {{-- data-site drives the filter below: an asset from
+                                     another branch must never be selectable here. --}}
+                                <option value="{{ $asset->id }}" data-site="{{ $site->id }}">
+                                    {{ $asset->name }}
+                                </option>
                             @endforeach
                         @endforeach
                     </select>
@@ -229,6 +233,31 @@
                 <div class="field"><label>الوصف</label><textarea name="description" rows="2"></textarea></div>
                 <button class="btn">إنشاء أمر العمل والزيارة</button>
             </form>
+
+            <script>
+            // Assets belong to one branch. Showing all of the client's at once
+            // let a visit for branch A carry an asset from branch B — the server
+            // then demanded a unit the technician's phone never listed.
+            function filterAssets() {
+                var siteId = document.getElementById('siteSelect').value;
+                var assets = document.getElementById('assetSelect');
+
+                for (var i = 0; i < assets.options.length; i++) {
+                    var option = assets.options[i];
+                    if (!option.value) continue;
+
+                    var belongs = option.dataset.site === siteId;
+                    option.hidden = !belongs;
+                    option.disabled = !belongs;
+
+                    if (!belongs && option.selected) {
+                        assets.value = '';
+                    }
+                }
+            }
+
+            filterAssets();
+            </script>
         </div>
     </div>
 </div>

@@ -8,6 +8,7 @@ use App\Services\AuditLogger;
 use App\Services\PhotoStamper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -66,6 +67,10 @@ class MediaController extends Controller
     {
         $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
         $this->authorizeMedia($media);
+
+        if ($media->discarded_at !== null) {
+            return $this->discardedResponse();
+        }
 
         if ($media->upload_state === 'complete') {
             return response()->json([
@@ -128,6 +133,10 @@ class MediaController extends Controller
         $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
         $this->authorizeMedia($media);
 
+        if ($media->discarded_at !== null) {
+            return $this->discardedResponse();
+        }
+
         $disk = Storage::disk('local');
         $partPath = $this->partPath($media);
 
@@ -187,13 +196,6 @@ class MediaController extends Controller
         $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
         $this->authorizeMedia($media);
 
-        if ($media->upload_state === 'complete') {
-            return response()->json([
-                'code' => 'CANNOT_DISCARD_COMPLETE',
-                'message' => 'Evidence that uploaded successfully cannot be discarded from the app.',
-            ], 422);
-        }
-
         $data = $request->validate([
             'reason' => ['required', 'string', 'max:190'],
             'superseded_by' => ['nullable', 'uuid'],
@@ -205,12 +207,36 @@ class MediaController extends Controller
                 ->first()
             : null;
 
-        $media->forceFill([
-            'discarded_at' => now(),
-            'discard_reason' => $data['reason'],
-            'discarded_by' => $request->user()->id,
-            'superseded_by_id' => $replacement?->id,
-        ])->save();
+        // Re-read under a row lock. Without it a chunk arriving at the same
+        // moment could take the file to 'complete' while this marks it
+        // discarded, leaving a row that is both — and CloseGate would ignore
+        // evidence that had in fact landed.
+        $outcome = DB::transaction(function () use ($media, $data, $request, $replacement) {
+            $locked = MediaFile::whereKey($media->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($locked->upload_state === 'complete') {
+                return null;
+            }
+
+            $locked->forceFill([
+                'discarded_at' => now(),
+                'discard_reason' => $data['reason'],
+                'discarded_by' => $request->user()->id,
+                'superseded_by_id' => $replacement?->id,
+                'upload_state' => 'discarded',
+            ])->save();
+
+            return $locked;
+        });
+
+        if ($outcome === null) {
+            return response()->json([
+                'code' => 'CANNOT_DISCARD_COMPLETE',
+                'message' => 'Evidence that uploaded successfully cannot be discarded from the app.',
+            ], 422);
+        }
+
+        $media = $outcome;
 
         $this->audit->record('media.discarded', $media, null, [
             'reason' => $data['reason'],
@@ -221,6 +247,14 @@ class MediaController extends Controller
             'client_media_id' => $media->client_media_id,
             'discarded_at' => $media->discarded_at->toIso8601String(),
         ]);
+    }
+
+    private function discardedResponse(): JsonResponse
+    {
+        return response()->json([
+            'code' => 'MEDIA_DISCARDED',
+            'message' => 'This file was discarded. Capture a replacement instead.',
+        ], 409);
     }
 
     private function partPath(MediaFile $media): string

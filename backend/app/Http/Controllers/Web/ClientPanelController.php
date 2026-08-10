@@ -165,10 +165,14 @@ class ClientPanelController extends Controller
         $data = $request->validate([
             'site_id' => ['required', Rule::exists('sites', 'id')->where('client_id', $client->id)],
             'contract_id' => ['nullable', Rule::exists('contracts', 'id')->where('client_id', $client->id)],
+            // Bound to the SELECTED site, not merely to the client. Any-site-of-
+            // this-client let a visit for branch A carry a snapshot naming an
+            // asset at branch B: bootstrap filtered it out and sent an empty
+            // list while CloseGate went on demanding it.
             'asset_id' => [
                 'nullable',
                 Rule::exists('assets', 'id')->where(
-                    fn ($q) => $q->whereIn('site_id', $client->sites()->pluck('id'))
+                    fn ($q) => $q->where('site_id', $request->input('site_id'))
                 ),
             ],
             'type' => ['required', 'in:preventive,reactive,out_of_contract'],
@@ -182,6 +186,13 @@ class ClientPanelController extends Controller
         ]);
 
         $contract = ! empty($data['contract_id']) ? Contract::find($data['contract_id']) : null;
+
+        if ($contract !== null && ! $contract->sites->contains('id', (int) $data['site_id'])) {
+            return back()
+                ->withInput()
+                ->withErrors(['contract_id' => 'هذا العقد لا يغطي الموقع المختار.']);
+        }
+
         $reportedAt = CarbonImmutable::now();
         $budget = $contract?->sla_minutes ?? 480;
 

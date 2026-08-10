@@ -110,6 +110,17 @@ class ApiClient {
   }) =>
       _post('/api/v1/media/$clientMediaId/complete', {'sha256': sha256});
 
+  /// Drops a file that will never upload, naming its replacement if one exists.
+  Future<Map<String, dynamic>> discardMedia({
+    required String clientMediaId,
+    required String reason,
+    String? supersededBy,
+  }) =>
+      _post('/api/v1/media/$clientMediaId/discard', {
+        'reason': reason,
+        if (supersededBy != null) 'superseded_by': supersededBy,
+      });
+
   Future<Map<String, dynamic>> closeBlockers(int visitId) =>
       _get('/api/v1/visits/$visitId/close-blockers');
 
