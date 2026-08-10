@@ -1,0 +1,176 @@
+import 'package:flutter/material.dart';
+
+import '../app_state.dart';
+import '../core/event_queue.dart';
+
+/// The three states the technician must be able to see at a glance:
+/// بانتظار المزامنة · فشل · تمت.
+///
+/// A failed action keeps its reason and can be retried. Nothing is ever hidden to
+/// make the queue look clean — a silently dropped action is how field evidence
+/// disappears.
+class SyncScreen extends StatefulWidget {
+  const SyncScreen({super.key, required this.state});
+
+  final AppState state;
+
+  @override
+  State<SyncScreen> createState() => _SyncScreenState();
+}
+
+class _SyncScreenState extends State<SyncScreen> {
+  List<QueuedEvent> _failed = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final failed = await widget.state.queue.failed();
+    await widget.state.refreshLocal();
+    if (mounted) setState(() => _failed = failed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.state,
+      builder: (context, _) {
+        final counts = widget.state.queueCounts;
+
+        return Scaffold(
+          appBar: AppBar(title: const Text('حالة المزامنة')),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(
+                children: [
+                  _CountTile(
+                    label: 'بانتظار المزامنة',
+                    value: counts[QueuedStatus.pending] ?? 0,
+                    color: Colors.orange,
+                    icon: Icons.schedule,
+                  ),
+                  const SizedBox(width: 10),
+                  _CountTile(
+                    label: 'فشل',
+                    value: counts[QueuedStatus.failed] ?? 0,
+                    color: Colors.red,
+                    icon: Icons.error_outline,
+                  ),
+                  const SizedBox(width: 10),
+                  _CountTile(
+                    label: 'تمت',
+                    value: counts[QueuedStatus.synced] ?? 0,
+                    color: Colors.teal,
+                    icon: Icons.check_circle_outline,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: widget.state.syncing
+                    ? null
+                    : () async {
+                        await widget.state.runSync();
+                        await _load();
+                      },
+                icon: const Icon(Icons.cloud_upload_outlined),
+                label: Text(widget.state.syncing ? 'جارٍ المزامنة…' : 'مزامنة الآن'),
+              ),
+              if (widget.state.lastSyncMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(widget.state.lastSyncMessage!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13, color: Colors.black54)),
+              ],
+              const SizedBox(height: 24),
+              if (_failed.isNotEmpty) ...[
+                Text('عمليات مرفوضة', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 4),
+                const Text(
+                  'رفضها الخادم لسبب واضح. صحّح السبب ثم أعد المحاولة.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 10),
+                ..._failed.map((event) => Card(
+                      color: Colors.red.shade50,
+                      child: ListTile(
+                        title: Text(event.eventType),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('زيارة ${event.visitId} · محاولات: ${event.attempts}',
+                                style: const TextStyle(fontSize: 12)),
+                            if (event.lastError != null)
+                              Text(event.lastError!,
+                                  style: TextStyle(fontSize: 12, color: Colors.red.shade900)),
+                          ],
+                        ),
+                        trailing: IconButton(
+                          tooltip: 'إعادة المحاولة',
+                          icon: const Icon(Icons.refresh),
+                          onPressed: () async {
+                            await widget.state.queue.requeue(event.clientEventId);
+                            await widget.state.runSync();
+                            await _load();
+                          },
+                        ),
+                      ),
+                    )),
+              ] else
+                const Card(
+                  child: ListTile(
+                    leading: Icon(Icons.verified_outlined, color: Colors.teal),
+                    title: Text('لا توجد عمليات مرفوضة'),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CountTile extends StatelessWidget {
+  const _CountTile({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final int value;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Text('$value',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+            const SizedBox(height: 2),
+            Text(label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 11, color: Colors.black54)),
+          ],
+        ),
+      ),
+    );
+  }
+}

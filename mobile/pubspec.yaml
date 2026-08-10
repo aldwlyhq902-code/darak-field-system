@@ -1,0 +1,42 @@
+name: darak_field
+description: "تطبيق فني دارك الميداني — يعمل بلا شبكة ويزامن لاحقاً."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Local-first storage. Every field action is written here before anything
+  # touches the network — the device must be fully usable with no signal.
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  http: ^1.2.2
+  uuid: ^4.5.1          # client_event_id — the idempotency key
+  crypto: ^3.0.5        # sha256 for upload verification
+  connectivity_plus: ^6.0.5
+  shared_preferences: ^2.3.2
+  intl: ^0.19.0
+
+  # Field evidence. image_picker with ImageSource.camera only — the gallery is
+  # never offered, so a photo cannot be "found" instead of taken.
+  image_picker: ^1.1.2
+  signature: ^5.5.0
+  mobile_scanner: ^5.2.3
+  # The bearer token is a credential and does not belong in a plain sqlite table.
+  flutter_secure_storage: ^9.2.2
+  geolocator: ^13.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  sqflite_common_ffi: ^2.3.3   # lets the sync engine be tested on the desktop
+
+flutter:
+  uses-material-design: true

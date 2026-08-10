@@ -1,0 +1,342 @@
+openapi: 3.1.0
+info:
+  title: Darak Field Operations API
+  version: "1.0.0-mvp"
+  description: |
+    MVP scope is PRD v1.2 §2. Dispatch scoring, sales rep, client portal,
+    commissions and profitability analytics are deliberately absent.
+
+    Two contracts matter more than the rest:
+      * `client_event_id` is generated on the DEVICE and is the idempotency key.
+        Replaying a batch applies it exactly once.
+      * An issued e-invoice is immutable. Corrections are credit notes.
+
+servers:
+  - url: http://127.0.0.1:8000
+    description: local development
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Sanctum token bound to a device. Revoking the device kills the token.
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: string, example: INVALID_VISIT_TRANSITION }
+        message: { type: string }
+
+    SyncEvent:
+      type: object
+      required: [client_event_id, visit_id, event_type]
+      properties:
+        client_event_id:
+          type: string
+          format: uuid
+          description: Device-generated. The server keys idempotency on this.
+        visit_id: { type: integer }
+        event_type:
+          type: string
+          enum: [visit.transition, checklist.upsert, part.issue, part.return, media.register, geofence.ping, note.added]
+        payload: { type: object }
+        device_timestamp:
+          type: string
+          format: date-time
+          description: Device wall clock. Recorded, never trusted alone.
+        monotonic_offset_ms:
+          type: [integer, "null"]
+          description: Milliseconds since the last trusted server time, from a source the user cannot edit. Null when unknown — never guessed.
+        last_trusted_server_time: { type: [string, "null"], format: date-time }
+        sequence:
+          type: integer
+          description: Per-device counter. The server replays in this order because it survives clock changes.
+        lat: { type: [number, "null"] }
+        lng: { type: [number, "null"] }
+        source: { type: string, enum: [gps, qr, manual, offline, api] }
+
+    SyncResult:
+      type: object
+      properties:
+        client_event_id: { type: string, format: uuid }
+        status: { type: string, enum: [accepted, duplicate, rejected] }
+        code: { type: string }
+        message: { type: string }
+
+paths:
+  /api/v1/auth/login:
+    post:
+      summary: Sign in and register the device
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, device_uuid]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                device_uuid: { type: string, format: uuid }
+                platform: { type: string, default: android }
+                app_version: { type: string }
+      responses:
+        "200":
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  server_time: { type: string, format: date-time }
+                  user: { type: object }
+                  device: { type: object }
+        "403":
+          description: Device revoked or user inactive
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "422": { description: Invalid credentials }
+
+  /api/v1/auth/me:
+    get:
+      summary: Current user and server time
+      responses:
+        "200": { description: OK }
+        "401":
+          description: Not authenticated (never a 500 — see bootstrap/app.php)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/devices/{device}/revoke:
+    post:
+      summary: Revoke a lost or stolen handset
+      description: Supervisor only. The old token stops working on every protected endpoint.
+      parameters:
+        - { name: device, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Revoked }
+        "403": { description: Caller is not the supervisor }
+
+  /api/v1/sync/bootstrap:
+    get:
+      summary: Everything the device needs to work with no network
+      description: |
+        Today's and tomorrow's visits with their sites, assets and SLA state,
+        including the contract service window the countdown obeys.
+      responses:
+        "200": { description: OK }
+
+  /api/v1/sync/events:
+    post:
+      summary: Batch event ingest — replay safe
+      description: |
+        The same batch may be posted any number of times. Each event returns its
+        own status; one bad event never rejects the batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_uuid, events]
+              properties:
+                device_uuid: { type: string, format: uuid }
+                last_trusted_server_time: { type: string, format: date-time }
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items: { $ref: "#/components/schemas/SyncEvent" }
+      responses:
+        "200":
+          description: Per-event outcome plus the canonical visit state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  server_time: { type: string, format: date-time }
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/SyncResult" }
+                  visits: { type: array, items: { type: object } }
+        "403": { description: Device registered to another user }
+
+  /api/v1/visits:
+    get:
+      summary: Visits, scoped by role
+      description: A technician sees only their own — enforced here, not in the UI.
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+        - { name: state, in: query, schema: { type: string } }
+      responses:
+        "200": { description: OK }
+
+  /api/v1/visits/{visit}:
+    get:
+      summary: One visit with evidence, parts and close blockers
+      parameters:
+        - { name: visit, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: OK }
+        "403": { description: Not your visit }
+
+  /api/v1/visits/{visit}/transition:
+    post:
+      summary: Move the visit through its lifecycle
+      parameters:
+        - { name: visit, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to]
+              properties:
+                to:
+                  type: string
+                  enum: [scheduled, en_route, started, paused, awaiting_close, completed, reopened]
+                lat: { type: number }
+                lng: { type: number }
+      responses:
+        "200": { description: Transitioned }
+        "409":
+          description: INVALID_VISIT_TRANSITION — the move is not in the allowed map
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "422":
+          description: VISIT_CLOSE_BLOCKED — carries the full list of missing items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string }
+                  blockers: { type: array, items: { type: object } }
+
+  /api/v1/visits/{visit}/close-blockers:
+    get:
+      summary: What still prevents closing
+      parameters:
+        - { name: visit, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: can_close plus the blocker list }
+
+  /api/v1/visits/{visit}/rework-override:
+    post:
+      summary: Reclassify a system-flagged rework
+      description: |
+        Supervisor only. The technician cannot clear the flag — otherwise the
+        obvious move is to relabel every repeat visit and keep a clean
+        first-time-fix number.
+      parameters:
+        - { name: visit, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Overridden and audited }
+        "403": { description: Technicians may not override }
+
+  /api/v1/media/{clientMediaId}/status:
+    get:
+      summary: Where to resume an interrupted upload
+      parameters:
+        - { name: clientMediaId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: uploaded_bytes / total_bytes / upload_state }
+
+  /api/v1/media/{clientMediaId}/chunk:
+    post:
+      summary: Append one chunk at the declared offset
+      parameters:
+        - { name: clientMediaId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: X-Upload-Offset, in: header, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200": { description: New offset }
+        "409":
+          description: OFFSET_MISMATCH — response carries expected_offset so the client resumes
+        "413": { description: Chunk exceeds 8MB }
+
+  /api/v1/media/{clientMediaId}/complete:
+    post:
+      summary: Verify the hash and finalise
+      description: On mismatch the upload resets rather than storing a corrupt file.
+      parameters:
+        - { name: clientMediaId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sha256]
+              properties:
+                sha256: { type: string, minLength: 64, maxLength: 64 }
+      responses:
+        "200": { description: Complete, stamped derivative generated }
+        "422": { description: HASH_MISMATCH }
+
+  /api/v1/inventory/receipt:
+    post:
+      summary: Supplier receipt into the warehouse
+      responses: { "201": { description: Movement recorded } }
+
+  /api/v1/inventory/vehicle-load:
+    post:
+      summary: Warehouse to vehicle
+      responses: { "201": { description: Movement recorded } }
+
+  /api/v1/inventory/return:
+    post:
+      summary: Return a part
+      description: |
+        Corrects stock and cost. When the visit was already invoiced this also
+        requests a CREDIT NOTE — the issued invoice is never modified.
+      responses: { "201": { description: Movement plus optional credit note } }
+
+  /api/v1/inventory/locations/{location}/balances:
+    get:
+      summary: Current balances at one location
+      parameters:
+        - { name: location, in: path, required: true, schema: { type: integer } }
+      responses: { "200": { description: OK } }
+
+  /api/v1/visits/{visit}/report.pdf:
+    get:
+      summary: Arabic RTL technical condition report
+      description: |
+        A maintenance record, not a compliance certificate. Official certificates
+        are issued by accredited parties and attached under their own name.
+      parameters:
+        - { name: visit, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: PDF
+          content: { application/pdf: { schema: { type: string, format: binary } } }
+
+  /api/v1/reports/visits.csv:
+    get:
+      summary: Visit export (UTF-8 with BOM so Excel reads Arabic)
+      responses: { "200": { description: CSV } }
+
+  /api/v1/reports/stock-moves.csv:
+    get:
+      summary: Stock movement export
+      responses: { "200": { description: CSV } }
+
+  /api/v1/reports/first-time-fix:
+    get:
+      summary: First-time-fix, strict and adjusted
+      description: |
+        Two figures. The gap between strict and supervisor-adjusted is itself a
+        supervision signal. Sector benchmarks quoted during planning are
+        unverified — build the baseline from the first 90 days of real data.
+      responses: { "200": { description: OK } }

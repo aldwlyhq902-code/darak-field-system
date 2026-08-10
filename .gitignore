@@ -1,0 +1,79 @@
+# ==========================================================================
+# Darak — repository hygiene
+#
+# Two things must never land here: secrets, and anything a machine can rebuild.
+# ==========================================================================
+
+# --- Secrets and environment ---------------------------------------------
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+*.pem
+*.key
+*.keystore
+*.jks
+key.properties
+
+# --- Portable toolchain ---------------------------------------------------
+# A 33MB PHP binary and composer.phar were downloaded to build this on a
+# machine with no PHP. They belong on each developer's disk, not in history.
+_tools/
+
+# --- PHP dependencies and build artefacts --------------------------------
+backend/vendor/
+backend/node_modules/
+backend/public/build/
+backend/public/hot
+backend/public/storage
+backend/.phpunit.result.cache
+backend/.phpunit.cache/
+
+# --- Runtime data ---------------------------------------------------------
+# Real client data, evidence photos, signatures, backups and logs. None of it
+# is source, and some of it is personal data under PDPL.
+backend/storage/app/private/
+backend/storage/app/public/
+backend/storage/app/backups/
+backend/storage/app/media/
+backend/storage/app/mpdf/
+backend/storage/logs/
+backend/storage/framework/cache/
+backend/storage/framework/sessions/
+backend/storage/framework/testing/
+backend/storage/framework/views/
+backend/database/*.sqlite
+backend/database/*.sqlite-journal
+backend/database/*.sqlite-wal
+backend/database/*.sqlite-shm
+
+# --- Flutter --------------------------------------------------------------
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/android/.gradle/
+mobile/android/app/debug/
+mobile/android/app/profile/
+mobile/android/app/release/
+mobile/android/local.properties
+mobile/ios/
+mobile/.pub-cache/
+mobile/.pub/
+*.apk
+*.aab
+
+# --- Generated deliverables ----------------------------------------------
+# Regenerated on demand; keeping them creates noisy binary diffs.
+sample-visit-report.pdf
+*.log
+
+# --- Editors and OS -------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
