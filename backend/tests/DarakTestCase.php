@@ -137,7 +137,13 @@ abstract class DarakTestCase extends TestCase
             'reorder_level' => 2,
         ]);
 
-        $vehicle = Vehicle::create(['plate' => 'TEST-1234', 'internal_code' => 'V1']);
+        // Assigned to the technician: part movements are scoped to the vehicle the
+        // device's user actually drives, so an unassigned van is refused.
+        $vehicle = Vehicle::create([
+            'plate' => 'TEST-1234',
+            'internal_code' => 'V1',
+            'assigned_user_id' => $this->technician->id,
+        ]);
         $this->warehouse = StockLocation::create(['type' => StockLocation::TYPE_WAREHOUSE, 'name' => 'Central']);
         $this->vehicleStock = StockLocation::create([
             'type' => StockLocation::TYPE_VEHICLE,

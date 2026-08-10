@@ -7,6 +7,7 @@ use App\Exceptions\VisitCloseBlocked;
 use App\Models\ChecklistInstance;
 use App\Models\Device;
 use App\Models\MediaFile;
+use App\Models\StockLocation;
 use App\Models\StockMove;
 use App\Models\Visit;
 use App\Models\VisitEvent;
@@ -14,6 +15,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Ramsey\Uuid\Uuid;
 use Throwable;
 
 /**
@@ -110,9 +112,12 @@ class SyncService
 
                 $results[] = $this->rejection($clientEventId, 'VISIT_CLOSE_BLOCKED', $e->getMessage(), [
                     'blockers' => $e->blockers,
-                    // Tells the client this refusal is TEMPORARY: finish the
-                    // uploads and resend rather than parking the event as failed.
-                    'retryable' => true,
+                    // Only refusals that clear THEMSELVES are retryable — an
+                    // upload still in flight will land on its own. Marking every
+                    // blocker retryable meant a missing signature or an unopened
+                    // checklist looped forever: nothing would ever change without
+                    // the technician acting, and nothing told them to act.
+                    'retryable' => self::blockersAreTransient($e->blockers),
                 ]);
             } catch (Throwable $e) {
                 Log::warning('sync.event_failed', ['event' => $clientEventId, 'error' => $e->getMessage()]);
@@ -140,8 +145,17 @@ class SyncService
 
         // A technician's offline event must never resurrect a visit the office
         // reassigned or cancelled while the device was dark.
-        if ($visit->assigned_user_id !== null && $visit->assigned_user_id !== $device->user_id) {
-            throw new \RuntimeException('This visit is no longer assigned to this technician.');
+        // Explicit match, not "not someone else's".
+        //
+        // The old condition let a NULL assignment through, so any technician who
+        // knew a visit id could edit it, close it and issue stock against it —
+        // /sync/events never consults VisitPolicy, so this is the only gate.
+        if ($visit->assigned_user_id !== $device->user_id) {
+            throw new \RuntimeException(
+                $visit->assigned_user_id === null
+                    ? 'This visit is not assigned to you. Ask the supervisor to assign it.'
+                    : 'This visit is no longer assigned to this technician.'
+            );
         }
 
         $event = $this->storeEvent($device, $visit, $raw, $clock);
@@ -158,7 +172,12 @@ class SyncService
                     'lat' => $raw['lat'] ?? null,
                     'lng' => $raw['lng'] ?? null,
                     'source' => $raw['source'] ?? 'offline',
-                    'client_event_id' => $raw['client_event_id'] . ':state',
+                    // A DERIVED uuid, not the parent's with text appended.
+                    // `client_event_id` is a real uuid column: PostgreSQL rejects
+                    // "…:state" outright, so every offline transition failed on
+                    // the first production write while SQLite — which accepts any
+                    // string in a uuid column — kept the suite green.
+                    'client_event_id' => self::derivedEventId($raw['client_event_id'], 'state'),
                 ]);
                 $meta['state'] = $visit->refresh()->state;
                 break;
@@ -189,6 +208,11 @@ class SyncService
                 break;
 
             case 'part.issue':
+                // A technician draws from THEIR OWN vehicle. Trusting the id the
+                // device sent let any device issue from the central warehouse or
+                // from another technician's van.
+                $this->assertOwnVehicleStock($device, (int) $payload['from_location_id']);
+
                 $move = $this->inventory->issueToVisit(
                     (string) $payload['idempotency_key'],
                     (int) $payload['part_id'],
@@ -206,6 +230,17 @@ class SyncService
 
             case 'part.return':
                 $original = StockMove::findOrFail((int) $payload['original_move_id']);
+
+                // The return must belong to THIS visit, and land back in the
+                // technician's own vehicle. Without both checks a device could
+                // reverse any movement in the company into any location.
+                if ($original->visit_id !== $visit->id) {
+                    throw new \RuntimeException('That part was not issued on this visit.');
+                }
+
+                $this->assertOwnVehicleStock($device, (int) $payload['to_location_id']);
+                $this->assertReturnWithinIssued($original, (float) $payload['qty']);
+
                 $move = $this->inventory->returnFromVisit(
                     (string) $payload['idempotency_key'],
                     $original,
@@ -310,6 +345,67 @@ class SyncService
                 'server_updated_at' => $v->updated_at?->toIso8601String(),
             ])
             ->all();
+    }
+
+    /** The stock location must be the vehicle assigned to this device's user. */
+    private function assertOwnVehicleStock(Device $device, int $locationId): void
+    {
+        $owns = StockLocation::where('id', $locationId)
+            ->where('type', StockLocation::TYPE_VEHICLE)
+            ->whereHas('vehicle', fn ($q) => $q->where('assigned_user_id', $device->user_id))
+            ->exists();
+
+        if (! $owns) {
+            throw new \RuntimeException('You can only move parts through your own vehicle stock.');
+        }
+    }
+
+    /** Returning more than was issued would manufacture stock out of nothing. */
+    private function assertReturnWithinIssued(StockMove $original, float $qty): void
+    {
+        $alreadyReturned = (float) StockMove::where('reversal_of_id', $original->id)
+            ->where('move_type', StockMove::VISIT_RETURN)
+            ->sum('qty');
+
+        if (round($alreadyReturned + $qty, 3) > (float) $original->qty + 0.0005) {
+            throw new \RuntimeException(sprintf(
+                'Cannot return %.3f: only %.3f of that issue remains.',
+                $qty,
+                (float) $original->qty - $alreadyReturned,
+            ));
+        }
+    }
+
+    /**
+     * True only when every blocker resolves without the technician doing anything.
+     *
+     * @param  array<int, array<string, mixed>>  $blockers
+     */
+    public static function blockersAreTransient(array $blockers): bool
+    {
+        if ($blockers === []) {
+            return false;
+        }
+
+        foreach ($blockers as $blocker) {
+            if (($blocker['code'] ?? null) !== 'UPLOADS_PENDING') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * A deterministic child id for an event derived from another.
+     *
+     * UUIDv5 keeps two properties at once: it is a valid uuid the column accepts,
+     * and it is stable, so replaying the parent event produces the same child and
+     * the unique index still does the deduplication.
+     */
+    public static function derivedEventId(string $parentId, string $purpose): string
+    {
+        return (string) Uuid::uuid5(Uuid::NAMESPACE_OID, $parentId . ':' . $purpose);
     }
 
     /** @param array<int, array<string, mixed>> $blockers */

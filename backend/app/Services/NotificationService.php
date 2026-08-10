@@ -105,27 +105,36 @@ class NotificationService
         ?string $phone = null,
         array $context = [],
     ): ?NotificationMessage {
-        try {
-            return NotificationMessage::create([
-                'type' => $type,
-                'channel' => $channel,
-                'recipient_kind' => $recipientKind,
-                'user_id' => $userId,
-                'visit_id' => $visitId,
-                'phone' => $phone,
-                'body' => $body,
-                'context' => $context ?: null,
-                'status' => 'queued',
-                'available_at' => CarbonImmutable::now(),
-                'idempotency_key' => $key,
-            ]);
-        } catch (QueryException $e) {
-            if (str_contains(strtolower($e->getMessage()), 'unique')) {
-                return NotificationMessage::where('idempotency_key', $key)->first();
-            }
+        // Dedupe WITHOUT letting a constraint violation reach the connection.
+        //
+        // Catching the unique error and carrying on works on SQLite and is a trap
+        // on PostgreSQL: a failed statement poisons the whole transaction, so
+        // every later query in the same request dies with "current transaction is
+        // aborted". Since this is called from inside the sync transaction, one
+        // duplicate notification would have taken the entire batch down with it.
+        //
+        // insertOrIgnore compiles to ON CONFLICT DO NOTHING — no error is raised,
+        // so there is nothing to poison.
+        $now = CarbonImmutable::now();
 
-            throw $e;
-        }
+        NotificationMessage::query()->insertOrIgnore([
+            'type' => $type,
+            'channel' => $channel,
+            'recipient_kind' => $recipientKind,
+            'user_id' => $userId,
+            'visit_id' => $visitId,
+            'phone' => $phone,
+            'body' => $body,
+            'context' => $context ? json_encode($context, JSON_UNESCAPED_UNICODE) : null,
+            'status' => 'queued',
+            'attempts' => 0,
+            'available_at' => $now,
+            'idempotency_key' => $key,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return NotificationMessage::where('idempotency_key', $key)->first();
     }
 
     /** @return Collection<int, NotificationMessage> */

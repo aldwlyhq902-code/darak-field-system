@@ -59,6 +59,21 @@ flutter run --dart-define=DARAK_API=http://10.0.2.2:8000
 cd backend && php artisan test
 ```
 
+> **تعمل على PostgreSQL، لا SQLite.** أنشئ قاعدة الاختبار مرة واحدة:
+> ```bash
+> createdb -U postgres darak_test
+> ```
+> السبب ليس تفضيلاً: كانت الاختبارات على SQLite، وهي تقبل أي نص في عمود معلن
+> `uuid` ولا تُفسد المعاملة عند تعارض فهرس. خلف هذه الفجوة اختبأت **ثلاثة عيوب
+> حرجة** — كل انتقال زيارة offline وكل فاتورة كانت ستفشل عند أول كتابة في
+> الإنتاج بينما 136 اختباراً تقول إن كل شيء سليم. محرك اختبار أكثر تساهلاً من
+> الإنتاج لا يختبر شيئاً ذا قيمة.
+>
+> للحلقة المحلية السريعة فقط:
+> ```bash
+> DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
+> ```
+
 ```bash
 cd mobile && flutter test
 ```

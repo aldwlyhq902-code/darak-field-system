@@ -73,10 +73,10 @@ class SubcontractorService
                 'subcontractor_id' => $partner->id,
                 'work_order_id' => $workOrder->id,
                 'visit_id' => $visit?->id,
-                // Placeholder; the real number comes from the row's own id below.
-                // max(id)+1 collides under concurrent assigns and fails on the
-                // unique index.
-                'order_no' => 'SUB-TMP-' . Str::uuid(),
+                // Short placeholder; the real number comes from the row's own id
+                // below. max(id)+1 collides under concurrent assigns, and a full
+                // uuid here overflowed the column.
+                'order_no' => 'TMP-' . Str::random(12),
                 'purchase_cost' => $purchaseCost,
                 'sale_price' => $salePrice,
                 'status' => 'assigned',

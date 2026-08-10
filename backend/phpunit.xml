@@ -23,8 +23,24 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <!--
+          Tests run on PostgreSQL, the engine production uses.
+
+          They used to run on SQLite, which accepts any string in a column
+          declared `uuid`. That hid three critical defects at once — every
+          offline visit transition and every invoice would have failed on the
+          first production write while the suite stayed green. A test engine that
+          is more permissive than production tests nothing that matters.
+
+          Override for a quick local loop only:
+            DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
+        -->
+        <env name="DB_CONNECTION" value="pgsql" force="false"/>
+        <env name="DB_HOST" value="127.0.0.1" force="false"/>
+        <env name="DB_PORT" value="5432" force="false"/>
+        <env name="DB_DATABASE" value="darak_test" force="false"/>
+        <env name="DB_USERNAME" value="postgres" force="false"/>
+        <env name="DB_PASSWORD" value="postgres" force="false"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
