@@ -95,6 +95,13 @@ class InventoryService
                 );
             }
 
+            // Inside the lock. Checking the returned total before acquiring it let
+            // two concurrent returns read the same figure and both pass, together
+            // returning more than was ever issued.
+            if (isset($attributes['assert_within_issue'])) {
+                $this->assertReturnWithinIssue($attributes['assert_within_issue'], $qty);
+            }
+
             $move = StockMove::create([
                 'move_type' => $moveType,
                 'part_id' => $part->id,
@@ -110,6 +117,7 @@ class InventoryService
                 'device_timestamp' => $attributes['device_timestamp'] ?? null,
                 'server_received_at' => CarbonImmutable::now(),
                 'note' => $attributes['note'] ?? null,
+                // 'assert_within_issue' is a guard directive, not a column.
             ]);
 
             $this->audit->record('inventory.move', $move, null, $move->only([
@@ -162,6 +170,12 @@ class InventoryService
      */
     public function returnFromVisit(string $key, StockMove $original, float $qty, int $toLocationId, array $extra = []): StockMove
     {
+        // Only an ISSUE can be reversed. Returning a RETURN builds a chain that
+        // manufactures stock out of nothing, one hop at a time.
+        if ($original->move_type !== StockMove::VISIT_ISSUE) {
+            throw new RuntimeException('Only a part issued to a visit can be returned.');
+        }
+
         return $this->record($key, array_merge($extra, [
             'move_type' => StockMove::VISIT_RETURN,
             'part_id' => $original->part_id,
@@ -170,6 +184,8 @@ class InventoryService
             'visit_id' => $original->visit_id,
             'reversal_of_id' => $original->id,
             'unit_cost' => $original->unit_cost,
+            // Checked inside the locked transaction, not before it.
+            'assert_within_issue' => $original,
         ]));
     }
 
@@ -311,6 +327,24 @@ class InventoryService
 
         if ($driver === 'pgsql') {
             DB::statement('SELECT pg_advisory_xact_lock(?, ?)', [$partId, $locationId]);
+        }
+    }
+
+    /** Returning more than was issued would manufacture stock out of nothing. */
+    private function assertReturnWithinIssue(StockMove $original, float $qty): void
+    {
+        $alreadyReturned = (float) StockMove::where('reversal_of_id', $original->id)
+            ->where('move_type', StockMove::VISIT_RETURN)
+            ->sum('qty');
+
+        $remaining = (float) $original->qty - $alreadyReturned;
+
+        if (round($qty, 3) > round($remaining, 3) + 0.0005) {
+            throw new RuntimeException(sprintf(
+                'Cannot return %.3f: only %.3f of that issue remains.',
+                $qty,
+                max(0, $remaining),
+            ));
         }
     }
 

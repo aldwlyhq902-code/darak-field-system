@@ -17,7 +17,19 @@ class EnsureDeviceIsActive
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $token = $request->user()?->currentAccessToken();
+        $user = $request->user();
+
+        // Checked on every request, not only at login. A token issued before the
+        // account was disabled would otherwise keep working until it expired —
+        // and these tokens have no expiry.
+        if ($user !== null && ! $user->is_active) {
+            return response()->json([
+                'code' => 'USER_INACTIVE',
+                'message' => 'This account is disabled.',
+            ], 403);
+        }
+
+        $token = $user?->currentAccessToken();
 
         // TransientToken (session auth / actingAs) carries no name and is not a
         // device token, so there is nothing to revoke.

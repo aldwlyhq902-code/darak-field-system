@@ -105,9 +105,9 @@ class SyncService
                     'from' => $e->fromState, 'to' => $e->toState, 'allowed' => $e->allowed,
                 ]);
             } catch (VisitCloseBlocked $e) {
-                // The gate persisted the blocker list inside the transaction that
-                // this exception just rolled back, so write it again outside —
-                // otherwise the supervisor never sees why the close was refused.
+                // The state machine writes the blockers after ITS transaction, but
+                // that write is still inside THIS one, which is now rolling back.
+                // Writing again here — outside both — is what actually survives.
                 $this->persistBlockers($raw['visit_id'] ?? null, $e->blockers);
 
                 $results[] = $this->rejection($clientEventId, 'VISIT_CLOSE_BLOCKED', $e->getMessage(), [
@@ -238,8 +238,9 @@ class SyncService
                     throw new \RuntimeException('That part was not issued on this visit.');
                 }
 
+                // The quantity guard lives inside InventoryService's locked
+                // transaction — checking it here would race two returns.
                 $this->assertOwnVehicleStock($device, (int) $payload['to_location_id']);
-                $this->assertReturnWithinIssued($original, (float) $payload['qty']);
 
                 $move = $this->inventory->returnFromVisit(
                     (string) $payload['idempotency_key'],
@@ -360,22 +361,6 @@ class SyncService
         }
     }
 
-    /** Returning more than was issued would manufacture stock out of nothing. */
-    private function assertReturnWithinIssued(StockMove $original, float $qty): void
-    {
-        $alreadyReturned = (float) StockMove::where('reversal_of_id', $original->id)
-            ->where('move_type', StockMove::VISIT_RETURN)
-            ->sum('qty');
-
-        if (round($alreadyReturned + $qty, 3) > (float) $original->qty + 0.0005) {
-            throw new \RuntimeException(sprintf(
-                'Cannot return %.3f: only %.3f of that issue remains.',
-                $qty,
-                (float) $original->qty - $alreadyReturned,
-            ));
-        }
-    }
-
     /**
      * True only when every blocker resolves without the technician doing anything.
      *
@@ -387,8 +372,13 @@ class SyncService
             return false;
         }
 
+        // An upload in flight lands by itself. Everything else — a missing
+        // signature, an unopened checklist, an upload that has given up — needs
+        // the technician, and retrying it silently forever tells them nothing.
+        $transient = ['UPLOADS_PENDING', 'ASSET_PHOTO_UPLOAD_PENDING'];
+
         foreach ($blockers as $blocker) {
-            if (($blocker['code'] ?? null) !== 'UPLOADS_PENDING') {
+            if (! in_array($blocker['code'] ?? null, $transient, true)) {
                 return false;
             }
         }

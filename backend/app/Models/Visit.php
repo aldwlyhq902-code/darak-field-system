@@ -40,7 +40,7 @@ class Visit extends Model
         'started_at', 'ended_at', 'on_site_seconds',
         'parent_visit_id', 'is_rework', 'rework_reason', 'rework_system_flagged',
         'rework_overridden_by', 'rework_override_note',
-        'is_billable', 'close_blockers', 'closed_at',
+        'is_billable', 'close_blockers', 'closed_at', 'required_asset_ids',
     ];
 
     protected function casts(): array
@@ -56,6 +56,7 @@ class Visit extends Model
             'rework_system_flagged' => 'boolean',
             'is_billable' => 'boolean',
             'close_blockers' => 'array',
+            'required_asset_ids' => 'array',
         ];
     }
 

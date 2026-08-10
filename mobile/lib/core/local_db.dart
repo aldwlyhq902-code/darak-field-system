@@ -39,14 +39,18 @@ class LocalDb {
     )
     ''',
     '''
+    -- Composite key on purpose. With `id` alone, two visits to the same site
+    -- shared one row: inserting the second moved the asset onto it and the first
+    -- visit lost its asset list mid-shift.
     CREATE TABLE IF NOT EXISTS assets (
-      id INTEGER PRIMARY KEY,
+      id INTEGER NOT NULL,
       visit_id INTEGER NOT NULL,
       name TEXT,
       type TEXT,
       location TEXT,
       qr_code TEXT,
-      under_warranty INTEGER DEFAULT 0
+      under_warranty INTEGER DEFAULT 0,
+      PRIMARY KEY (visit_id, id)
     )
     ''',
     // The outbound queue. client_event_id is the idempotency key: the server may

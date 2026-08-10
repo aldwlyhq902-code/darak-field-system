@@ -7,6 +7,7 @@ use App\Models\Asset;
 use App\Models\Client;
 use App\Models\Contract;
 use App\Models\Site;
+use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\Visit;
 use App\Services\SlaCalculator;
@@ -14,6 +15,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -157,18 +159,29 @@ class ClientPanelController extends Controller
     /** Creates a work order and its visit in one step — the common daily action. */
     public function storeVisit(Request $request, Client $client): RedirectResponse
     {
+        // Every relation is scoped to THIS client. A bare `exists` let an order be
+        // built from client A's site with client B's contract and asset — the
+        // resulting invoice would bill the wrong company for the wrong equipment.
         $data = $request->validate([
-            'site_id' => ['required', 'exists:sites,id'],
-            'contract_id' => ['nullable', 'exists:contracts,id'],
-            'asset_id' => ['nullable', 'exists:assets,id'],
+            'site_id' => ['required', Rule::exists('sites', 'id')->where('client_id', $client->id)],
+            'contract_id' => ['nullable', Rule::exists('contracts', 'id')->where('client_id', $client->id)],
+            'asset_id' => [
+                'nullable',
+                Rule::exists('assets', 'id')->where(
+                    fn ($q) => $q->whereIn('site_id', $client->sites()->pluck('id'))
+                ),
+            ],
             'type' => ['required', 'in:preventive,reactive,out_of_contract'],
             'title' => ['required', 'string', 'max:190'],
             'description' => ['nullable', 'string', 'max:1000'],
             'scheduled_start' => ['required', 'date'],
-            'assigned_user_id' => ['nullable', 'exists:users,id'],
+            'assigned_user_id' => [
+                'nullable',
+                Rule::exists('users', 'id')->where('role', User::ROLE_TECHNICIAN)->where('is_active', true),
+            ],
         ]);
 
-        $contract = $data['contract_id'] ? Contract::find($data['contract_id']) : null;
+        $contract = ! empty($data['contract_id']) ? Contract::find($data['contract_id']) : null;
         $reportedAt = CarbonImmutable::now();
         $budget = $contract?->sla_minutes ?? 480;
 
@@ -191,9 +204,18 @@ class ClientPanelController extends Controller
 
         $start = CarbonImmutable::parse($data['scheduled_start']);
 
+        // A reactive order about one unit requires that unit; a preventive round
+        // requires every asset on the site. Frozen now, so the visit is judged
+        // against what it was scheduled to cover — not against assets added later.
+        // A nullable rule that is not submitted leaves the key ABSENT, not null.
+        $requiredAssetIds = ! empty($data['asset_id'])
+            ? [(int) $data['asset_id']]
+            : Asset::where('site_id', $data['site_id'])->pluck('id')->all();
+
         Visit::create([
             'work_order_id' => $workOrder->id,
             'site_id' => $data['site_id'],
+            'required_asset_ids' => $requiredAssetIds,
             'assigned_user_id' => $data['assigned_user_id'] ?? null,
             'scheduled_start' => $start,
             'scheduled_end' => $start->addHours(2),

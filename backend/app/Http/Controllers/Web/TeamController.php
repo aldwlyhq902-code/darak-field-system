@@ -78,6 +78,13 @@ class TeamController extends Controller
 
         $user->forceFill(['is_active' => ! $user->is_active])->save();
 
+        // Deactivating has to cut the sessions too. Leaving the tokens alive meant
+        // a "disabled" technician kept syncing from a phone already in their hand
+        // — the flag changed and nothing else did.
+        if (! $user->is_active) {
+            $user->tokens()->delete();
+        }
+
         return back()->with('ok', $user->is_active ? 'أُعيد تفعيل الحساب.' : 'أُوقف الحساب.');
     }
 

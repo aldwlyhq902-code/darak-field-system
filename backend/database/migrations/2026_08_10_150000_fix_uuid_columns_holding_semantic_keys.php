@@ -47,26 +47,20 @@ return new class extends Migration
         );
     }
 
+    /**
+     * Deliberately irreversible.
+     *
+     * Rolling back would cast keys like "invoice:visit:7" to uuid, which fails —
+     * so the rollback would abort partway on any system that has issued a single
+     * document, in the middle of a release, which is the worst possible moment to
+     * discover it. Better to refuse up front and say why.
+     */
     public function down(): void
     {
-        if (Schema::getConnection()->getDriverName() === 'sqlite') {
-            return;
-        }
-
-        \Illuminate\Support\Facades\DB::statement(
-            'ALTER TABLE subcontractor_orders ALTER COLUMN order_no TYPE VARCHAR(32)'
+        throw new \RuntimeException(
+            'Irreversible: external_documents.idempotency_key now holds semantic keys '
+            . '("invoice:visit:7") that cannot be cast back to uuid. To undo this, '
+            . 'restore from a backup taken before it ran.'
         );
-
-        Schema::table('external_documents', function (Blueprint $table) {
-            $table->dropUnique(['idempotency_key']);
-        });
-
-        \Illuminate\Support\Facades\DB::statement(
-            'ALTER TABLE external_documents ALTER COLUMN idempotency_key TYPE UUID USING idempotency_key::uuid'
-        );
-
-        Schema::table('external_documents', function (Blueprint $table) {
-            $table->unique('idempotency_key');
-        });
     }
 };

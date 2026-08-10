@@ -26,23 +26,46 @@ class VisitStateMachine
      */
     public function transition(Visit $visit, string $target, array $context = []): Visit
     {
-        if (! $visit->canTransitionTo($target)) {
-            throw InvalidVisitTransition::for($visit, $target);
+        try {
+            return $this->applyLocked($visit, $target, $context);
+        } catch (VisitCloseBlocked $e) {
+            // Written AFTER the transaction rolled back, in one place for every
+            // caller — the supervisor must see the same reasons the technician
+            // saw, and a write inside the failed transaction would vanish with it.
+            Visit::whereKey($visit->getKey())->update([
+                'close_blockers' => json_encode($e->blockers, JSON_UNESCAPED_UNICODE),
+            ]);
+
+            throw $e;
         }
+    }
 
-        if ($target === Visit::STATE_COMPLETED) {
-            $blockers = $this->closeGate->blockers($visit);
-
-            if ($blockers !== []) {
-                // Persist the computed list so the supervisor sees the same reasons
-                // the technician saw, without re-running the check.
-                $visit->forceFill(['close_blockers' => $blockers])->save();
-
-                throw new VisitCloseBlocked($blockers);
-            }
-        }
-
+    /**
+     * Everything inside one transaction with the visit row locked.
+     *
+     * Checking the transition before opening it let two concurrent requests read
+     * the same state, both find the move legal, and both apply it — with one
+     * on_site_seconds update silently overwriting the other.
+     */
+    private function applyLocked(Visit $visit, string $target, array $context): Visit
+    {
         return DB::transaction(function () use ($visit, $target, $context) {
+            $visit = Visit::whereKey($visit->getKey())->lockForUpdate()->firstOrFail();
+
+            if (! $visit->canTransitionTo($target)) {
+                throw InvalidVisitTransition::for($visit, $target);
+            }
+
+            if ($target === Visit::STATE_COMPLETED) {
+                $blockers = $this->closeGate->blockers($visit);
+
+                if ($blockers !== []) {
+                    // Thrown out of the transaction, so the caller persists the
+                    // list afterwards — writing it here would roll back with it.
+                    throw new VisitCloseBlocked($blockers);
+                }
+            }
+
             $from = $visit->state;
             $now = CarbonImmutable::now();
             $original = $visit->getAttributes();

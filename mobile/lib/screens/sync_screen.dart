@@ -20,6 +20,7 @@ class SyncScreen extends StatefulWidget {
 
 class _SyncScreenState extends State<SyncScreen> {
   List<QueuedEvent> _failed = const [];
+  List<Map<String, dynamic>> _failedUploads = const [];
 
   @override
   void initState() {
@@ -29,8 +30,17 @@ class _SyncScreenState extends State<SyncScreen> {
 
   Future<void> _load() async {
     final failed = await widget.state.queue.failed();
+    // Uploads that gave up. Without them on screen, a visit could sit
+    // un-closable and the technician would have no way to see why.
+    final uploads = await widget.state.sync.failedUploads();
     await widget.state.refreshLocal();
-    if (mounted) setState(() => _failed = failed);
+
+    if (mounted) {
+      setState(() {
+        _failed = failed;
+        _failedUploads = uploads;
+      });
+    }
   }
 
   @override
@@ -87,6 +97,47 @@ class _SyncScreenState extends State<SyncScreen> {
                     style: const TextStyle(fontSize: 13, color: Colors.black54)),
               ],
               const SizedBox(height: 24),
+              if (_failedUploads.isNotEmpty) ...[
+                Text('أدلة لم تُرفع', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 4),
+                const Text(
+                  'الزيارة لا تُقفل بدونها. أعد المحاولة، وإن تعذّر فأعد الالتقاط.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 10),
+                ..._failedUploads.map((upload) => Card(
+                      color: Colors.orange.shade50,
+                      child: ListTile(
+                        leading: const Icon(Icons.image_not_supported_outlined, color: Colors.orange),
+                        title: Text(
+                          upload['kind'] == 'signature' ? 'توقيع' : 'صورة',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('زيارة ${upload['visit_id']} · محاولات: ${upload['attempts']}',
+                                style: const TextStyle(fontSize: 12)),
+                            if (upload['last_error'] != null)
+                              Text('${upload['last_error']}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 11, color: Colors.orange.shade900)),
+                          ],
+                        ),
+                        trailing: IconButton(
+                          tooltip: 'إعادة الرفع',
+                          icon: const Icon(Icons.upload_file),
+                          onPressed: () async {
+                            await widget.state.sync.retryUpload(upload['client_media_id'] as String);
+                            await widget.state.runSync();
+                            await _load();
+                          },
+                        ),
+                      ),
+                    )),
+                const SizedBox(height: 24),
+              ],
               if (_failed.isNotEmpty) ...[
                 Text('عمليات مرفوضة', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 4),
