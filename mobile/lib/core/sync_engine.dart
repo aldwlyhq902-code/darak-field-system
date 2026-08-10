@@ -318,12 +318,23 @@ class SyncEngine {
   }
 
   /// Uploads that have given up, so the sync screen can show them rather than
-  /// leaving a visit permanently un-closable for reasons nobody can see.
+  /// leaving a visit un-closable for reasons nobody can see.
   Future<List<Map<String, dynamic>>> failedUploads() => db.raw.query(
         'pending_media',
         where: 'state = ?',
         whereArgs: ['failed'],
       );
+
+  /// Puts a given-up upload back in the queue, resetting its attempt count.
+  /// Without this a failed photo is a dead end the technician cannot clear.
+  Future<void> retryUpload(String clientMediaId) async {
+    await db.raw.update(
+      'pending_media',
+      {'state': 'pending', 'attempts': 0, 'last_error': null},
+      where: 'client_media_id = ?',
+      whereArgs: [clientMediaId],
+    );
+  }
 
   Future<void> _uploadOne(Map<String, dynamic> row) async {
     final id = row['client_media_id'] as String;

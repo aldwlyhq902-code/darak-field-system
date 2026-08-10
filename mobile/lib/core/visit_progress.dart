@@ -121,10 +121,16 @@ class VisitProgress {
     return ((media.first['c'] as int?) ?? 0) > 0;
   }
 
-  /// Visits whose close must wait: any with media not yet fully uploaded.
+  /// Visits whose close must wait: media still making progress.
+  ///
+  /// Deliberately EXCLUDES uploads that have given up. Holding the close for a
+  /// permanently failed upload deadlocks the visit: the engine no longer retries
+  /// a 'failed' row, so the close would be withheld forever with no way out.
+  /// Sending it instead gets a refusal from the server naming the missing
+  /// evidence — a reason the technician can act on beats silence.
   Future<Set<int>> visitsWithPendingUploads() async {
     final rows = await _db.raw.rawQuery(
-      "SELECT DISTINCT visit_id FROM pending_media WHERE state != 'complete'",
+      "SELECT DISTINCT visit_id FROM pending_media WHERE state IN ('pending', 'uploading')",
     );
 
     return rows.map((r) => r['visit_id'] as int).toSet();

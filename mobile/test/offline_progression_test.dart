@@ -141,6 +141,55 @@ void main() {
       expect(server.sentTypes, contains('visit.transition'));
     });
 
+    test('an upload that has given up does not hold the close forever', () async {
+      final server = _RecordingServer();
+      final engine = _engine(server, db, queue, clock);
+
+      // The engine no longer retries a 'failed' row, so holding the close for it
+      // would deadlock the visit with no way out. It goes to the server instead,
+      // which refuses with a reason the technician can act on.
+      await db.raw.insert('pending_media', {
+        'client_media_id': 'media-dead',
+        'visit_id': 7,
+        'kind': 'photo_after',
+        'local_path': '/gone.jpg',
+        'total_bytes': 10,
+        'uploaded_bytes': 0,
+        'state': 'failed',
+        'attempts': 8,
+      });
+
+      await queue.enqueue(visitId: 7, eventType: 'visit.transition', payload: {'to': 'completed'});
+
+      await engine.sync();
+
+      expect(server.sentTypes, contains('visit.transition'));
+    });
+
+    test('a failed upload can be put back in the queue', () async {
+      final server = _RecordingServer();
+      final engine = _engine(server, db, queue, clock);
+
+      await db.raw.insert('pending_media', {
+        'client_media_id': 'media-dead',
+        'visit_id': 7,
+        'kind': 'photo_after',
+        'local_path': '/gone.jpg',
+        'total_bytes': 10,
+        'uploaded_bytes': 0,
+        'state': 'failed',
+        'attempts': 8,
+      });
+
+      expect(await engine.failedUploads(), hasLength(1));
+
+      await engine.retryUpload('media-dead');
+
+      final row = (await db.raw.query('pending_media', where: 'client_media_id = ?', whereArgs: ['media-dead'])).first;
+      expect(row['state'], 'pending');
+      expect(row['attempts'], 0);
+    });
+
     test('a close for another visit is not held back by this visit’s uploads', () async {
       final server = _RecordingServer();
       final engine = _engine(server, db, queue, clock);
