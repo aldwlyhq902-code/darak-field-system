@@ -55,12 +55,14 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('دارك',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                          color: const Color(0xFF0F766E),
-                          fontWeight: FontWeight.bold,
-                        )),
+                Text(
+                  'دارك',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                    color: const Color(0xFF0F766E),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 const Text('تطبيق الفني الميداني', textAlign: TextAlign.center),
                 if (widget.notice != null) ...[
@@ -98,7 +100,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: _busy ? null : _submit,
                   child: _busy
                       ? const SizedBox(
-                          height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Text('تسجيل الدخول'),
                 ),
                 if (_error != null) ...[
@@ -110,7 +115,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.red.shade200),
                     ),
-                    child: Text(_error!, style: TextStyle(color: Colors.red.shade900)),
+                    child: Text(
+                      _error!,
+                      style: TextStyle(color: Colors.red.shade900),
+                    ),
                   ),
                 ],
                 const SizedBox(height: 24),

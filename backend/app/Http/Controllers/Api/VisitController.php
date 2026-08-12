@@ -11,6 +11,7 @@ use App\Services\ReworkDetector;
 use App\Services\VisitStateMachine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class VisitController extends Controller
 {
@@ -19,8 +20,7 @@ class VisitController extends Controller
         private readonly CloseGate $closeGate,
         private readonly ReworkDetector $rework,
         private readonly NotificationService $notifications,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -64,7 +64,7 @@ class VisitController extends Controller
         $this->authorize('transition', $visit);
 
         $data = $request->validate([
-            'to' => ['required', 'string', 'in:' . implode(',', array_keys(Visit::TRANSITIONS))],
+            'to' => ['required', 'string', 'in:'.implode(',', array_keys(Visit::TRANSITIONS))],
             'lat' => ['nullable', 'numeric'],
             'lng' => ['nullable', 'numeric'],
             'source' => ['nullable', 'string', 'max:24'],
@@ -123,7 +123,7 @@ class VisitController extends Controller
 
         if ($previous !== $technician->id) {
             $visit->events()->create([
-                'client_event_id' => (string) \Illuminate\Support\Str::uuid(),
+                'client_event_id' => (string) Str::uuid(),
                 'event_type' => 'assignment.changed',
                 'payload' => ['from' => $previous, 'to' => $technician->id],
                 'actor_user_id' => $request->user()->id,

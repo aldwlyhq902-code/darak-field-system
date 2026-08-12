@@ -1,7 +1,7 @@
 name: darak_field
 description: "تطبيق فني دارك الميداني — يعمل بلا شبكة ويزامن لاحقاً."
 publish_to: 'none'
-version: 0.1.0
+version: 0.2.0+2
 
 environment:
   sdk: ^3.10.0
@@ -13,6 +13,7 @@ dependencies:
   # Local-first storage. Every field action is written here before anything
   # touches the network — the device must be fully usable with no signal.
   sqflite: ^2.3.3
+  sqflite_sqlcipher: ^3.4.1
   path: ^1.9.0
   path_provider: ^2.1.4
 
@@ -28,7 +29,7 @@ dependencies:
   image_picker: ^1.1.2
   signature: ^5.5.0
   mobile_scanner: ^5.2.3
-  # The bearer token is a credential and does not belong in a plain sqlite table.
+  # Credentials and the SQLCipher key stay in the platform keystore.
   flutter_secure_storage: ^9.2.2
   geolocator: ^13.0.1
 

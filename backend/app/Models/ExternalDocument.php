@@ -12,7 +12,9 @@ class ExternalDocument extends Model
     use HasFactory;
 
     public const TYPE_INVOICE = 'invoice';
+
     public const TYPE_CREDIT_NOTE = 'credit_note';
+
     public const TYPE_DEBIT_NOTE = 'debit_note';
 
     protected $fillable = [

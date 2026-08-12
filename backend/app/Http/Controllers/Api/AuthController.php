@@ -19,9 +19,7 @@ use Illuminate\Validation\ValidationException;
  */
 class AuthController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit)
-    {
-    }
+    public function __construct(private readonly AuditLogger $audit) {}
 
     public function login(Request $request): JsonResponse
     {
@@ -62,8 +60,8 @@ class AuthController extends Controller
         ])->save();
 
         // One active token per device.
-        $user->tokens()->where('name', 'device:' . $device->device_uuid)->delete();
-        $token = $user->createToken('device:' . $device->device_uuid, [$user->role]);
+        $user->tokens()->where('name', 'device:'.$device->device_uuid)->delete();
+        $token = $user->createToken('device:'.$device->device_uuid, [$user->role]);
 
         $this->audit->record('auth.login', $device, null, ['user_id' => $user->id], $user->id);
 
@@ -104,7 +102,7 @@ class AuthController extends Controller
             'revoked_reason' => $data['reason'] ?? 'revoked by supervisor',
         ])->save();
 
-        $device->user?->tokens()->where('name', 'device:' . $device->device_uuid)->delete();
+        $device->user?->tokens()->where('name', 'device:'.$device->device_uuid)->delete();
 
         $this->audit->record('device.revoked', $device, null, ['reason' => $device->revoked_reason]);
 

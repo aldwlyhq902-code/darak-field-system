@@ -19,7 +19,7 @@ interface InvoiceProvider
      * An issued e-invoice cannot be edited or deleted. A correction is a separate
      * credit note that references the original document.
      *
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function createCreditNote(string $parentExternalId, array $payload, string $idempotencyKey): array;
 

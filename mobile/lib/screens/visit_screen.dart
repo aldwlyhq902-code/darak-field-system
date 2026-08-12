@@ -39,7 +39,9 @@ class _VisitScreenState extends State<VisitScreen> {
     final visit = await widget.state.db.visit(widget.visitId);
     final assets = await widget.state.db.assetsFor(widget.visitId);
     final checklist = await widget.state.checklistFor(widget.visitId);
-    final media = await widget.state.evidence.forVisit(widget.visitId);
+    // Live evidence only — a discarded file must not tell the technician the
+    // visit is ready while the server is still asking for a replacement.
+    final media = await widget.state.evidence.liveForVisit(widget.visitId);
     final noParts = await widget.state.noPartsDeclared(widget.visitId);
 
     if (mounted) {
@@ -64,22 +66,30 @@ class _VisitScreenState extends State<VisitScreen> {
       .where((m) => m['asset_id'] == assetId)
       .length;
 
-  bool get _hasSignature => _media.any((m) => m['kind'] == EvidenceStore.kindSignature);
+  bool get _hasSignature =>
+      _media.any((m) => m['kind'] == EvidenceStore.kindSignature);
 
   /// Local mirror of the server's transition map. An unreachable button beats a
   /// 409 the technician cannot interpret.
-  List<({String to, String label, IconData icon})> get _actions => switch (_state) {
-        'scheduled' => [(to: 'en_route', label: 'انطلاق', icon: Icons.directions_car)],
-        'en_route' => [(to: 'started', label: 'بدء العمل في الموقع', icon: Icons.play_arrow)],
+  List<({String to, String label, IconData icon})> get _actions =>
+      switch (_state) {
+        'scheduled' => [
+          (to: 'en_route', label: 'انطلاق', icon: Icons.directions_car),
+        ],
+        'en_route' => [
+          (to: 'started', label: 'بدء العمل في الموقع', icon: Icons.play_arrow),
+        ],
         'started' => [
-            (to: 'paused', label: 'إيقاف مؤقت', icon: Icons.pause),
-            (to: 'awaiting_close', label: 'إنهاء العمل', icon: Icons.done),
-          ],
+          (to: 'paused', label: 'إيقاف مؤقت', icon: Icons.pause),
+          (to: 'awaiting_close', label: 'إنهاء العمل', icon: Icons.done),
+        ],
         'paused' => [
-            (to: 'started', label: 'استئناف', icon: Icons.play_arrow),
-            (to: 'awaiting_close', label: 'إنهاء العمل', icon: Icons.done),
-          ],
-        'awaiting_close' => [(to: 'completed', label: 'إقفال الزيارة', icon: Icons.lock)],
+          (to: 'started', label: 'استئناف', icon: Icons.play_arrow),
+          (to: 'awaiting_close', label: 'إنهاء العمل', icon: Icons.done),
+        ],
+        'awaiting_close' => [
+          (to: 'completed', label: 'إقفال الزيارة', icon: Icons.lock),
+        ],
         _ => const [],
       };
 
@@ -128,9 +138,11 @@ class _VisitScreenState extends State<VisitScreen> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(applied
-              ? 'سُجّلت العملية محلياً وستُزامن تلقائياً.'
-              : 'هذه الخطوة غير متاحة من الحالة الحالية.'),
+          content: Text(
+            applied
+                ? 'سُجّلت العملية محلياً وستُزامن تلقائياً.'
+                : 'هذه الخطوة غير متاحة من الحالة الحالية.',
+          ),
         ),
       );
     }
@@ -145,20 +157,29 @@ class _VisitScreenState extends State<VisitScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              const Icon(Icons.lock_outline, color: Colors.orange),
-              const SizedBox(width: 8),
-              Text('لا يمكن الإقفال بعد', style: Theme.of(context).textTheme.titleMedium),
-            ]),
+            Row(
+              children: [
+                const Icon(Icons.lock_outline, color: Colors.orange),
+                const SizedBox(width: 8),
+                Text(
+                  'لا يمكن الإقفال بعد',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
-            ..._missing.map((m) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(children: [
+            ..._missing.map(
+              (m) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
                     const Icon(Icons.circle, size: 7, color: Colors.orange),
                     const SizedBox(width: 8),
                     Expanded(child: Text(m)),
-                  ]),
-                )),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -202,25 +223,35 @@ class _VisitScreenState extends State<VisitScreen> {
   Future<void> _scanSite() async {
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (_) => const ScannerScreen(title: 'مسح ملصق الموقع', expectedPrefix: 'SITE-'),
+        builder: (_) => const ScannerScreen(
+          title: 'مسح ملصق الموقع',
+          expectedPrefix: 'SITE-',
+        ),
       ),
     );
 
     if (code == null) return;
 
-    await widget.state.record(widget.visitId, 'site.scanned', payload: {'qr_code': code});
+    await widget.state.record(
+      widget.visitId,
+      'site.scanned',
+      payload: {'qr_code': code},
+    );
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('سُجّل الحضور بالملصق: $code')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('سُجّل الحضور بالملصق: $code')));
     }
   }
 
   Future<void> _scanAsset(Map<String, dynamic> asset) async {
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (_) => const ScannerScreen(title: 'مسح ملصق الأصل', expectedPrefix: 'ASSET-'),
+        builder: (_) => const ScannerScreen(
+          title: 'مسح ملصق الأصل',
+          expectedPrefix: 'ASSET-',
+        ),
       ),
     );
 
@@ -233,20 +264,25 @@ class _VisitScreenState extends State<VisitScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.orange.shade800,
-            content: Text('الملصق الممسوح لا يطابق «${asset['name']}». تحقق من الجهاز.'),
+            content: Text(
+              'الملصق الممسوح لا يطابق «${asset['name']}». تحقق من الجهاز.',
+            ),
           ),
         );
       }
       return;
     }
 
-    await widget.state.record(widget.visitId, 'asset.scanned',
-        payload: {'asset_id': asset['id'], 'qr_code': code});
+    await widget.state.record(
+      widget.visitId,
+      'asset.scanned',
+      payload: {'asset_id': asset['id'], 'qr_code': code},
+    );
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('طوبق الأصل بالملصق.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('طوبق الأصل بالملصق.')));
     }
   }
 
@@ -275,7 +311,9 @@ class _VisitScreenState extends State<VisitScreen> {
 
     final visit = _visit;
     if (visit == null) {
-      return const Scaffold(body: Center(child: Text('الزيارة غير موجودة على الجهاز.')));
+      return const Scaffold(
+        body: Center(child: Text('الزيارة غير موجودة على الجهاز.')),
+      );
     }
 
     return Scaffold(
@@ -298,10 +336,15 @@ class _VisitScreenState extends State<VisitScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Text('الأصول', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'الأصول',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const Spacer(),
-                  Text('${_media.where((m) => (m['kind'] as String).startsWith('photo')).length} صورة',
-                      style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                  Text(
+                    '${_media.where((m) => (m['kind'] as String).startsWith('photo')).length} صورة',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -312,21 +355,25 @@ class _VisitScreenState extends State<VisitScreen> {
                     child: Text('لا توجد أصول مسجلة لهذا الموقع بعد.'),
                   ),
                 ),
-              ..._assets.map((asset) => _AssetTile(
-                    asset: asset,
-                    status: _checklist[asset['id'] as int]?['status'] as String?,
-                    photos: _photosFor(asset['id'] as int),
-                    onStatus: (status) => _setStatus(asset, status),
-                    onCapture: () => _capture(asset),
-                    onScan: () => _scanAsset(asset),
-                  )),
+              ..._assets.map(
+                (asset) => _AssetTile(
+                  asset: asset,
+                  status: _checklist[asset['id'] as int]?['status'] as String?,
+                  photos: _photosFor(asset['id'] as int),
+                  onStatus: (status) => _setStatus(asset, status),
+                  onCapture: () => _capture(asset),
+                  onScan: () => _scanAsset(asset),
+                ),
+              ),
               const SizedBox(height: 16),
               Card(
                 child: SwitchListTile(
                   value: _noPartsDeclared,
                   onChanged: _busy ? null : (v) => _toggleNoParts(v),
                   secondary: Icon(
-                    _noPartsDeclared ? Icons.check_circle : Icons.build_outlined,
+                    _noPartsDeclared
+                        ? Icons.check_circle
+                        : Icons.build_outlined,
                     color: _noPartsDeclared ? Colors.teal : Colors.black45,
                   ),
                   title: const Text('لم تُستخدم قطع غيار في هذه الزيارة'),
@@ -343,7 +390,9 @@ class _VisitScreenState extends State<VisitScreen> {
                     color: _hasSignature ? Colors.teal : Colors.black45,
                   ),
                   title: const Text('توقيع مسؤول الموقع'),
-                  subtitle: Text(_hasSignature ? 'تم التوقيع' : 'مطلوب قبل الإقفال'),
+                  subtitle: Text(
+                    _hasSignature ? 'تم التوقيع' : 'مطلوب قبل الإقفال',
+                  ),
                   trailing: FilledButton.tonal(
                     onPressed: _sign,
                     child: Text(_hasSignature ? 'إعادة' : 'توقيع'),
@@ -351,14 +400,16 @@ class _VisitScreenState extends State<VisitScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              ..._actions.map((action) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: FilledButton.icon(
-                      onPressed: _busy ? null : () => _transition(action.to),
-                      icon: Icon(action.icon),
-                      label: Text(action.label),
-                    ),
-                  )),
+              ..._actions.map(
+                (action) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : () => _transition(action.to),
+                    icon: Icon(action.icon),
+                    label: Text(action.label),
+                  ),
+                ),
+              ),
               if (_state == 'awaiting_close' && _missing.isNotEmpty)
                 Card(
                   color: Colors.orange.shade50,
@@ -367,10 +418,17 @@ class _VisitScreenState extends State<VisitScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('نواقص تمنع الإقفال:',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        const Text(
+                          'نواقص تمنع الإقفال:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         const SizedBox(height: 6),
-                        ..._missing.map((m) => Text('• $m', style: const TextStyle(fontSize: 13))),
+                        ..._missing.map(
+                          (m) => Text(
+                            '• $m',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -415,34 +473,51 @@ class _InfoCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(visit['wo_title'] as String? ?? '',
-                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            Text(
+              visit['wo_title'] as String? ?? '',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 6),
-            Text('${visit['site_name'] ?? ''} — ${visit['site_address'] ?? ''}'),
+            Text(
+              '${visit['site_name'] ?? ''} — ${visit['site_address'] ?? ''}',
+            ),
             if ((visit['access_notes'] as String?)?.isNotEmpty ?? false) ...[
               const SizedBox(height: 8),
-              Row(children: [
-                const Icon(Icons.key_outlined, size: 16, color: Colors.black54),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(visit['access_notes'] as String,
-                      style: const TextStyle(fontSize: 13, color: Colors.black54)),
-                ),
-              ]),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.key_outlined,
+                    size: 16,
+                    color: Colors.black54,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      visit['access_notes'] as String,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
             const Divider(height: 24),
             // Stale data must announce itself. Working offline is fine; pretending
             // the numbers are live is not.
-            Row(children: [
-              const Icon(Icons.history, size: 15, color: Colors.black45),
-              const SizedBox(width: 6),
-              Text(
-                lastSynced == null
-                    ? 'بيانات غير مزامنة'
-                    : 'حُدّثت من الخادم: ${lastSynced.substring(0, 16).replaceFirst('T', ' ')}',
-                style: const TextStyle(fontSize: 12, color: Colors.black45),
-              ),
-            ]),
+            Row(
+              children: [
+                const Icon(Icons.history, size: 15, color: Colors.black45),
+                const SizedBox(width: 6),
+                Text(
+                  lastSynced == null
+                      ? 'بيانات غير مزامنة'
+                      : 'حُدّثت من الخادم: ${lastSynced.substring(0, 16).replaceFirst('T', ' ')}',
+                  style: const TextStyle(fontSize: 12, color: Colors.black45),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -480,26 +555,38 @@ class _AssetTile extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(asset['name'] as String? ?? '',
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  child: Text(
+                    asset['name'] as String? ?? '',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                 ),
                 if (underWarranty)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.amber.shade100,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     // Billing a part on an in-warranty asset is a real and
                     // expensive mistake, so the warning sits on the tile itself.
-                    child: const Text('تحت الضمان',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      'تحت الضمان',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
               ],
             ),
             if ((asset['location'] as String?)?.isNotEmpty ?? false)
-              Text(asset['location'] as String,
-                  style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              Text(
+                asset['location'] as String,
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
             const SizedBox(height: 10),
             SegmentedButton<String>(
               segments: const [

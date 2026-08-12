@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Visit;
+use App\Services\VisitStateMachine;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Tests\DarakTestCase;
@@ -88,7 +89,7 @@ class OnSiteDurationTest extends DarakTestCase
 
     public function test_an_online_transition_still_measures_wall_clock_time(): void
     {
-        $machine = app(\App\Services\VisitStateMachine::class);
+        $machine = app(VisitStateMachine::class);
 
         $this->travelTo(CarbonImmutable::now()->startOfHour());
         $machine->transition($this->visit, Visit::STATE_EN_ROUTE);

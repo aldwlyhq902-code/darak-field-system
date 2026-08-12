@@ -52,7 +52,8 @@ void main() {
   }
 
   test('a v1 database keeps its rows and gains the composite key', () async {
-    final path = '${await databaseFactory.getDatabasesPath()}/upgrade_${DateTime.now().microsecondsSinceEpoch}.db';
+    final path =
+        '${await databaseFactory.getDatabasesPath()}/upgrade_${DateTime.now().microsecondsSinceEpoch}.db';
 
     await createV1(path);
 
@@ -61,7 +62,11 @@ void main() {
     final db = await LocalDb.open(path: path);
 
     final rows = await db.raw.query('assets');
-    expect(rows, hasLength(1), reason: 'the cached asset must survive the upgrade');
+    expect(
+      rows,
+      hasLength(1),
+      reason: 'the cached asset must survive the upgrade',
+    );
     expect(rows.first['name'], 'سبليت الصالة');
 
     // The whole point: the same asset can now belong to a second visit.
@@ -73,10 +78,22 @@ void main() {
       'qr_code': 'A-11',
     });
 
-    final forVisit7 = await db.raw.query('assets', where: 'visit_id = ?', whereArgs: [7]);
-    final forVisit8 = await db.raw.query('assets', where: 'visit_id = ?', whereArgs: [8]);
+    final forVisit7 = await db.raw.query(
+      'assets',
+      where: 'visit_id = ?',
+      whereArgs: [7],
+    );
+    final forVisit8 = await db.raw.query(
+      'assets',
+      where: 'visit_id = ?',
+      whereArgs: [8],
+    );
 
-    expect(forVisit7, hasLength(1), reason: 'the first visit must not lose its asset');
+    expect(
+      forVisit7,
+      hasLength(1),
+      reason: 'the first visit must not lose its asset',
+    );
     expect(forVisit8, hasLength(1));
 
     await db.raw.close();

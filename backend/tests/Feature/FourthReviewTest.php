@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Asset;
-use App\Models\Client;
 use App\Models\Contract;
 use App\Models\MediaFile;
 use App\Models\Site;
@@ -40,6 +39,9 @@ class FourthReviewTest extends DarakTestCase
 
         $this->assertCount(1, $required, 'a unit that no longer exists cannot be inspected');
         $this->assertSame($this->asset->id, $required->first()->id);
+        $retired = app(RequiredAssets::class)->retiredSince($this->visit->refresh());
+        $this->assertCount(1, $retired, 'the report must explain the missing scheduled unit');
+        $this->assertSame($doomed->id, $retired->first()->id);
 
         // And it must not go on blocking the close from the server side, which is
         // what left visits permanently unclosable.
@@ -127,7 +129,7 @@ class FourthReviewTest extends DarakTestCase
                 [
                     'HTTP_X_UPLOAD_OFFSET' => '0',
                     'CONTENT_TYPE' => 'application/octet-stream',
-                    'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
+                    'HTTP_AUTHORIZATION' => 'Bearer '.$token,
                 ], random_bytes(16))
             ->assertStatus(409);
 

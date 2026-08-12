@@ -22,9 +22,7 @@ use RuntimeException;
  */
 class InventoryService
 {
-    public function __construct(private readonly AuditLogger $audit)
-    {
-    }
+    public function __construct(private readonly AuditLogger $audit) {}
 
     /**
      * Idempotent movement. Returns the existing move unchanged if the key was seen.

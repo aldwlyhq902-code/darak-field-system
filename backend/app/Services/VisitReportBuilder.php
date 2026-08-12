@@ -24,9 +24,10 @@ class VisitReportBuilder
 {
     public const TEMPLATE_VERSION = 'visit-report-v1';
 
-    public function __construct(private readonly InventoryService $inventory)
-    {
-    }
+    public function __construct(
+        private readonly InventoryService $inventory,
+        private readonly RequiredAssets $requiredAssets,
+    ) {}
 
     public function render(Visit $visit): string
     {
@@ -43,6 +44,9 @@ class VisitReportBuilder
                 ->whereIn('kind', ['photo_before', 'photo_after'])
                 ->where('upload_state', 'complete'),
             'signature' => $visit->mediaFiles->firstWhere('kind', 'signature'),
+            // Units scheduled for this visit that were removed from the site
+            // before it ran. Without them the report reads as a complete round.
+            'retiredAssets' => $this->requiredAssets->retiredSince($visit),
             'templateVersion' => self::TEMPLATE_VERSION,
         ])->render();
 
@@ -97,6 +101,6 @@ class VisitReportBuilder
         $bytes = $disk->get($storagePath);
         $mime = str_ends_with($storagePath, '.png') ? 'image/png' : 'image/jpeg';
 
-        return 'data:' . $mime . ';base64,' . base64_encode($bytes);
+        return 'data:'.$mime.';base64,'.base64_encode($bytes);
     }
 }

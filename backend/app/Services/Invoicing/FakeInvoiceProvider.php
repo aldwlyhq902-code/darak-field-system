@@ -23,8 +23,8 @@ class FakeInvoiceProvider implements InvoiceProvider
         }
 
         $doc = [
-            'external_id' => 'INV-' . Str::upper(Str::random(10)),
-            'external_number' => 'D' . str_pad((string) (count(self::$documents) + 1), 5, '0', STR_PAD_LEFT),
+            'external_id' => 'INV-'.Str::upper(Str::random(10)),
+            'external_number' => 'D'.str_pad((string) (count(self::$documents) + 1), 5, '0', STR_PAD_LEFT),
             'status' => 'issued',
             'issued_at' => now()->toIso8601String(),
             'amount' => $payload['amount'] ?? 0,
@@ -43,8 +43,8 @@ class FakeInvoiceProvider implements InvoiceProvider
         }
 
         $doc = [
-            'external_id' => 'CN-' . Str::upper(Str::random(10)),
-            'external_number' => 'C' . str_pad((string) (count(self::$documents) + 1), 5, '0', STR_PAD_LEFT),
+            'external_id' => 'CN-'.Str::upper(Str::random(10)),
+            'external_number' => 'C'.str_pad((string) (count(self::$documents) + 1), 5, '0', STR_PAD_LEFT),
             'parent_external_id' => $parentExternalId,
             'status' => 'issued',
             'issued_at' => now()->toIso8601String(),

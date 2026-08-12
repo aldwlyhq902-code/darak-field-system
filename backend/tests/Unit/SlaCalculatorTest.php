@@ -21,7 +21,7 @@ class SlaCalculatorTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->sla = new SlaCalculator();
+        $this->sla = new SlaCalculator;
     }
 
     public function test_evening_ticket_resumes_the_next_morning(): void

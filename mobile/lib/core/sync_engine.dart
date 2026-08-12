@@ -79,13 +79,49 @@ class SyncEngine {
   final int maxAttempts;
 
   bool _running = false;
+  Completer<void>? _idle;
+
+  /// Serializes sync, retry, and discard operations on the same local queue.
+  ///
+  /// A discard racing an in-flight media registration is ambiguous: the server
+  /// may have accepted the registration even when the device has not received
+  /// the response yet. One operation at a time makes the state transition
+  /// deterministic and lets the discard reconcile with the server afterwards.
+  Future<T> _exclusive<T>(Future<T> Function() operation) async {
+    while (_running) {
+      final idle = _idle;
+      if (idle != null) {
+        await idle.future;
+      }
+    }
+
+    _running = true;
+    final idle = Completer<void>();
+    _idle = idle;
+
+    try {
+      return await operation();
+    } finally {
+      _running = false;
+      if (!idle.isCompleted) {
+        idle.complete();
+      }
+      if (identical(_idle, idle)) {
+        _idle = null;
+      }
+    }
+  }
 
   /// Pull the day's work. Safe to call repeatedly; it refreshes the local cache
   /// without discarding anything the technician is still working on.
-  Future<void> bootstrap() async {
+  Future<void> bootstrap() => _exclusive(_bootstrap);
+
+  Future<void> _bootstrap() async {
     final response = await api.bootstrap();
 
-    final serverTime = DateTime.tryParse(response['server_time'] as String? ?? '');
+    final serverTime = DateTime.tryParse(
+      response['server_time'] as String? ?? '',
+    );
     if (serverTime != null) {
       await clock.adopt(serverTime);
     }
@@ -99,8 +135,9 @@ class SyncEngine {
     final protectedIds = <int>{};
 
     for (final row in await db.raw.rawQuery(
-      "SELECT DISTINCT visit_id FROM pending_events WHERE status != 'synced' "
-      "UNION SELECT DISTINCT visit_id FROM pending_media WHERE state != 'complete'",
+      "SELECT DISTINCT visit_id FROM pending_events WHERE status NOT IN ('synced', 'cancelled') "
+      "UNION SELECT DISTINCT visit_id FROM pending_media "
+      "WHERE state NOT IN ('complete', 'discarded')",
     )) {
       final id = row['visit_id'];
       if (id is int) protectedIds.add(id);
@@ -114,14 +151,12 @@ class SyncEngine {
   /// It used to return a zero outcome, which callers could not tell apart from a
   /// genuinely empty queue — so a concurrent tap reported "nothing to sync" and
   /// stamped a fresh success time while the real sync was still running.
-  Future<SyncOutcome?> sync() async {
+  Future<SyncOutcome?> sync() {
     if (_running) {
-      return null;
+      return Future.value();
     }
 
-    _running = true;
-
-    try {
+    return _exclusive(() async {
       // Discards first: a file the technician dropped must stop being uploaded,
       // and must stop blocking the close, before anything else is attempted.
       await _flushDiscards();
@@ -130,9 +165,7 @@ class SyncEngine {
       await _pushMedia();
       await _pruneUploadedEvidence();
       return outcome;
-    } finally {
-      _running = false;
-    }
+    });
   }
 
   /// Frees disk for visits the server has confirmed closed and whose evidence is
@@ -142,11 +175,16 @@ class SyncEngine {
     final rows = await db.raw.rawQuery(
       "SELECT v.id AS visit_id FROM visits v "
       "WHERE v.state = 'completed' "
-      "AND NOT EXISTS (SELECT 1 FROM pending_media m WHERE m.visit_id = v.id AND m.state != 'complete') "
-      "AND NOT EXISTS (SELECT 1 FROM pending_events e WHERE e.visit_id = v.id AND e.status != 'synced')",
+      "AND NOT EXISTS (SELECT 1 FROM pending_media m WHERE m.visit_id = v.id AND m.state NOT IN ('complete', 'discarded')) "
+      "AND NOT EXISTS (SELECT 1 FROM pending_events e WHERE e.visit_id = v.id AND e.status NOT IN ('synced', 'cancelled'))",
     );
 
-    final store = EvidenceStore(db: db, queue: queue, clock: clock, rootDirectory: evidenceRoot ?? '');
+    final store = EvidenceStore(
+      db: db,
+      queue: queue,
+      clock: clock,
+      rootDirectory: evidenceRoot ?? '',
+    );
 
     for (final row in rows) {
       final visitId = row['visit_id'];
@@ -160,7 +198,12 @@ class SyncEngine {
     final queued = await queue.pending();
 
     if (queued.isEmpty) {
-      return const SyncOutcome(accepted: 0, duplicate: 0, rejected: 0, deferred: 0);
+      return const SyncOutcome(
+        accepted: 0,
+        duplicate: 0,
+        rejected: 0,
+        deferred: 0,
+      );
     }
 
     // A close is judged against evidence the server can see. Sending it before
@@ -172,7 +215,9 @@ class SyncEngine {
     var heldBack = 0;
 
     for (final event in queued) {
-      final isClose = event.eventType == 'visit.transition' && event.payload['to'] == 'completed';
+      final isClose =
+          event.eventType == 'visit.transition' &&
+          event.payload['to'] == 'completed';
 
       if (isClose && blockedVisits.contains(event.visitId)) {
         heldBack++;
@@ -184,7 +229,11 @@ class SyncEngine {
 
     if (batch.isEmpty) {
       return SyncOutcome(
-        accepted: 0, duplicate: 0, rejected: 0, deferred: 0, heldBack: heldBack,
+        accepted: 0,
+        duplicate: 0,
+        rejected: 0,
+        deferred: 0,
+        heldBack: heldBack,
       );
     }
 
@@ -197,7 +246,9 @@ class SyncEngine {
         lastTrustedServerTime: clock.lastTrustedServerTime,
       );
 
-      final serverTime = DateTime.tryParse(response['server_time'] as String? ?? '');
+      final serverTime = DateTime.tryParse(
+        response['server_time'] as String? ?? '',
+      );
       if (serverTime != null) {
         await clock.adopt(serverTime);
       }
@@ -205,7 +256,8 @@ class SyncEngine {
       // The server's word on every visit it touched. Applied before the per-event
       // bookkeeping so the UI reflects the truth even if a later step throws.
       await progress.adoptCanonical(
-        (response['visits'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>(),
+        (response['visits'] as List<dynamic>? ?? const [])
+            .cast<Map<String, dynamic>>(),
       );
 
       final results = (response['results'] as List<dynamic>? ?? const [])
@@ -234,7 +286,9 @@ class SyncEngine {
             // TEMPORARY refusal: it clears itself. Parking it as "failed" is what
             // forced the technician to hunt for a red row and requeue by hand.
             if (result['retryable'] == true) {
-              await queue.noteAttempt([id], '${result['code']}: waiting for evidence');
+              await queue.noteAttempt([
+                id,
+              ], '${result['code']}: waiting for evidence');
               deferredRetryable++;
             } else {
               rejected++;
@@ -263,8 +317,12 @@ class SyncEngine {
         await queue.noteAttempt(ids, 'session expired');
 
         return SyncOutcome(
-          accepted: 0, duplicate: 0, rejected: 0, deferred: batch.length,
-          error: e.message, sessionExpired: true,
+          accepted: 0,
+          duplicate: 0,
+          rejected: 0,
+          deferred: batch.length,
+          error: e.message,
+          sessionExpired: true,
         );
       }
 
@@ -315,7 +373,12 @@ class SyncEngine {
 
         await db.raw.rawUpdate(
           'UPDATE pending_media SET attempts = ?, last_error = ?, state = ? WHERE client_media_id = ?',
-          [attempts, e.toString(), exhausted ? 'failed' : 'uploading', row['client_media_id']],
+          [
+            attempts,
+            e.toString(),
+            exhausted ? 'failed' : 'uploading',
+            row['client_media_id'],
+          ],
         );
       }
     }
@@ -323,39 +386,39 @@ class SyncEngine {
 
   /// Uploads that have given up, so the sync screen can show them rather than
   /// leaving a visit un-closable for reasons nobody can see.
-  Future<List<Map<String, dynamic>>> failedUploads() => db.raw.query(
-        'pending_media',
-        where: 'state = ?',
-        whereArgs: ['failed'],
-      );
+  Future<List<Map<String, dynamic>>> failedUploads() =>
+      db.raw.query('pending_media', where: 'state = ?', whereArgs: ['failed']);
 
   /// Puts a given-up upload back in the queue, resetting its attempt count.
   /// Without this a failed photo is a dead end the technician cannot clear.
-  Future<void> retryUpload(String clientMediaId) async {
+  Future<void> retryUpload(String clientMediaId) => _exclusive(() async {
     await db.raw.update(
       'pending_media',
       {'state': 'pending', 'attempts': 0, 'last_error': null},
-      where: 'client_media_id = ?',
-      whereArgs: [clientMediaId],
+      where: 'client_media_id = ? AND state = ?',
+      whereArgs: [clientMediaId, 'failed'],
     );
-  }
+  });
 
   /// Drops a file the technician has given up on.
   ///
-  /// Marked locally first so the engine stops trying immediately, then told to
-  /// the server. If that call fails the row stays 'discard_pending' and is
-  /// retried — the technician has already decided, and making them decide again
-  /// because a packet was lost is how a dead end reappears.
-  Future<void> discardUpload(String clientMediaId, {required String reason}) async {
-    await db.raw.update(
-      'pending_media',
-      {'state': 'discard_pending', 'last_error': reason},
-      where: 'client_media_id = ?',
-      whereArgs: [clientMediaId],
-    );
+  /// The local registration is cancelled first, but the server is always asked
+  /// to discard too. A pending event may already have landed upstream with its
+  /// response lost, so local queue state alone cannot prove the server has never
+  /// heard of the file.
+  Future<void> discardUpload(String clientMediaId, {required String reason}) =>
+      _exclusive(() async {
+        await queue.cancelUnsettledMediaRegistration(clientMediaId);
 
-    await _flushDiscards();
-  }
+        await db.raw.update(
+          'pending_media',
+          {'state': 'discard_pending', 'last_error': reason},
+          where: 'client_media_id = ? AND state != ?',
+          whereArgs: [clientMediaId, 'complete'],
+        );
+
+        await _flushDiscards();
+      });
 
   Future<void> _flushDiscards() async {
     final rows = await db.raw.query(
@@ -365,9 +428,11 @@ class SyncEngine {
     );
 
     for (final row in rows) {
+      final id = row['client_media_id'] as String;
+
       try {
         await api.discardMedia(
-          clientMediaId: row['client_media_id'] as String,
+          clientMediaId: id,
           reason: (row['last_error'] as String?) ?? 'تعذّر الرفع',
         );
 
@@ -375,19 +440,21 @@ class SyncEngine {
           'pending_media',
           {'state': 'discarded'},
           where: 'client_media_id = ?',
-          whereArgs: [row['client_media_id']],
+          whereArgs: [id],
         );
       } on ApiException catch (e) {
-        // 404 means the server never registered it; nothing to drop there.
         if (e.statusCode == 404) {
+          // All pending/failed registrations were cancelled before this request,
+          // under the same engine lock. Nothing can create the row later, so a
+          // server-side absence is a successful reconciliation, not a deadlock.
           await db.raw.update(
             'pending_media',
             {'state': 'discarded'},
             where: 'client_media_id = ?',
-            whereArgs: [row['client_media_id']],
+            whereArgs: [id],
           );
         }
-        // Anything else: leave it pending and try on the next sync.
+        // Anything else stays discard_pending and is retried by the next sync.
       }
     }
   }
@@ -433,7 +500,9 @@ class SyncEngine {
             offset: offset,
             bytes: Uint8List.fromList(bytes),
           );
-          offset = (response['uploaded_bytes'] as num?)?.toInt() ?? (offset + length);
+          offset =
+              (response['uploaded_bytes'] as num?)?.toInt() ??
+              (offset + length);
         } on ApiException catch (e) {
           if (e.code == 'OFFSET_MISMATCH') {
             // Resync to the server's truth and carry on from there.
@@ -458,7 +527,8 @@ class SyncEngine {
     // disk now. Re-hashing here would happily certify a file that changed after
     // it was taken, defeating the reason for hashing at all.
     final captured = row['sha256'] as String?;
-    final digest = captured ?? sha256.convert(await file.readAsBytes()).toString();
+    final digest =
+        captured ?? sha256.convert(await file.readAsBytes()).toString();
 
     await api.completeUpload(clientMediaId: id, sha256: digest);
     await _markComplete(id, sha256Hex: digest);

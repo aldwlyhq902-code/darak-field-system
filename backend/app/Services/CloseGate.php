@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\MediaFile;
 use App\Models\Visit;
 
 /**
@@ -15,9 +14,7 @@ use App\Models\Visit;
  */
 class CloseGate
 {
-    public function __construct(private readonly RequiredAssets $requiredAssets)
-    {
-    }
+    public function __construct(private readonly RequiredAssets $requiredAssets) {}
 
     /**
      * @return array<int, array{code:string, message_ar:string, message_en:string, ref?:mixed}>
@@ -56,7 +53,7 @@ class CloseGate
         }
 
         foreach ($instances as $instance) {
-            $assetName = $instance->asset?->name ?? ('#' . $instance->asset_id);
+            $assetName = $instance->asset?->name ?? ('#'.$instance->asset_id);
 
             if (blank($instance->status)) {
                 $blockers[] = [

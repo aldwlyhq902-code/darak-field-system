@@ -14,10 +14,12 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\Visit;
 use App\Models\WorkOrder;
+use App\Services\InventoryService;
 use App\Services\SlaCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 /**
  * Demo data shaped like the real target: small restaurants and cafes in Jeddah,
@@ -31,6 +33,10 @@ class DarakDemoSeeder extends Seeder
 {
     public function run(): void
     {
+        if (app()->environment('production')) {
+            throw new \RuntimeException('Demo credentials must never be seeded in production.');
+        }
+
         $sla = app(SlaCalculator::class);
 
         $owner = User::create([
@@ -73,11 +79,11 @@ class DarakDemoSeeder extends Seeder
         $warehouse = StockLocation::create(['type' => StockLocation::TYPE_WAREHOUSE, 'name' => 'المستودع المركزي']);
 
         $vehicleLocations = collect(['ح ن ر 1234', 'ط ب ل 5678'])->map(function (string $plate, int $i) {
-            $vehicle = Vehicle::create(['plate' => $plate, 'internal_code' => 'V' . ($i + 1), 'model' => 'Hilux', 'year' => 2024]);
+            $vehicle = Vehicle::create(['plate' => $plate, 'internal_code' => 'V'.($i + 1), 'model' => 'Hilux', 'year' => 2024]);
 
             return StockLocation::create([
                 'type' => StockLocation::TYPE_VEHICLE,
-                'name' => 'مستودع السيارة ' . ($i + 1),
+                'name' => 'مستودع السيارة '.($i + 1),
                 'vehicle_id' => $vehicle->id,
             ]);
         });
@@ -97,7 +103,7 @@ class DarakDemoSeeder extends Seeder
             'purchase_cost' => $p['cost'],
             'sale_price' => $p['price'],
             'member_price' => round($p['price'] * 0.8, 2),
-            'qr_code' => 'PART-' . $p['sku'],
+            'qr_code' => 'PART-'.$p['sku'],
             'heat_sensitive' => $p['heat'],
             'max_storage_temp_c' => $p['max'],
             'reorder_level' => 2,
@@ -163,7 +169,7 @@ class DarakDemoSeeder extends Seeder
 
             $contract = Contract::create([
                 'client_id' => $client->id,
-                'contract_no' => 'DK-' . str_pad((string) $client->id, 4, '0', STR_PAD_LEFT),
+                'contract_no' => 'DK-'.str_pad((string) $client->id, 4, '0', STR_PAD_LEFT),
                 'package_code' => $package,
                 'price_amount' => $price,
                 'vat_rate' => 0.15,
@@ -190,13 +196,13 @@ class DarakDemoSeeder extends Seeder
                 $site = Site::create([
                     'client_id' => $client->id,
                     'name' => $siteName,
-                    'address' => $siteName . '، جدة',
+                    'address' => $siteName.'، جدة',
                     'lat' => 21.5810 + (random_int(-40, 40) / 1000),
                     'lng' => 39.1650 + (random_int(-40, 40) / 1000),
                     'geofence_radius_m' => 100,
                     'dwell_threshold_s' => 120,
                     'access_notes' => 'الدخول من باب الخدمة الخلفي.',
-                    'qr_code' => 'SITE-' . strtoupper(substr(md5($siteName), 0, 8)),
+                    'qr_code' => 'SITE-'.strtoupper(substr(md5($siteName), 0, 8)),
                 ]);
 
                 $contract->sites()->attach($site->id);
@@ -212,11 +218,11 @@ class DarakDemoSeeder extends Seeder
                         'type' => $type,
                         'name' => $assetName,
                         'manufacturer' => ['LG', 'Carrier', 'Samsung'][$i % 3],
-                        'model' => 'M-' . random_int(100, 999),
-                        'serial_number' => strtoupper(substr(md5($siteName . $assetName), 0, 10)),
+                        'model' => 'M-'.random_int(100, 999),
+                        'serial_number' => strtoupper(substr(md5($siteName.$assetName), 0, 10)),
                         'installed_on' => CarbonImmutable::now()->subYears(random_int(1, 5))->toDateString(),
                         'warranty_until' => $i === 0 ? CarbonImmutable::now()->addMonths(8)->toDateString() : null,
-                        'qr_code' => 'ASSET-' . strtoupper(substr(md5($siteName . $assetName), 0, 8)),
+                        'qr_code' => 'ASSET-'.strtoupper(substr(md5($siteName.$assetName), 0, 8)),
                     ]);
                 }
 
@@ -226,7 +232,7 @@ class DarakDemoSeeder extends Seeder
                 $reportedAt = $start->subHours(2);
 
                 $workOrder = WorkOrder::create([
-                    'wo_number' => 'WO-' . str_pad((string) (++$visitIndex), 5, '0', STR_PAD_LEFT),
+                    'wo_number' => 'WO-'.str_pad((string) (++$visitIndex), 5, '0', STR_PAD_LEFT),
                     'client_id' => $client->id,
                     'site_id' => $site->id,
                     'contract_id' => $contract->id,
@@ -254,11 +260,11 @@ class DarakDemoSeeder extends Seeder
         }
 
         // Seed the warehouse and both vehicles so the app has real balances.
-        $inventory = app(\App\Services\InventoryService::class);
+        $inventory = app(InventoryService::class);
 
         foreach ($parts as $part) {
             $inventory->receipt(
-                (string) \Illuminate\Support\Str::uuid(),
+                (string) Str::uuid(),
                 $part->id,
                 40,
                 $warehouse->id,
@@ -267,7 +273,7 @@ class DarakDemoSeeder extends Seeder
 
             foreach ($vehicleLocations as $location) {
                 $inventory->loadVehicle(
-                    (string) \Illuminate\Support\Str::uuid(),
+                    (string) Str::uuid(),
                     $part->id,
                     5,
                     $warehouse->id,

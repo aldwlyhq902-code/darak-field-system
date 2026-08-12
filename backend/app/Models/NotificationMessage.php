@@ -11,11 +11,15 @@ class NotificationMessage extends Model
     use HasFactory;
 
     public const TYPE_VISIT_ASSIGNED = 'visit.assigned';
+
     public const TYPE_SLA_AT_RISK = 'sla.at_risk';
+
     public const TYPE_REPORT_READY = 'report.ready';
 
     public const CHANNEL_IN_APP = 'in_app';
+
     public const CHANNEL_WHATSAPP_MANUAL = 'whatsapp_manual';
+
     public const CHANNEL_MAIL = 'mail';
 
     protected $fillable = [
@@ -65,9 +69,9 @@ class NotificationMessage extends Model
 
         // Saudi local format 05xxxxxxxx -> 9665xxxxxxxx
         if (str_starts_with($digits, '0')) {
-            $digits = '966' . substr($digits, 1);
+            $digits = '966'.substr($digits, 1);
         }
 
-        return 'https://wa.me/' . $digits . '?text=' . rawurlencode($this->body);
+        return 'https://wa.me/'.$digits.'?text='.rawurlencode($this->body);
     }
 }

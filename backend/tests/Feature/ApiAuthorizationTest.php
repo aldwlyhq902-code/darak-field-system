@@ -149,7 +149,7 @@ class ApiAuthorizationTest extends DarakTestCase
     private function visitForOtherTechnician(): Visit
     {
         $workOrder = WorkOrder::create([
-            'wo_number' => 'WO-' . Str::random(6),
+            'wo_number' => 'WO-'.Str::random(6),
             'client_id' => $this->client->id,
             'site_id' => $this->site->id,
             'type' => 'reactive',

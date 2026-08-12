@@ -160,7 +160,7 @@ class AuthorizationTest extends DarakTestCase
     private function visitFor($technician): Visit
     {
         $workOrder = WorkOrder::create([
-            'wo_number' => 'WO-' . Str::random(6),
+            'wo_number' => 'WO-'.Str::random(6),
             'client_id' => $this->client->id,
             'site_id' => $this->site->id,
             'contract_id' => $this->contract->id,

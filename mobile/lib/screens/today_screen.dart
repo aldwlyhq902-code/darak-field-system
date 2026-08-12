@@ -19,7 +19,9 @@ class _TodayScreenState extends State<TodayScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => widget.state.pullWork());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => widget.state.pullWork(),
+    );
   }
 
   @override
@@ -61,8 +63,10 @@ class _TodayScreenState extends State<TodayScreen> {
                       : ListView.builder(
                           padding: const EdgeInsets.all(12),
                           itemCount: state.visits.length,
-                          itemBuilder: (context, index) =>
-                              _VisitCard(state: state, visit: state.visits[index]),
+                          itemBuilder: (context, index) => _VisitCard(
+                            state: state,
+                            visit: state.visits[index],
+                          ),
                         ),
                 ),
               ],
@@ -71,7 +75,14 @@ class _TodayScreenState extends State<TodayScreen> {
           floatingActionButton: FloatingActionButton.extended(
             onPressed: state.syncing ? null : state.runSync,
             icon: state.syncing
-                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
                 : const Icon(Icons.cloud_upload_outlined),
             label: Text(state.syncing ? 'جارٍ المزامنة' : 'مزامنة'),
           ),
@@ -109,7 +120,9 @@ class _ConnectionBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              state.online ? 'متصل · $label' : 'بلا شبكة — العمل مستمر ويُحفظ محلياً · $label',
+              state.online
+                  ? 'متصل · $label'
+                  : 'بلا شبكة — العمل مستمر ويُحفظ محلياً · $label',
               style: const TextStyle(fontSize: 12),
             ),
           ),
@@ -133,15 +146,25 @@ class _VisitCard extends StatelessWidget {
 
     return Card(
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
         onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => VisitScreen(state: state, visitId: visit['id'] as int)),
+          MaterialPageRoute(
+            builder: (_) =>
+                VisitScreen(state: state, visitId: visit['id'] as int),
+          ),
         ),
         leading: CircleAvatar(
           backgroundColor: _slaColor(slaStatus).withValues(alpha: 0.15),
           child: Text(
             start == null ? '—' : DateFormat('HH:mm').format(start),
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _slaColor(slaStatus)),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: _slaColor(slaStatus),
+            ),
           ),
         ),
         title: Text(
@@ -158,12 +181,16 @@ class _VisitCard extends StatelessWidget {
               spacing: 6,
               runSpacing: 4,
               children: [
-                _Chip(label: _stateLabel(visit['state'] as String?), color: Colors.blueGrey),
+                _Chip(
+                  label: _stateLabel(visit['state'] as String?),
+                  color: Colors.blueGrey,
+                ),
                 if (visit['wo_type'] == 'preventive')
                   const _Chip(label: 'وقائية', color: Colors.teal),
                 if (visit['wo_type'] == 'reactive')
                   const _Chip(label: 'بلاغ', color: Colors.deepOrange),
-                if (isRework) const _Chip(label: 'إعادة زيارة', color: Colors.red),
+                if (isRework)
+                  const _Chip(label: 'إعادة زيارة', color: Colors.red),
               ],
             ),
           ],
@@ -174,21 +201,21 @@ class _VisitCard extends StatelessWidget {
   }
 
   static Color _slaColor(String? status) => switch (status) {
-        'red' => Colors.red,
-        'amber' => Colors.orange,
-        _ => Colors.teal,
-      };
+    'red' => Colors.red,
+    'amber' => Colors.orange,
+    _ => Colors.teal,
+  };
 
   static String _stateLabel(String? state) => switch (state) {
-        'scheduled' => 'مجدولة',
-        'en_route' => 'في الطريق',
-        'started' => 'قيد التنفيذ',
-        'paused' => 'متوقفة',
-        'awaiting_close' => 'بانتظار الإقفال',
-        'completed' => 'مقفلة',
-        'reopened' => 'أُعيد فتحها',
-        _ => state ?? '—',
-      };
+    'scheduled' => 'مجدولة',
+    'en_route' => 'في الطريق',
+    'started' => 'قيد التنفيذ',
+    'paused' => 'متوقفة',
+    'awaiting_close' => 'بانتظار الإقفال',
+    'completed' => 'مقفلة',
+    'reopened' => 'أُعيد فتحها',
+    _ => state ?? '—',
+  };
 }
 
 class _Chip extends StatelessWidget {
@@ -205,7 +232,14 @@ class _Chip extends StatelessWidget {
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
@@ -223,8 +257,10 @@ class _EmptyState extends StatelessWidget {
         Center(child: Text('لا توجد زيارات محمّلة على الجهاز.')),
         SizedBox(height: 4),
         Center(
-          child: Text('اسحب للأسفل للمزامنة عند توفر الشبكة.',
-              style: TextStyle(fontSize: 12, color: Colors.black54)),
+          child: Text(
+            'اسحب للأسفل للمزامنة عند توفر الشبكة.',
+            style: TextStyle(fontSize: 12, color: Colors.black54),
+          ),
         ),
       ],
     );

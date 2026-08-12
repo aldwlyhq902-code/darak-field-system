@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -32,7 +33,7 @@ return new class extends Migration
         });
 
         // Postgres will not implicitly cast uuid -> varchar.
-        \Illuminate\Support\Facades\DB::statement(
+        DB::statement(
             'ALTER TABLE external_documents ALTER COLUMN idempotency_key TYPE VARCHAR(191) USING idempotency_key::text'
         );
 
@@ -42,7 +43,7 @@ return new class extends Migration
 
         // SUB-TMP-<uuid> is 44 characters and overflowed varchar(32) on insert.
         // The placeholder is now short, but the column has no reason to be tight.
-        \Illuminate\Support\Facades\DB::statement(
+        DB::statement(
             'ALTER TABLE subcontractor_orders ALTER COLUMN order_no TYPE VARCHAR(64)'
         );
     }
@@ -57,10 +58,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        throw new \RuntimeException(
+        throw new RuntimeException(
             'Irreversible: external_documents.idempotency_key now holds semantic keys '
-            . '("invoice:visit:7") that cannot be cast back to uuid. To undo this, '
-            . 'restore from a backup taken before it ran.'
+            .'("invoice:visit:7") that cannot be cast back to uuid. To undo this, '
+            .'restore from a backup taken before it ran.'
         );
     }
 };

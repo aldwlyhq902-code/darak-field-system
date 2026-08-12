@@ -21,8 +21,7 @@ class ReportController extends Controller
     public function __construct(
         private readonly VisitReportBuilder $builder,
         private readonly ReworkDetector $rework,
-    ) {
-    }
+    ) {}
 
     public function visitPdf(Visit $visit): Response
     {
@@ -30,7 +29,7 @@ class ReportController extends Controller
 
         return response($this->builder->render($visit), 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="darak-visit-' . $visit->id . '.pdf"',
+            'Content-Disposition' => 'inline; filename="darak-visit-'.$visit->id.'.pdf"',
         ]);
     }
 

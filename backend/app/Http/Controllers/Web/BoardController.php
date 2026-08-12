@@ -14,6 +14,7 @@ use App\Services\SlaCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 /**
@@ -30,8 +31,7 @@ class BoardController extends Controller
         private readonly CloseGate $closeGate,
         private readonly ReworkDetector $rework,
         private readonly NotificationService $notifications,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): View
     {
@@ -100,7 +100,7 @@ class BoardController extends Controller
         $reasons = $this->assignmentConflicts($technician, $visit);
 
         if ($reasons !== []) {
-            return back()->with('err', 'تعذّر الإسناد: ' . implode(' · ', $reasons));
+            return back()->with('err', 'تعذّر الإسناد: '.implode(' · ', $reasons));
         }
 
         $previous = $visit->assigned_user_id;
@@ -110,7 +110,7 @@ class BoardController extends Controller
         // Without it, a visit moved A -> B -> A never notifies A the second time.
         if ($previous !== $technician->id) {
             $visit->events()->create([
-                'client_event_id' => (string) \Illuminate\Support\Str::uuid(),
+                'client_event_id' => (string) Str::uuid(),
                 'event_type' => 'assignment.changed',
                 'payload' => ['from' => $previous, 'to' => $technician->id],
                 'actor_user_id' => $request->user()->id,

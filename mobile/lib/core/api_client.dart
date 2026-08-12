@@ -14,7 +14,8 @@ class ApiException implements Exception {
 
   /// 5xx and network errors are worth retrying; 4xx means the request itself is
   /// wrong and retrying forever would just burn battery.
-  bool get isRetryable => statusCode >= 500 || statusCode == 0 || statusCode == 429;
+  bool get isRetryable =>
+      statusCode >= 500 || statusCode == 0 || statusCode == 429;
 
   @override
   String toString() => '$code: $message';
@@ -42,10 +43,10 @@ class ApiClient {
   String? token;
 
   Map<String, String> get _headers => {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      };
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    if (token != null) 'Authorization': 'Bearer $token',
+  };
 
   Future<Map<String, dynamic>> login({
     required String email,
@@ -72,13 +73,12 @@ class ApiClient {
     required String deviceUuid,
     required List<Map<String, dynamic>> events,
     DateTime? lastTrustedServerTime,
-  }) =>
-      _post('/api/v1/sync/events', {
-        'device_uuid': deviceUuid,
-        if (lastTrustedServerTime != null)
-          'last_trusted_server_time': lastTrustedServerTime.toIso8601String(),
-        'events': events,
-      });
+  }) => _post('/api/v1/sync/events', {
+    'device_uuid': deviceUuid,
+    if (lastTrustedServerTime != null)
+      'last_trusted_server_time': lastTrustedServerTime.toIso8601String(),
+    'events': events,
+  });
 
   Future<Map<String, dynamic>> mediaStatus(String clientMediaId) =>
       _get('/api/v1/media/$clientMediaId/status');
@@ -90,16 +90,18 @@ class ApiClient {
     required int offset,
     required Uint8List bytes,
   }) async {
-    final response = await _client.post(
-      Uri.parse('$baseUrl/api/v1/media/$clientMediaId/chunk'),
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/octet-stream',
-        'X-Upload-Offset': '$offset',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-      body: bytes,
-    ).timeout(uploadTimeout);
+    final response = await _client
+        .post(
+          Uri.parse('$baseUrl/api/v1/media/$clientMediaId/chunk'),
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/octet-stream',
+            'X-Upload-Offset': '$offset',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+          body: bytes,
+        )
+        .timeout(uploadTimeout);
 
     return _decode(response);
   }
@@ -107,19 +109,17 @@ class ApiClient {
   Future<Map<String, dynamic>> completeUpload({
     required String clientMediaId,
     required String sha256,
-  }) =>
-      _post('/api/v1/media/$clientMediaId/complete', {'sha256': sha256});
+  }) => _post('/api/v1/media/$clientMediaId/complete', {'sha256': sha256});
 
   /// Drops a file that will never upload, naming its replacement if one exists.
   Future<Map<String, dynamic>> discardMedia({
     required String clientMediaId,
     required String reason,
     String? supersededBy,
-  }) =>
-      _post('/api/v1/media/$clientMediaId/discard', {
-        'reason': reason,
-        if (supersededBy != null) 'superseded_by': supersededBy,
-      });
+  }) => _post('/api/v1/media/$clientMediaId/discard', {
+    'reason': reason,
+    if (supersededBy != null) 'superseded_by': supersededBy,
+  });
 
   Future<Map<String, dynamic>> closeBlockers(int visitId) =>
       _get('/api/v1/visits/$visitId/close-blockers');
@@ -137,13 +137,18 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     try {
-      final response = await _client.post(
-        Uri.parse('$baseUrl$path'),
-        headers: _headers,
-        body: jsonEncode(body),
-      ).timeout(timeout);
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl$path'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(timeout);
       return _decode(response);
     } on ApiException {
       rethrow;

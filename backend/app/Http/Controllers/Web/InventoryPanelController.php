@@ -13,9 +13,7 @@ use Illuminate\View\View;
 
 class InventoryPanelController extends Controller
 {
-    public function __construct(private readonly InventoryService $inventory)
-    {
-    }
+    public function __construct(private readonly InventoryService $inventory) {}
 
     public function index(): View
     {
@@ -50,7 +48,7 @@ class InventoryPanelController extends Controller
 
         Part::create($data + [
             'heat_sensitive' => $request->boolean('heat_sensitive'),
-            'qr_code' => 'PART-' . strtoupper(Str::random(8)),
+            'qr_code' => 'PART-'.strtoupper(Str::random(8)),
         ]);
 
         return back()->with('ok', 'أُضيف الصنف للكتالوج.');
@@ -104,7 +102,7 @@ class InventoryPanelController extends Controller
             abs($difference),
             $difference < 0 ? $data['location_id'] : null,
             $difference > 0 ? $data['location_id'] : null,
-            $data['reason'] . ' (جرد: عُدّ ' . $data['counted_qty'] . ' مقابل رصيد ' . $current . ')',
+            $data['reason'].' (جرد: عُدّ '.$data['counted_qty'].' مقابل رصيد '.$current.')',
         );
 
         $direction = $difference < 0 ? 'عجز' : 'زيادة';

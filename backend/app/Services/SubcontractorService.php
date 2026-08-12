@@ -20,9 +20,7 @@ use RuntimeException;
  */
 class SubcontractorService
 {
-    public function __construct(private readonly AuditLogger $audit)
-    {
-    }
+    public function __construct(private readonly AuditLogger $audit) {}
 
     /**
      * The margin is computed and shown BEFORE the order is confirmed. Discovering
@@ -76,7 +74,7 @@ class SubcontractorService
                 // Short placeholder; the real number comes from the row's own id
                 // below. max(id)+1 collides under concurrent assigns, and a full
                 // uuid here overflowed the column.
-                'order_no' => 'TMP-' . Str::random(12),
+                'order_no' => 'TMP-'.Str::random(12),
                 'purchase_cost' => $purchaseCost,
                 'sale_price' => $salePrice,
                 'status' => 'assigned',
@@ -87,7 +85,7 @@ class SubcontractorService
             // Derived from the row's own id inside the same transaction, so two
             // concurrent assigns cannot produce the same number.
             $order->forceFill([
-                'order_no' => 'SUB-' . str_pad((string) $order->id, 5, '0', STR_PAD_LEFT),
+                'order_no' => 'SUB-'.str_pad((string) $order->id, 5, '0', STR_PAD_LEFT),
             ])->save();
 
             $this->audit->record('subcontractor.assigned', $order, null, [
@@ -148,7 +146,7 @@ class SubcontractorService
     {
         $order->forceFill([
             'status' => 'cancelled',
-            'note' => trim(($order->note ?? '') . "\nألغي: {$reason}"),
+            'note' => trim(($order->note ?? '')."\nألغي: {$reason}"),
         ])->save();
 
         $this->audit->record('subcontractor.cancelled', $order, null, ['reason' => $reason]);

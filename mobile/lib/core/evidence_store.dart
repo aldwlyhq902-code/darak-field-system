@@ -26,17 +26,20 @@ class EvidenceStore {
     required EventQueue queue,
     required TrustedClock clock,
     required String rootDirectory,
+    int maxBytes = 25 * 1024 * 1024,
     Uuid? uuid,
-  })  : _db = db,
-        _queue = queue,
-        _clock = clock,
-        _root = rootDirectory,
-        _uuid = uuid ?? const Uuid();
+  }) : _db = db,
+       _queue = queue,
+       _clock = clock,
+       _root = rootDirectory,
+       _maxBytes = maxBytes,
+       _uuid = uuid ?? const Uuid();
 
   final LocalDb _db;
   final EventQueue _queue;
   final TrustedClock _clock;
   final String _root;
+  final int _maxBytes;
   final Uuid _uuid;
 
   static const kindPhotoBefore = 'photo_before';
@@ -56,6 +59,34 @@ class EvidenceStore {
     double? lng,
     String declaredSource = 'camera',
   }) async {
+    if (bytes.isEmpty || bytes.length > _maxBytes) {
+      throw ArgumentError.value(
+        bytes.length,
+        'bytes',
+        'Evidence must be between 1 and $_maxBytes bytes',
+      );
+    }
+
+    if (![kindPhotoBefore, kindPhotoAfter, kindSignature].contains(kind)) {
+      throw ArgumentError.value(kind, 'kind', 'Unsupported evidence kind');
+    }
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].contains(mime)) {
+      throw ArgumentError.value(mime, 'mime', 'Unsupported evidence MIME type');
+    }
+
+    if (kind == kindSignature && mime != 'image/png') {
+      throw ArgumentError.value(mime, 'mime', 'Signatures must be PNG images');
+    }
+
+    if (!['camera', 'on_screen'].contains(declaredSource)) {
+      throw ArgumentError.value(
+        declaredSource,
+        'declaredSource',
+        'Unsupported evidence source',
+      );
+    }
+
     final clientMediaId = _uuid.v4();
     final extension = switch (mime) {
       'image/png' => 'png',
@@ -77,31 +108,27 @@ class EvidenceStore {
     final digest = sha256.convert(bytes).toString();
     final capturedAt = _clock.deviceNow;
 
-    await _db.raw.insert(
-      'pending_media',
-      {
-        'client_media_id': clientMediaId,
-        'visit_id': visitId,
-        'checklist_instance_id': checklistInstanceId,
-        // Kept locally too, so the on-device close gate can ask the same
-        // per-asset question the server asks.
-        'asset_id': assetId,
-        'kind': kind,
-        'mime': mime,
-        'local_path': file.path,
-        'total_bytes': bytes.length,
-        'uploaded_bytes': 0,
-        'sha256': digest,
-        // UTC for the same reason as event timestamps: an offset-less local time
-        // is reinterpreted in the server's zone.
-        'captured_at': capturedAt.toUtc().toIso8601String(),
-        'lat': lat,
-        'lng': lng,
-        'state': 'pending',
-        'attempts': 0,
-      },
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    await _db.raw.insert('pending_media', {
+      'client_media_id': clientMediaId,
+      'visit_id': visitId,
+      'checklist_instance_id': checklistInstanceId,
+      // Kept locally too, so the on-device close gate can ask the same
+      // per-asset question the server asks.
+      'asset_id': assetId,
+      'kind': kind,
+      'mime': mime,
+      'local_path': file.path,
+      'total_bytes': bytes.length,
+      'uploaded_bytes': 0,
+      'sha256': digest,
+      // UTC for the same reason as event timestamps: an offset-less local time
+      // is reinterpreted in the server's zone.
+      'captured_at': capturedAt.toUtc().toIso8601String(),
+      'lat': lat,
+      'lng': lng,
+      'state': 'pending',
+      'attempts': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
     await _queue.enqueue(
       visitId: visitId,
@@ -114,7 +141,8 @@ class EvidenceStore {
         'captured_at': capturedAt.toUtc().toIso8601String(),
         'declared_source': declaredSource,
         if (assetId != null) 'asset_id': assetId,
-        if (checklistInstanceId != null) 'checklist_instance_id': checklistInstanceId,
+        if (checklistInstanceId != null)
+          'checklist_instance_id': checklistInstanceId,
         if (lat != null) 'lat': lat,
         if (lng != null) 'lng': lng,
       },
@@ -126,25 +154,32 @@ class EvidenceStore {
   }
 
   Future<List<Map<String, dynamic>>> forVisit(int visitId) => _db.raw.query(
-        'pending_media',
-        where: 'visit_id = ?',
-        whereArgs: [visitId],
-        orderBy: 'rowid ASC',
-      );
+    'pending_media',
+    where: 'visit_id = ?',
+    whereArgs: [visitId],
+    orderBy: 'rowid ASC',
+  );
 
   /// Photos on this visit, optionally narrowed to one asset.
   ///
   /// The assetId argument used to be declared and silently ignored, so the local
   /// close gate counted every photo on the visit while the server demanded one
   /// per asset — "ready" on the phone, refused by the server.
+  /// States that still count as evidence the technician has captured.
+  ///
+  /// A discarded file is NOT evidence. Counting it told the phone the visit was
+  /// ready while the server, which excludes it, was still asking for a
+  /// replacement — the two gates disagreeing in the technician's hands.
+  static const _live = "state NOT IN ('discarded', 'discard_pending')";
+
   Future<int> photoCount(int visitId, {int? assetId}) async {
     final rows = assetId == null
         ? await _db.raw.rawQuery(
-            'SELECT COUNT(*) AS c FROM pending_media WHERE visit_id = ? AND kind LIKE ?',
+            'SELECT COUNT(*) AS c FROM pending_media WHERE visit_id = ? AND kind LIKE ? AND $_live',
             [visitId, 'photo%'],
           )
         : await _db.raw.rawQuery(
-            'SELECT COUNT(*) AS c FROM pending_media WHERE visit_id = ? AND asset_id = ? AND kind LIKE ?',
+            'SELECT COUNT(*) AS c FROM pending_media WHERE visit_id = ? AND asset_id = ? AND kind LIKE ? AND $_live',
             [visitId, assetId, 'photo%'],
           );
 
@@ -154,13 +189,21 @@ class EvidenceStore {
   Future<bool> hasSignature(int visitId) async {
     final rows = await _db.raw.query(
       'pending_media',
-      where: 'visit_id = ? AND kind = ?',
+      where: 'visit_id = ? AND kind = ? AND $_live',
       whereArgs: [visitId, kindSignature],
       limit: 1,
     );
 
     return rows.isNotEmpty;
   }
+
+  /// Live evidence for a visit, for the on-device close gate. Discarded files
+  /// are excluded so the phone asks the same question the server asks.
+  Future<List<Map<String, dynamic>>> liveForVisit(int visitId) => _db.raw.query(
+    'pending_media',
+    where: 'visit_id = ? AND $_live',
+    whereArgs: [visitId],
+  );
 
   /// Evidence for a closed and fully uploaded visit can be cleared to reclaim
   /// space. Anything still pending is never touched — that is unsent evidence.

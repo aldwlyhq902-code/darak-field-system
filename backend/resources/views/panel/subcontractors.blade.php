@@ -33,11 +33,11 @@
             <div class="grid3">
                 <div class="field">
                     <label>تكلفة الشريك (ما ندفعه)</label>
-                    <input name="purchase_cost" id="cost" type="number" step="0.01" required oninput="calcMargin()">
+                    <input name="purchase_cost" id="cost" type="number" step="0.01" required>
                 </div>
                 <div class="field">
                     <label>سعر البيع (ما يدفعه العميل)</label>
-                    <input name="sale_price" id="sale" type="number" step="0.01" required oninput="calcMargin()">
+                    <input name="sale_price" id="sale" type="number" step="0.01" required>
                 </div>
                 <div class="field">
                     <label>الموعد</label>
@@ -181,7 +181,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce }}">
 function calcMargin() {
     var cost = parseFloat(document.getElementById('cost').value);
     var sale = parseFloat(document.getElementById('sale').value);
@@ -198,5 +198,8 @@ function calcMargin() {
     box.textContent = 'الهامش: ' + margin.toFixed(2) + ' ريال' + (pct !== null ? ' (' + pct + '%)' : '')
         + (margin < 0 ? ' — هذا الأمر يخسر.' : (pct !== null && pct < 20 ? ' — أقل من 20%، راجع السعر.' : ''));
 }
+
+document.getElementById('cost').addEventListener('input', calcMargin);
+document.getElementById('sale').addEventListener('input', calcMargin);
 </script>
 @endsection

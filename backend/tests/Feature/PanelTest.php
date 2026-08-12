@@ -7,6 +7,7 @@ use App\Models\Contract;
 use App\Models\Part;
 use App\Models\Visit;
 use App\Models\WorkOrder;
+use App\Services\TwoFactorService;
 use Tests\DarakTestCase;
 
 /**
@@ -27,10 +28,15 @@ class PanelTest extends DarakTestCase
     public function test_supervisor_can_sign_in_and_see_the_board(): void
     {
         $this->post('/login', ['email' => 'owner@test.local', 'password' => 'secret'])
-            ->assertRedirect(route('panel.board'));
+            ->assertRedirect(route('panel.two-factor.challenge'));
 
-        $this->actingAs($this->owner, 'web')
-            ->get(route('panel.board'))
+        $this->assertGuest('web');
+
+        $this->post(route('panel.two-factor.verify'), [
+            'code' => app(TwoFactorService::class)->currentCode($this->owner),
+        ])->assertRedirect(route('panel.board'));
+
+        $this->get(route('panel.board'))
             ->assertOk()
             ->assertSee('لوحة اليوم');
     }
@@ -176,5 +182,20 @@ class PanelTest extends DarakTestCase
             ->assertRedirect();
 
         $this->assertNotNull($this->device->refresh()->revoked_at);
+    }
+
+    public function test_owner_cannot_create_a_technician_with_a_weak_password(): void
+    {
+        $this->actingAs($this->owner, 'web')
+            ->post(route('panel.team.technician'), [
+                'name' => 'Weak Password',
+                'email' => 'weak@test.local',
+                'password' => 'password123',
+                'shift_start' => '07:00',
+                'shift_end' => '15:00',
+            ])
+            ->assertSessionHasErrors('password');
+
+        $this->assertDatabaseMissing('users', ['email' => 'weak@test.local']);
     }
 }

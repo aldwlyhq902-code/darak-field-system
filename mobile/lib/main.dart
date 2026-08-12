@@ -50,10 +50,15 @@ class _DarakAppState extends State<DarakApp> {
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(56),
-            textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            textStyle: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
-        cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(vertical: 6)),
+        cardTheme: const CardThemeData(
+          margin: EdgeInsets.symmetric(vertical: 6),
+        ),
       ),
       // The whole product is Arabic-first.
       locale: const Locale('ar'),
@@ -65,7 +70,9 @@ class _DarakAppState extends State<DarakApp> {
         animation: state,
         builder: (context, _) {
           if (!state.ready) {
-            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
           }
 
           // A revoked or expired token drops the technician back to the login
@@ -73,7 +80,10 @@ class _DarakAppState extends State<DarakApp> {
           // Nothing queued is lost — it syncs after signing in again.
           return state.isAuthenticated
               ? TodayScreen(state: state)
-              : LoginScreen(state: state, notice: state.sessionExpired ? state.lastSyncMessage : null);
+              : LoginScreen(
+                  state: state,
+                  notice: state.sessionExpired ? state.lastSyncMessage : null,
+                );
         },
       ),
     );

@@ -1,4 +1,3 @@
-
 import 'local_db.dart';
 
 /// The visit state machine, mirrored on the device.
@@ -60,11 +59,15 @@ class VisitProgress {
     // from the event chain. It exists so the technician sees a live number.
     if (state == 'started') {
       final visit = await _db.visit(visitId);
-      final startedAt = DateTime.tryParse((visit?['local_started_at'] as String?) ?? '');
+      final startedAt = DateTime.tryParse(
+        (visit?['local_started_at'] as String?) ?? '',
+      );
 
       if (startedAt != null) {
         final elapsed = now.difference(startedAt).inSeconds;
-        values['on_site_seconds'] = ((visit?['on_site_seconds'] as int?) ?? 0) + (elapsed > 0 ? elapsed : 0);
+        values['on_site_seconds'] =
+            ((visit?['on_site_seconds'] as int?) ?? 0) +
+            (elapsed > 0 ? elapsed : 0);
       }
     }
 
@@ -72,7 +75,12 @@ class VisitProgress {
       values['local_started_at'] = now.toIso8601String();
     }
 
-    await _db.raw.update('visits', values, where: 'id = ?', whereArgs: [visitId]);
+    await _db.raw.update(
+      'visits',
+      values,
+      where: 'id = ?',
+      whereArgs: [visitId],
+    );
 
     return true;
   }
@@ -107,30 +115,40 @@ class VisitProgress {
   /// used to protect it from being wiped by a bootstrap refresh.
   Future<bool> hasUnsyncedWork(int visitId) async {
     final events = await _db.raw.rawQuery(
-      "SELECT COUNT(*) AS c FROM pending_events WHERE visit_id = ? AND status != 'synced'",
+      "SELECT COUNT(*) AS c FROM pending_events "
+      "WHERE visit_id = ? AND status NOT IN ('synced', 'cancelled')",
       [visitId],
     );
 
     if (((events.first['c'] as int?) ?? 0) > 0) return true;
 
+    // `discarded` is terminal, like `complete`. Counting every non-complete
+    // state as unfinished kept a visit protected and its files on disk forever
+    // once anything had been dropped.
     final media = await _db.raw.rawQuery(
-      "SELECT COUNT(*) AS c FROM pending_media WHERE visit_id = ? AND state != 'complete'",
+      "SELECT COUNT(*) AS c FROM pending_media "
+      "WHERE visit_id = ? AND state NOT IN ('complete', 'discarded')",
       [visitId],
     );
 
     return ((media.first['c'] as int?) ?? 0) > 0;
   }
 
-  /// Visits whose close must wait: media still making progress.
+  /// Visits whose close must wait for something that will resolve itself.
   ///
-  /// Deliberately EXCLUDES uploads that have given up. Holding the close for a
-  /// permanently failed upload deadlocks the visit: the engine no longer retries
-  /// a 'failed' row, so the close would be withheld forever with no way out.
-  /// Sending it instead gets a refusal from the server naming the missing
-  /// evidence — a reason the technician can act on beats silence.
+  /// Deliberately EXCLUDES uploads that have given up: the engine no longer
+  /// retries a `failed` row, so holding the close for one deadlocks the visit.
+  /// Sending it instead gets a refusal naming the missing evidence, which the
+  /// technician can act on.
+  ///
+  /// `discard_pending` DOES hold it. Sending the close before the server has
+  /// acknowledged the discard earns a permanent rejection — the file is still
+  /// blocking on that side — and the close is then parked as failed with nothing
+  /// to re-send it once the discard finally lands.
   Future<Set<int>> visitsWithPendingUploads() async {
     final rows = await _db.raw.rawQuery(
-      "SELECT DISTINCT visit_id FROM pending_media WHERE state IN ('pending', 'uploading')",
+      "SELECT DISTINCT visit_id FROM pending_media "
+      "WHERE state IN ('pending', 'uploading', 'discard_pending')",
     );
 
     return rows.map((r) => r['visit_id'] as int).toSet();

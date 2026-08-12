@@ -22,7 +22,7 @@ class BackupRestoreTest extends DarakTestCase
     {
         parent::setUp();
 
-        $this->root = storage_path('framework/testing/backups-' . uniqid());
+        $this->root = storage_path('framework/testing/backups-'.uniqid());
         File::ensureDirectoryExists($this->root);
     }
 
@@ -35,6 +35,11 @@ class BackupRestoreTest extends DarakTestCase
     private function service(): BackupService
     {
         return new BackupService($this->root);
+    }
+
+    private function encryptedService(string $password = 'a-very-long-test-backup-password'): BackupService
+    {
+        return new BackupService($this->root, $password, true);
     }
 
     public function test_backup_records_row_counts_for_every_verified_table(): void
@@ -61,6 +66,25 @@ class BackupRestoreTest extends DarakTestCase
         $this->assertSame([], $verification['mismatched_counts']);
     }
 
+    public function test_an_encrypted_backup_requires_the_correct_password(): void
+    {
+        $service = $this->encryptedService();
+        $result = $service->create('encrypted');
+
+        $this->assertTrue($result['manifest']['encrypted']);
+        $this->assertTrue($service->verify($result['path'])['ok']);
+
+        $this->expectExceptionMessage('DARAK_BACKUP_PASSWORD is wrong');
+        $this->encryptedService('a-different-long-test-password')->verify($result['path']);
+    }
+
+    public function test_production_backup_refuses_to_run_without_encryption(): void
+    {
+        $this->expectExceptionMessage('DARAK_BACKUP_PASSWORD is required');
+
+        (new BackupService($this->root, null, true))->create();
+    }
+
     public function test_verification_detects_data_added_after_the_backup(): void
     {
         $result = $this->service()->create();
@@ -81,7 +105,7 @@ class BackupRestoreTest extends DarakTestCase
     {
         $evidenceDir = storage_path('app/private/media/visits/1');
         File::ensureDirectoryExists($evidenceDir);
-        File::put($evidenceDir . '/photo.jpg', 'fake-photo-bytes');
+        File::put($evidenceDir.'/photo.jpg', 'fake-photo-bytes');
 
         $result = $this->service()->create();
 
@@ -98,15 +122,15 @@ class BackupRestoreTest extends DarakTestCase
     {
         $evidenceDir = storage_path('app/private/media/visits/9');
         File::ensureDirectoryExists($evidenceDir);
-        File::put($evidenceDir . '/before.jpg', 'original-content');
+        File::put($evidenceDir.'/before.jpg', 'original-content');
 
         $result = $this->service()->create();
 
-        $target = $this->root . '/restored';
+        $target = $this->root.'/restored';
         $restore = $this->service()->restore($result['path'], $target);
 
         $this->assertGreaterThan(0, $restore['restored_files']);
-        $this->assertSame('original-content', File::get($target . '/media/visits/9/before.jpg'));
+        $this->assertSame('original-content', File::get($target.'/media/visits/9/before.jpg'));
 
         File::deleteDirectory(storage_path('app/private/media'));
     }
@@ -115,13 +139,13 @@ class BackupRestoreTest extends DarakTestCase
     {
         $evidenceDir = storage_path('app/private/media/visits/5');
         File::ensureDirectoryExists($evidenceDir);
-        File::put($evidenceDir . '/x.jpg', 'good-bytes');
+        File::put($evidenceDir.'/x.jpg', 'good-bytes');
 
         $result = $this->service()->create();
 
         // Tamper with the payload while leaving the manifest hash untouched —
         // exactly what a damaged transfer looks like.
-        $zip = new ZipArchive();
+        $zip = new ZipArchive;
         $zip->open($result['path']);
         $entry = collect(array_keys($result['manifest']['files']))->first(fn ($p) => str_contains($p, 'x.jpg'));
         $zip->addFromString($entry, 'tampered-bytes');
@@ -132,7 +156,7 @@ class BackupRestoreTest extends DarakTestCase
         $this->assertContains($entry, $verification['corrupt_files']);
 
         $this->expectExceptionMessage('Hash mismatch');
-        $this->service()->restore($result['path'], $this->root . '/restored');
+        $this->service()->restore($result['path'], $this->root.'/restored');
 
         File::deleteDirectory(storage_path('app/private/media'));
     }
@@ -144,7 +168,7 @@ class BackupRestoreTest extends DarakTestCase
         $this->artisan('darak:backup', ['--label' => 'cli'])
             ->assertSuccessful();
 
-        $this->assertNotEmpty(File::glob($this->root . '/darak-backup-*-cli.zip'));
+        $this->assertNotEmpty(File::glob($this->root.'/darak-backup-*-cli.zip'));
     }
 
     public function test_restore_command_refuses_to_write_without_force(): void

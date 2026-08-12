@@ -77,6 +77,18 @@
     @empty
         <tr><td colspan="4">لا توجد أصول مسجلة في هذه الزيارة.</td></tr>
     @endforelse
+
+    {{-- Scheduled, then removed from the site before the visit. Listing it is
+         the difference between a round that covered everything and one that
+         silently covered less than it was meant to. --}}
+    @foreach ($retiredAssets as $retired)
+        <tr>
+            <td>{{ $retired->name }}</td>
+            <td>{{ $retired->type }}</td>
+            <td class="status-followup">استُبعد</td>
+            <td>كان مجدولاً ضمن الزيارة، ثم أُزيل من الموقع قبل تنفيذها.</td>
+        </tr>
+    @endforeach
     </tbody>
 </table>
 

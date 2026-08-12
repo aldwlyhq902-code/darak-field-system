@@ -54,9 +54,9 @@ class RestoreCommand extends Command
         $result = $backups->restore($archive);
 
         $this->info('اكتملت الاستعادة.');
-        $this->line('  ملفات مستعادة: ' . $result['restored_files']);
-        $this->line('  قاعدة البيانات: ' . ($result['database_restored'] ? 'استُعيدت' : 'تحتاج استعادة يدوية — راجع DEPLOYMENT.md'));
-        $this->line('  نسخة بتاريخ: ' . ($result['manifest']['created_at'] ?? '—'));
+        $this->line('  ملفات مستعادة: '.$result['restored_files']);
+        $this->line('  قاعدة البيانات: '.($result['database_restored'] ? 'استُعيدت' : 'تحتاج استعادة يدوية — راجع DEPLOYMENT.md'));
+        $this->line('  نسخة بتاريخ: '.($result['manifest']['created_at'] ?? '—'));
 
         return self::SUCCESS;
     }

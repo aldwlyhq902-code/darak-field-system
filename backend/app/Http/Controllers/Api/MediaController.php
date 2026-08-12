@@ -28,8 +28,7 @@ class MediaController extends Controller
     public function __construct(
         private readonly PhotoStamper $stamper,
         private readonly AuditLogger $audit,
-    ) {
-    }
+    ) {}
 
     /**
      * Ownership gate for every media route.
@@ -86,8 +85,28 @@ class MediaController extends Controller
             return response()->json(['code' => 'EMPTY_CHUNK', 'message' => 'No bytes received.'], 422);
         }
 
-        if (strlen($bytes) > self::CHUNK_LIMIT) {
+        $chunkBytes = strlen($bytes);
+
+        if ($chunkBytes > self::CHUNK_LIMIT) {
             return response()->json(['code' => 'CHUNK_TOO_LARGE', 'message' => 'Chunk exceeds 8MB.'], 413);
+        }
+
+        $declaredBytes = (int) $media->total_bytes;
+        $maxBytes = (int) config('darak.max_media_bytes', 25 * 1024 * 1024);
+
+        if ($declaredBytes < 1 || $declaredBytes > $maxBytes) {
+            return response()->json([
+                'code' => 'INVALID_MEDIA_SIZE',
+                'message' => 'This evidence item has no valid declared size. Register it again.',
+            ], 422);
+        }
+
+        if ($offset < 0 || $offset + $chunkBytes > $declaredBytes || $offset + $chunkBytes > $maxBytes) {
+            return response()->json([
+                'code' => 'UPLOAD_LIMIT_EXCEEDED',
+                'message' => 'The chunk would exceed the declared or permitted evidence size.',
+                'total_bytes' => $declaredBytes,
+            ], 413);
         }
 
         // Offset mismatch is not an error the client should guess about: tell it
@@ -112,11 +131,24 @@ class MediaController extends Controller
         fwrite($handle, $bytes);
         fclose($handle);
 
-        $media->forceFill([
-            'uploaded_bytes' => $media->uploaded_bytes + strlen($bytes),
-            'upload_state' => 'uploading',
-            'attempts' => $media->attempts + 1,
-        ])->save();
+        // Same conditional write as complete(): a discard landing mid-chunk must
+        // win, not be silently overwritten by the next byte range.
+        $claimed = MediaFile::whereKey($media->getKey())
+            ->whereNull('discarded_at')
+            ->update([
+                'uploaded_bytes' => $media->uploaded_bytes + $chunkBytes,
+                'upload_state' => 'uploading',
+                'attempts' => $media->attempts + 1,
+                'updated_at' => now(),
+            ]);
+
+        if ($claimed === 0) {
+            $disk->delete($partPath);
+
+            return $this->discardedResponse();
+        }
+
+        $media->refresh();
 
         return response()->json([
             'uploaded_bytes' => $media->uploaded_bytes,
@@ -128,7 +160,9 @@ class MediaController extends Controller
     /** Verify the hash, store the original, and produce the stamped derivative. */
     public function complete(Request $request, string $clientMediaId): JsonResponse
     {
-        $data = $request->validate(['sha256' => ['required', 'string', 'size:64']]);
+        $data = $request->validate([
+            'sha256' => ['required', 'string', 'size:64', 'regex:/\\A[0-9a-fA-F]{64}\\z/'],
+        ]);
 
         $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
         $this->authorizeMedia($media);
@@ -145,6 +179,20 @@ class MediaController extends Controller
         }
 
         $absolute = $disk->path($partPath);
+        $actualBytes = filesize($absolute);
+        $declaredBytes = (int) $media->total_bytes;
+        $maxBytes = (int) config('darak.max_media_bytes', 25 * 1024 * 1024);
+
+        if ($actualBytes === false || $declaredBytes < 1 || $declaredBytes > $maxBytes
+            || $actualBytes !== $declaredBytes || $actualBytes > $maxBytes) {
+            return response()->json([
+                'code' => 'SIZE_MISMATCH',
+                'message' => 'Uploaded bytes do not match the declared evidence size.',
+                'uploaded_bytes' => $actualBytes === false ? null : $actualBytes,
+                'total_bytes' => $declaredBytes,
+            ], 422);
+        }
+
         $actual = hash_file('sha256', $absolute);
 
         if (! hash_equals(strtolower($data['sha256']), strtolower($actual))) {
@@ -164,12 +212,29 @@ class MediaController extends Controller
         $finalPath = $this->finalPath($media);
         $disk->move($partPath, $finalPath);
 
-        $media->forceFill([
-            'original_path' => $finalPath,
-            'original_hash' => $actual,
-            'upload_state' => 'complete',
-            'last_error' => null,
-        ])->save();
+        // Conditional and atomic. Reading discarded_at earlier and writing here
+        // left a window: a discard could land between the two, and the row ended
+        // up complete AND discarded — with the gate ignoring evidence that had
+        // actually arrived.
+        $claimed = MediaFile::whereKey($media->getKey())
+            ->whereNull('discarded_at')
+            ->update([
+                'original_path' => $finalPath,
+                'original_hash' => $actual,
+                'upload_state' => 'complete',
+                'last_error' => null,
+                'updated_at' => now(),
+            ]);
+
+        if ($claimed === 0) {
+            // Discarded while these bytes were being verified. Drop the file
+            // rather than leaving an orphan on disk no record points to.
+            $disk->delete($finalPath);
+
+            return $this->discardedResponse();
+        }
+
+        $media->refresh();
 
         if (str_starts_with((string) $media->kind, 'photo')) {
             $media->forceFill(['derived_path' => $this->stamper->stamp($media)])->save();

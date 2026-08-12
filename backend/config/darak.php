@@ -43,6 +43,19 @@ return [
     'backup_path' => env('DARAK_BACKUP_PATH', ''),
 
     /*
+    | Evidence uploads are authenticated but still untrusted input. A declared
+    | size and a server-side ceiling prevent a compromised device from filling
+    | the disk one valid 8MB chunk at a time.
+    */
+    'max_media_bytes' => (int) env('DARAK_MAX_MEDIA_BYTES', 25 * 1024 * 1024),
+
+    /*
+    | Production backups contain client data, signatures and location evidence.
+    | BackupService refuses to create an unencrypted production archive.
+    */
+    'backup_password' => env('DARAK_BACKUP_PASSWORD'),
+
+    /*
     | Deliberately ABSENT from the MVP, recorded here so nobody re-adds them by
     | accident. Each was removed for a documented reason (PRD v1.2 §3):
     |   - global heat threshold: unproven; limits are per-SKU from the maker's sheet

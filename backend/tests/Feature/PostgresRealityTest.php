@@ -2,13 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\StockLocation;
 use App\Models\StockMove;
-use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\Visit;
+use App\Models\WorkOrder;
+use App\Services\InvoiceService;
 use App\Services\SyncService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Tests\DarakTestCase;
 
@@ -70,7 +71,7 @@ class PostgresRealityTest extends DarakTestCase
         $inv->loadVehicle((string) Str::uuid(), $this->part->id, 5, $this->warehouse->id, $this->vehicleStock->id);
         $inv->issueToVisit((string) Str::uuid(), $this->part->id, 1, $this->vehicleStock->id, $this->visit);
 
-        $invoice = app(\App\Services\InvoiceService::class)->invoiceVisit($this->visit->refresh());
+        $invoice = app(InvoiceService::class)->invoiceVisit($this->visit->refresh());
 
         $this->assertSame("invoice:visit:{$this->visit->id}", $invoice->idempotency_key);
         $this->assertSame('issued', $invoice->status);
@@ -218,8 +219,8 @@ class PostgresRealityTest extends DarakTestCase
     public function test_a_technician_cannot_issue_from_another_vehicle(): void
     {
         $otherVehicle = Vehicle::create(['plate' => 'OTHER-99', 'assigned_user_id' => $this->otherTechnician->id]);
-        $otherStock = \App\Models\StockLocation::create([
-            'type' => \App\Models\StockLocation::TYPE_VEHICLE,
+        $otherStock = StockLocation::create([
+            'type' => StockLocation::TYPE_VEHICLE,
             'name' => 'Vehicle 2',
             'vehicle_id' => $otherVehicle->id,
         ]);
@@ -358,8 +359,8 @@ class PostgresRealityTest extends DarakTestCase
 
     private function foreignVisitOwnedByMe(): Visit
     {
-        $workOrder = \App\Models\WorkOrder::create([
-            'wo_number' => 'WO-' . Str::random(6),
+        $workOrder = WorkOrder::create([
+            'wo_number' => 'WO-'.Str::random(6),
             'client_id' => $this->client->id,
             'site_id' => $this->site->id,
             'type' => 'reactive',

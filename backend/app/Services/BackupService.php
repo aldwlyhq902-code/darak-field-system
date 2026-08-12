@@ -28,9 +28,11 @@ class BackupService
         'external_documents', 'audit_logs', 'notification_messages',
     ];
 
-    public function __construct(private readonly string $backupRoot)
-    {
-    }
+    public function __construct(
+        private readonly string $backupRoot,
+        private readonly ?string $password = null,
+        private readonly bool $requireEncryption = false,
+    ) {}
 
     /**
      * @return array{path: string, manifest: array<string, mixed>}
@@ -41,21 +43,30 @@ class BackupService
             throw new RuntimeException('PHP zip extension is required for backups.');
         }
 
+        if ($this->requireEncryption && ! $this->hasPassword()) {
+            throw new RuntimeException(
+                'DARAK_BACKUP_PASSWORD is required in production; refusing to create an unencrypted backup.'
+            );
+        }
+
         File::ensureDirectoryExists($this->backupRoot);
 
         $stamp = now()->format('Ymd-His');
-        $name = 'darak-backup-' . $stamp . ($label ? '-' . $label : '') . '.zip';
-        $target = $this->backupRoot . DIRECTORY_SEPARATOR . $name;
+        $name = 'darak-backup-'.$stamp.($label ? '-'.$label : '').'.zip';
+        $target = $this->backupRoot.DIRECTORY_SEPARATOR.$name;
 
         $manifest = [
             'created_at' => now()->toIso8601String(),
             'app_version' => config('app.version', 'mvp'),
             'connection' => config('database.default'),
+            'encrypted' => $this->hasPassword(),
             'counts' => $this->counts(),
             'files' => [],
         ];
 
-        $zip = new ZipArchive();
+        $entries = [];
+
+        $zip = new ZipArchive;
 
         if ($zip->open($target, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
             throw new RuntimeException("Cannot create archive at {$target}.");
@@ -72,7 +83,7 @@ class BackupService
                 // VACUUM INTO, not a raw file copy: copying the live file while a
                 // write or a WAL checkpoint is in flight can capture a torn
                 // database that only reveals itself on the day it is needed.
-                $snapshot = $this->backupRoot . DIRECTORY_SEPARATOR . 'snapshot-' . uniqid() . '.sqlite';
+                $snapshot = $this->backupRoot.DIRECTORY_SEPARATOR.'snapshot-'.uniqid().'.sqlite';
 
                 try {
                     DB::statement('VACUUM INTO ?', [$snapshot]);
@@ -82,6 +93,7 @@ class BackupService
                 }
 
                 $zip->addFile($source, 'database/database.sqlite');
+                $entries[] = 'database/database.sqlite';
                 $manifest['database'] = [
                     'driver' => 'sqlite',
                     'entry' => 'database/database.sqlite',
@@ -106,6 +118,7 @@ class BackupService
             }
 
             $zip->addFromString('database/dump.sql', $dump);
+            $entries[] = 'database/dump.sql';
 
             $manifest['database'] = [
                 'driver' => $connection,
@@ -120,16 +133,23 @@ class BackupService
         $storageRoot = File::isDirectory($storageRoot) ? $storageRoot : storage_path('app');
 
         foreach ($this->evidenceFiles($storageRoot) as $absolute) {
-            $relative = 'storage/' . str_replace('\\', '/', substr($absolute, strlen($storageRoot) + 1));
+            $relative = 'storage/'.str_replace('\\', '/', substr($absolute, strlen($storageRoot) + 1));
             $zip->addFile($absolute, $relative);
+            $entries[] = $relative;
             $manifest['files'][$relative] = hash_file('sha256', $absolute);
         }
 
         $zip->addFromString('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        $entries[] = 'manifest.json';
+
+        if ($this->hasPassword()) {
+            $this->encryptEntries($zip, $entries);
+        }
+
         $zip->close();
 
         // The VACUUM snapshot exists only to be archived.
-        foreach (File::glob($this->backupRoot . DIRECTORY_SEPARATOR . 'snapshot-*.sqlite') as $stale) {
+        foreach (File::glob($this->backupRoot.DIRECTORY_SEPARATOR.'snapshot-*.sqlite') as $stale) {
             @unlink($stale);
         }
 
@@ -159,8 +179,7 @@ class BackupService
             }
         }
 
-        $zip = new ZipArchive();
-        $zip->open($archivePath);
+        $zip = $this->openArchive($archivePath);
 
         $corrupt = [];
         $missing = [];
@@ -185,6 +204,7 @@ class BackupService
 
             if ($contents === false) {
                 $missing[] = $relative;
+
                 continue;
             }
 
@@ -213,11 +233,7 @@ class BackupService
     {
         $manifest = $this->readManifest($archivePath);
 
-        $zip = new ZipArchive();
-
-        if ($zip->open($archivePath) !== true) {
-            throw new RuntimeException("Cannot open archive {$archivePath}.");
-        }
+        $zip = $this->openArchive($archivePath);
 
         $storageTarget ??= storage_path('app/private');
         File::ensureDirectoryExists($storageTarget);
@@ -235,7 +251,7 @@ class BackupService
                 throw new RuntimeException("Hash mismatch restoring {$relative} — archive is corrupt.");
             }
 
-            $destination = $storageTarget . DIRECTORY_SEPARATOR . substr($relative, strlen('storage/'));
+            $destination = $storageTarget.DIRECTORY_SEPARATOR.substr($relative, strlen('storage/'));
             File::ensureDirectoryExists(dirname($destination));
             File::put($destination, $contents);
             $restoredFiles++;
@@ -267,8 +283,8 @@ class BackupService
                 // The SQL dump is written next to the archive for psql to apply;
                 // restoring a live PostgreSQL from inside the app would be worse
                 // than useless. DEPLOYMENT.md carries the one-line command.
-                $sqlPath = dirname($archivePath) . DIRECTORY_SEPARATOR
-                    . pathinfo($archivePath, PATHINFO_FILENAME) . '.sql';
+                $sqlPath = dirname($archivePath).DIRECTORY_SEPARATOR
+                    .pathinfo($archivePath, PATHINFO_FILENAME).'.sql';
                 File::put($sqlPath, $contents);
             }
         }
@@ -373,19 +389,51 @@ class BackupService
             throw new RuntimeException("Archive not found: {$archivePath}");
         }
 
-        $zip = new ZipArchive();
-
-        if ($zip->open($archivePath) !== true) {
-            throw new RuntimeException("Cannot open archive {$archivePath}.");
-        }
+        $zip = $this->openArchive($archivePath);
 
         $raw = $zip->getFromName('manifest.json');
         $zip->close();
 
         if ($raw === false) {
-            throw new RuntimeException('Archive has no manifest — it was not produced by darak:backup.');
+            throw new RuntimeException(
+                'Cannot read the backup manifest. The archive is invalid or DARAK_BACKUP_PASSWORD is wrong.'
+            );
         }
 
         return json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    private function hasPassword(): bool
+    {
+        return is_string($this->password) && strlen($this->password) >= 20;
+    }
+
+    /** @param array<int, string> $entries */
+    private function encryptEntries(ZipArchive $zip, array $entries): void
+    {
+        if (! $zip->setPassword((string) $this->password)) {
+            throw new RuntimeException('Cannot set the backup encryption password.');
+        }
+
+        foreach ($entries as $entry) {
+            if (! $zip->setEncryptionName($entry, ZipArchive::EM_AES_256)) {
+                throw new RuntimeException("Cannot encrypt backup entry [{$entry}] with AES-256.");
+            }
+        }
+    }
+
+    private function openArchive(string $archivePath): ZipArchive
+    {
+        $zip = new ZipArchive;
+
+        if ($zip->open($archivePath) !== true) {
+            throw new RuntimeException("Cannot open archive {$archivePath}.");
+        }
+
+        if ($this->hasPassword()) {
+            $zip->setPassword((string) $this->password);
+        }
+
+        return $zip;
     }
 }

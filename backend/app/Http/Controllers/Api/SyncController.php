@@ -18,8 +18,7 @@ class SyncController extends Controller
         private readonly SyncService $sync,
         private readonly SlaCalculator $sla,
         private readonly RequiredAssets $requiredAssets,
-    ) {
-    }
+    ) {}
 
     /**
      * Everything the device needs to work for a day with no network: today's and

@@ -66,6 +66,54 @@ class MediaUploadTest extends DarakTestCase
             ->assertJsonPath('expected_offset', 0);
     }
 
+    public function test_a_chunk_cannot_exceed_the_declared_file_size(): void
+    {
+        $mediaId = $this->registerMedia(100);
+
+        $this->actingAs($this->technician)
+            ->call('POST', "/api/v1/media/{$mediaId}/chunk", [], [], [],
+                ['HTTP_X_UPLOAD_OFFSET' => '0', 'CONTENT_TYPE' => 'application/octet-stream'], random_bytes(101))
+            ->assertStatus(413)
+            ->assertJsonPath('code', 'UPLOAD_LIMIT_EXCEEDED');
+
+        $this->assertSame(0, (int) MediaFile::where('client_media_id', $mediaId)->value('uploaded_bytes'));
+    }
+
+    public function test_an_incomplete_file_cannot_be_finalised(): void
+    {
+        $mediaId = $this->registerMedia(100);
+        $bytes = random_bytes(50);
+
+        $this->actingAs($this->technician)
+            ->call('POST', "/api/v1/media/{$mediaId}/chunk", [], [], [],
+                ['HTTP_X_UPLOAD_OFFSET' => '0', 'CONTENT_TYPE' => 'application/octet-stream'], $bytes)
+            ->assertOk();
+
+        $this->actingAs($this->technician)
+            ->postJson("/api/v1/media/{$mediaId}/complete", ['sha256' => hash('sha256', $bytes)])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'SIZE_MISMATCH');
+    }
+
+    public function test_media_registration_rejects_an_oversized_payload_without_storing_it(): void
+    {
+        config(['darak.max_media_bytes' => 100]);
+        $clientMediaId = (string) Str::uuid();
+
+        $result = app(SyncService::class)->ingest($this->device, [
+            $this->event('media.register', [
+                'client_media_id' => $clientMediaId,
+                'kind' => 'photo_after',
+                'mime' => 'image/jpeg',
+                'total_bytes' => 101,
+            ]),
+        ]);
+
+        $this->assertSame('rejected', $result['results'][0]['status']);
+        $this->assertSame('INVALID_EVENT_PAYLOAD', $result['results'][0]['code']);
+        $this->assertFalse(MediaFile::where('client_media_id', $clientMediaId)->exists());
+    }
+
     public function test_hash_mismatch_rejects_the_upload_and_resets_it(): void
     {
         $bytes = random_bytes(500);

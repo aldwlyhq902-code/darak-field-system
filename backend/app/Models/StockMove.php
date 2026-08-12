@@ -11,9 +11,13 @@ class StockMove extends Model
     use HasFactory;
 
     public const RECEIPT = 'RECEIPT';
+
     public const VEHICLE_LOAD = 'VEHICLE_LOAD';
+
     public const VISIT_ISSUE = 'VISIT_ISSUE';
+
     public const VISIT_RETURN = 'VISIT_RETURN';
+
     public const ADJUSTMENT = 'ADJUSTMENT';
 
     public const TYPES = [

@@ -8,7 +8,7 @@
 <div class="card">
     <div class="hd">المستخدمون</div>
     <table>
-        <thead><tr><th>الاسم</th><th style="width:130px">الدور</th><th>المهنة</th><th style="width:120px">الوردية</th><th style="width:90px">الحالة</th><th style="width:90px"></th></tr></thead>
+        <thead><tr><th>الاسم</th><th style="width:130px">الدور</th><th>المهنة</th><th style="width:120px">الوردية</th><th style="width:90px">الحالة</th><th style="width:120px">MFA</th><th style="width:90px"></th></tr></thead>
         <tbody>
         @foreach ($users as $user)
             <tr>
@@ -30,6 +30,19 @@
                     @else — @endif
                 </td>
                 <td><span class="pill {{ $user->is_active ? 'green' : 'red' }}">{{ $user->is_active ? 'نشط' : 'موقوف' }}</span></td>
+                <td>
+                    @if ($user->isTechnician())
+                        <span class="pill grey">تطبيق فقط</span>
+                    @elseif ($user->hasConfirmedTwoFactor())
+                        <span class="pill green">مفعّل</span>
+                        <form method="POST" action="{{ route('panel.team.two-factor-reset', $user) }}" style="margin-top:4px">
+                            @csrf
+                            <button class="btn small ghost">إعادة ضبط</button>
+                        </form>
+                    @else
+                        <span class="pill red">غير مفعّل</span>
+                    @endif
+                </td>
                 <td>
                     <form method="POST" action="{{ route('panel.team.toggle', $user) }}">
                         @csrf

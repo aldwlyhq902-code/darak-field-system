@@ -8,8 +8,8 @@ use App\Models\Client;
 use App\Models\Contract;
 use App\Models\Site;
 use App\Models\User;
-use App\Models\WorkOrder;
 use App\Models\Visit;
+use App\Models\WorkOrder;
 use App\Services\SlaCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -25,9 +25,7 @@ use Illuminate\View\View;
  */
 class ClientPanelController extends Controller
 {
-    public function __construct(private readonly SlaCalculator $sla)
-    {
-    }
+    public function __construct(private readonly SlaCalculator $sla) {}
 
     public function index(): View
     {
@@ -62,7 +60,7 @@ class ClientPanelController extends Controller
         $client->sites()->create([
             'name' => $data['site_name'],
             'address' => $data['site_address'] ?? null,
-            'qr_code' => 'SITE-' . strtoupper(Str::random(8)),
+            'qr_code' => 'SITE-'.strtoupper(Str::random(8)),
         ]);
 
         $message = $client->requiresAdvancePayment()
@@ -89,7 +87,7 @@ class ClientPanelController extends Controller
             'access_notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $client->sites()->create($data + ['qr_code' => 'SITE-' . strtoupper(Str::random(8))]);
+        $client->sites()->create($data + ['qr_code' => 'SITE-'.strtoupper(Str::random(8))]);
 
         return back()->with('ok', 'أُضيف الموقع.');
     }
@@ -106,7 +104,7 @@ class ClientPanelController extends Controller
             'warranty_until' => ['nullable', 'date'],
         ]);
 
-        $site->assets()->create($data + ['qr_code' => 'ASSET-' . strtoupper(Str::random(8))]);
+        $site->assets()->create($data + ['qr_code' => 'ASSET-'.strtoupper(Str::random(8))]);
 
         return back()->with('ok', 'أُضيف الأصل. اطبع ملصق QR وألصقه على الجهاز.');
     }
@@ -127,7 +125,7 @@ class ClientPanelController extends Controller
         ]);
 
         $contract = $client->contracts()->create([
-            'contract_no' => 'DK-' . str_pad((string) (Contract::max('id') + 1), 4, '0', STR_PAD_LEFT),
+            'contract_no' => 'DK-'.str_pad((string) (Contract::max('id') + 1), 4, '0', STR_PAD_LEFT),
             'package_code' => $data['package_code'],
             // Stored PRE-VAT, always. The gross figure is derived, never entered.
             'price_amount' => $data['price_amount'],
@@ -197,7 +195,7 @@ class ClientPanelController extends Controller
         $budget = $contract?->sla_minutes ?? 480;
 
         $workOrder = WorkOrder::create([
-            'wo_number' => 'WO-' . str_pad((string) (WorkOrder::max('id') + 1), 5, '0', STR_PAD_LEFT),
+            'wo_number' => 'WO-'.str_pad((string) (WorkOrder::max('id') + 1), 5, '0', STR_PAD_LEFT),
             'client_id' => $client->id,
             'site_id' => $data['site_id'],
             'contract_id' => $contract?->id,

@@ -3,6 +3,8 @@
 use App\Http\Middleware\EnsureBackOfficeRole;
 use App\Http\Middleware\EnsureDeviceIsActive;
 use App\Http\Middleware\EnsurePanelUserIsActive;
+use App\Http\Middleware\EnsureTwoFactorConfirmed;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -18,11 +20,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->append(SecurityHeaders::class);
+
         // A revoked handset must fail on every protected endpoint, not just login.
         $middleware->alias([
             'device.active' => EnsureDeviceIsActive::class,
             'role.backoffice' => EnsureBackOfficeRole::class,
             'panel.active' => EnsurePanelUserIsActive::class,
+            'two-factor.confirmed' => EnsureTwoFactorConfirmed::class,
         ]);
 
         // Two surfaces, two behaviours. A guest on the panel belongs at the login

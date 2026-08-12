@@ -10,9 +10,7 @@ use Illuminate\View\View;
 
 class NotificationPanelController extends Controller
 {
-    public function __construct(private readonly NotificationService $notifications)
-    {
-    }
+    public function __construct(private readonly NotificationService $notifications) {}
 
     public function index(): View
     {

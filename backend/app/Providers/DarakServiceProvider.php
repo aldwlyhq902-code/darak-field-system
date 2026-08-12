@@ -17,7 +17,7 @@ class DarakServiceProvider extends ServiceProvider
         // Swapping to the real e-invoicing provider is a one-line change here.
         $this->app->singleton(InvoiceProvider::class, function () {
             return match (config('darak.invoice_provider', 'fake')) {
-                default => new FakeInvoiceProvider(),
+                default => new FakeInvoiceProvider,
             };
         });
 
@@ -25,6 +25,8 @@ class DarakServiceProvider extends ServiceProvider
         // cannot delete them along with the code.
         $this->app->singleton(BackupService::class, fn () => new BackupService(
             config('darak.backup_path') ?: storage_path('app/backups'),
+            config('darak.backup_password'),
+            $this->app->environment('production'),
         ));
     }
 

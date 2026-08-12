@@ -55,7 +55,7 @@ class PhotoStamper
             $y += 14;
         }
 
-        $target = 'media/derived/' . $media->client_media_id . '.jpg';
+        $target = 'media/derived/'.$media->client_media_id.'.jpg';
         $absoluteTarget = $disk->path($target);
 
         if (! is_dir(dirname($absoluteTarget))) {

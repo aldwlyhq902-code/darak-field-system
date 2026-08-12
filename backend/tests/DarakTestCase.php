@@ -28,16 +28,27 @@ abstract class DarakTestCase extends TestCase
     use RefreshDatabase;
 
     protected User $owner;
+
     protected User $technician;
+
     protected User $otherTechnician;
+
     protected Device $device;
+
     protected Client $client;
+
     protected Site $site;
+
     protected Asset $asset;
+
     protected Contract $contract;
+
     protected Visit $visit;
+
     protected Part $part;
+
     protected StockLocation $warehouse;
+
     protected StockLocation $vehicleStock;
 
     protected function setUp(): void
@@ -48,6 +59,11 @@ abstract class DarakTestCase extends TestCase
             'name' => 'Owner', 'email' => 'owner@test.local',
             'password' => Hash::make('secret'), 'role' => User::ROLE_OWNER, 'is_active' => true,
         ]);
+        $this->owner->forceFill([
+            'two_factor_secret' => 'JBSWY3DPEHPK3PXP',
+            'two_factor_recovery_codes' => [],
+            'two_factor_confirmed_at' => now(),
+        ])->save();
 
         $this->technician = User::create([
             'name' => 'Tech One', 'email' => 'tech1@test.local',

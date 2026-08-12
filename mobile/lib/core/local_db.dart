@@ -1,14 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite/sqflite.dart' as plain;
+import 'package:sqflite_sqlcipher/sqflite.dart' as cipher;
 
 /// The device database. Everything a technician does is written here first and
 /// synced later — a visit must be completable end to end with the radio off.
 class LocalDb {
   LocalDb(this._db);
 
-  final Database _db;
+  final plain.Database _db;
 
   static const _schema = <String>[
     // Cached work, refreshed on every successful bootstrap.
@@ -117,62 +119,206 @@ class LocalDb {
 
   /// [path] is the full database path. Tests pass `inMemoryDatabasePath`;
   /// the app passes a file inside its documents directory.
-  static Future<LocalDb> open({String? path, String? directory, DatabaseFactory? factory}) async {
-    final dbFactory = factory ?? databaseFactory;
-    final resolved = path ?? (directory == null ? 'darak.db' : p.join(directory, 'darak.db'));
+  static Future<LocalDb> open({
+    String? path,
+    String? directory,
+    plain.DatabaseFactory? factory,
+    String? password,
+  }) async {
+    final resolved =
+        path ??
+        (directory == null ? 'darak.db' : p.join(directory, 'darak.db'));
 
-    final db = await dbFactory.openDatabase(
-      resolved,
-      options: OpenDatabaseOptions(
+    late final plain.Database db;
+    if (password == null) {
+      // Desktop tests intentionally use sqflite_common_ffi. Production always
+      // supplies a keystore-backed password through AppState.
+      final dbFactory = factory ?? plain.databaseFactory;
+      db = await dbFactory.openDatabase(resolved, options: _options());
+    } else {
+      if (factory != null) {
+        throw ArgumentError(
+          'A custom database factory cannot encrypt a database.',
+        );
+      }
+      await _migratePlaintextDatabase(resolved, password);
+      db = await cipher.openDatabase(
+        resolved,
+        password: password,
         version: 2,
-        onCreate: (db, _) async {
-          for (final statement in _schema) {
-            await db.execute(statement);
-          }
-        },
-        // CREATE TABLE IF NOT EXISTS never alters a table that already exists, so
-        // a phone carrying the v1 database would have kept the old single-column
-        // key on `assets` forever — and gone on losing one visit's asset list
-        // whenever two visits shared a site. A fix that only reaches fresh
-        // installs is not a fix.
-        onUpgrade: (db, from, to) async {
-          if (from < 2) {
-            await db.execute('ALTER TABLE assets RENAME TO assets_v1');
-
-            for (final statement in _schema) {
-              await db.execute(statement);
-            }
-
-            // Carried over rather than re-fetched: the phone may be offline, and
-            // discarding the cache would strip a technician mid-visit.
-            await db.execute('''
-              INSERT OR IGNORE INTO assets (id, visit_id, name, type, location, qr_code, under_warranty)
-              SELECT id, visit_id, name, type, location, qr_code, under_warranty FROM assets_v1
-            ''');
-
-            await db.execute('DROP TABLE assets_v1');
-          }
-        },
-        onOpen: (db) async {
-          for (final statement in _schema) {
-            await db.execute(statement);
-          }
-        },
-      ),
-    );
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+        onOpen: _onOpen,
+      );
+    }
 
     return LocalDb(db);
   }
 
-  Database get raw => _db;
+  static plain.OpenDatabaseOptions _options() => plain.OpenDatabaseOptions(
+    version: 2,
+    onCreate: _onCreate,
+    onUpgrade: _onUpgrade,
+    onOpen: _onOpen,
+  );
+
+  static Future<void> _onCreate(plain.Database db, int _) async {
+    for (final statement in _schema) {
+      await db.execute(statement);
+    }
+  }
+
+  // CREATE TABLE IF NOT EXISTS never alters a table that already exists, so a
+  // phone carrying the v1 database needs an explicit, lossless asset migration.
+  static Future<void> _onUpgrade(plain.Database db, int from, int to) async {
+    if (from < 2) {
+      await db.execute('ALTER TABLE assets RENAME TO assets_v1');
+      await _onCreate(db, to);
+      await db.execute('''
+        INSERT OR IGNORE INTO assets (id, visit_id, name, type, location, qr_code, under_warranty)
+        SELECT id, visit_id, name, type, location, qr_code, under_warranty FROM assets_v1
+      ''');
+      await db.execute('DROP TABLE assets_v1');
+    }
+  }
+
+  static Future<void> _onOpen(plain.Database db) => _onCreate(db, 2);
+
+  /// Converts an existing plaintext database before opening it normally. The
+  /// original remains as a backup until the encrypted copy has opened and its
+  /// schema has been verified with the device key.
+  static Future<void> _migratePlaintextDatabase(
+    String path,
+    String password,
+  ) async {
+    if (path == plain.inMemoryDatabasePath) return;
+
+    final source = File(path);
+    final temporary = File('$path.sqlcipher.tmp');
+    final backup = File('$path.plaintext.backup');
+
+    if (!await source.exists() && await backup.exists()) {
+      await backup.rename(path);
+    }
+    if (!await source.exists()) return;
+
+    if (await backup.exists()) {
+      if (await _canOpenEncrypted(path, password)) {
+        await backup.delete();
+        if (await temporary.exists()) await temporary.delete();
+        return;
+      }
+
+      // Do not guess here. A wrong/lost keystore key is indistinguishable from
+      // an interrupted replacement; deleting either copy could destroy the only
+      // recoverable data. Leave both artifacts for explicit recovery.
+      throw StateError(
+        'An interrupted SQLCipher migration needs manual recovery; both database copies were preserved.',
+      );
+    }
+
+    if (await _canOpenEncrypted(path, password)) {
+      if (await temporary.exists()) await temporary.delete();
+      return;
+    }
+
+    if (!await _canOpenPlaintext(path)) {
+      throw StateError(
+        'The local database cannot be opened with the device key and is not plaintext.',
+      );
+    }
+
+    if (await temporary.exists()) await temporary.delete();
+    final escapedPath = temporary.path.replaceAll("'", "''");
+    final escapedKey = password.replaceAll("'", "''");
+    final db = await cipher.openDatabase(path, singleInstance: false);
+
+    try {
+      await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
+      final versionRows = await db.rawQuery('PRAGMA user_version');
+      final version = versionRows.first.values.first as int? ?? 0;
+      await db.execute(
+        "ATTACH DATABASE '$escapedPath' AS encrypted KEY '$escapedKey'",
+      );
+      await db.rawQuery("SELECT sqlcipher_export('encrypted')");
+      await db.execute('PRAGMA encrypted.user_version = $version');
+      await db.execute('DETACH DATABASE encrypted');
+    } finally {
+      await db.close();
+    }
+
+    if (!await _canOpenEncrypted(temporary.path, password)) {
+      if (await temporary.exists()) await temporary.delete();
+      throw StateError('SQLCipher migration verification failed.');
+    }
+
+    await source.rename(backup.path);
+    try {
+      await temporary.rename(path);
+      if (!await _canOpenEncrypted(path, password)) {
+        throw StateError(
+          'The migrated SQLCipher database could not be reopened.',
+        );
+      }
+      await backup.delete();
+    } catch (_) {
+      if (await source.exists()) await source.delete();
+      if (await backup.exists()) await backup.rename(path);
+      rethrow;
+    }
+  }
+
+  static Future<bool> _canOpenEncrypted(String path, String password) async {
+    plain.Database? db;
+    try {
+      db = await cipher.openDatabase(
+        path,
+        password: password,
+        readOnly: true,
+        singleInstance: false,
+      );
+      await db.rawQuery('SELECT count(*) FROM sqlite_master');
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      await db?.close();
+    }
+  }
+
+  static Future<bool> _canOpenPlaintext(String path) async {
+    plain.Database? db;
+    try {
+      db = await cipher.openDatabase(
+        path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      await db.rawQuery('SELECT count(*) FROM sqlite_master');
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      await db?.close();
+    }
+  }
+
+  plain.Database get raw => _db;
 
   Future<void> setValue(String key, String value) async {
-    await _db.insert('kv', {'k': key, 'v': value},
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await _db.insert('kv', {
+      'k': key,
+      'v': value,
+    }, conflictAlgorithm: plain.ConflictAlgorithm.replace);
   }
 
   Future<String?> getValue(String key) async {
-    final rows = await _db.query('kv', where: 'k = ?', whereArgs: [key], limit: 1);
+    final rows = await _db.query(
+      'kv',
+      where: 'k = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
     return rows.isEmpty ? null : rows.first['v'] as String?;
   }
 
@@ -205,8 +351,16 @@ class LocalDb {
       batch.delete('assets');
     } else {
       final placeholders = List.filled(keep.length, '?').join(',');
-      batch.delete('visits', where: 'id NOT IN ($placeholders)', whereArgs: keep.toList());
-      batch.delete('assets', where: 'visit_id NOT IN ($placeholders)', whereArgs: keep.toList());
+      batch.delete(
+        'visits',
+        where: 'id NOT IN ($placeholders)',
+        whereArgs: keep.toList(),
+      );
+      batch.delete(
+        'assets',
+        where: 'visit_id NOT IN ($placeholders)',
+        whereArgs: keep.toList(),
+      );
     }
 
     for (final visit in visits) {
@@ -215,49 +369,41 @@ class LocalDb {
       final sla = visit['sla'] as Map<String, dynamic>?;
       final window = sla?['service_window'] as Map<String, dynamic>?;
 
-      batch.insert(
-        'visits',
-        {
-          'id': visit['id'],
-          'state': visit['state'],
-          'scheduled_start': visit['scheduled_start'],
-          'client_name': site['client_name'],
-          'site_name': site['name'],
-          'site_address': site['address'],
-          'site_lat': _toDouble(site['lat']),
-          'site_lng': _toDouble(site['lng']),
-          'geofence_radius_m': site['geofence_radius_m'],
-          'access_notes': site['access_notes'],
-          'wo_number': wo['number'],
-          'wo_title': wo['title'],
-          'wo_type': wo['type'],
-          'sla_due_at': sla?['due_at'],
-          'sla_status': sla?['status'],
-          'service_window_start': window?['start'],
-          'service_window_end': window?['end'],
-          'is_rework': (visit['is_rework'] == true) ? 1 : 0,
-          'on_site_seconds': visit['on_site_seconds'] ?? 0,
-          'payload': jsonEncode(visit),
-          'last_synced_at': DateTime.now().toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      batch.insert('visits', {
+        'id': visit['id'],
+        'state': visit['state'],
+        'scheduled_start': visit['scheduled_start'],
+        'client_name': site['client_name'],
+        'site_name': site['name'],
+        'site_address': site['address'],
+        'site_lat': _toDouble(site['lat']),
+        'site_lng': _toDouble(site['lng']),
+        'geofence_radius_m': site['geofence_radius_m'],
+        'access_notes': site['access_notes'],
+        'wo_number': wo['number'],
+        'wo_title': wo['title'],
+        'wo_type': wo['type'],
+        'sla_due_at': sla?['due_at'],
+        'sla_status': sla?['status'],
+        'service_window_start': window?['start'],
+        'service_window_end': window?['end'],
+        'is_rework': (visit['is_rework'] == true) ? 1 : 0,
+        'on_site_seconds': visit['on_site_seconds'] ?? 0,
+        'payload': jsonEncode(visit),
+        'last_synced_at': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: plain.ConflictAlgorithm.replace);
 
       for (final asset in (visit['assets'] as List<dynamic>? ?? const [])) {
         final a = asset as Map<String, dynamic>;
-        batch.insert(
-          'assets',
-          {
-            'id': a['id'],
-            'visit_id': visit['id'],
-            'name': a['name'],
-            'type': a['type'],
-            'location': a['location'],
-            'qr_code': a['qr_code'],
-            'under_warranty': (a['under_warranty'] == true) ? 1 : 0,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        batch.insert('assets', {
+          'id': a['id'],
+          'visit_id': visit['id'],
+          'name': a['name'],
+          'type': a['type'],
+          'location': a['location'],
+          'qr_code': a['qr_code'],
+          'under_warranty': (a['under_warranty'] == true) ? 1 : 0,
+        }, conflictAlgorithm: plain.ConflictAlgorithm.replace);
       }
     }
 
@@ -268,7 +414,12 @@ class LocalDb {
       _db.query('visits', orderBy: 'scheduled_start');
 
   Future<Map<String, dynamic>?> visit(int id) async {
-    final rows = await _db.query('visits', where: 'id = ?', whereArgs: [id], limit: 1);
+    final rows = await _db.query(
+      'visits',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
     return rows.isEmpty ? null : rows.first;
   }
 

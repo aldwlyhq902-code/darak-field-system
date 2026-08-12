@@ -45,7 +45,7 @@ void main() {
         'assets': [
           {'id': 11, 'name': 'سبليت الصالة', 'type': 'split_ac'},
         ],
-      }
+      },
     ]);
   });
 
@@ -57,38 +57,56 @@ void main() {
 
       await progress.applyTransition(7, 'en_route');
 
-      expect((await db.visit(7))!['state'], 'en_route',
-          reason: 'the technician must see the next button without a server');
+      expect(
+        (await db.visit(7))!['state'],
+        'en_route',
+        reason: 'the technician must see the next button without a server',
+      );
     });
 
     test('the whole visit can be walked to completion offline', () async {
-      for (final state in ['en_route', 'started', 'awaiting_close', 'completed']) {
+      for (final state in [
+        'en_route',
+        'started',
+        'awaiting_close',
+        'completed',
+      ]) {
         final ok = await progress.applyTransition(7, state);
-        expect(ok, isTrue, reason: 'transition to $state must be accepted locally');
+        expect(
+          ok,
+          isTrue,
+          reason: 'transition to $state must be accepted locally',
+        );
       }
 
       expect((await db.visit(7))!['state'], 'completed');
     });
 
-    test('an illegal local transition is refused instead of queueing a doomed event', () async {
-      // scheduled -> completed is not in the map; queueing it would only produce a
-      // 409 later and park a permanently failed row in the technician's face.
-      final ok = await progress.applyTransition(7, 'completed');
+    test(
+      'an illegal local transition is refused instead of queueing a doomed event',
+      () async {
+        // scheduled -> completed is not in the map; queueing it would only produce a
+        // 409 later and park a permanently failed row in the technician's face.
+        final ok = await progress.applyTransition(7, 'completed');
 
-      expect(ok, isFalse);
-      expect((await db.visit(7))!['state'], 'scheduled');
-    });
+        expect(ok, isFalse);
+        expect((await db.visit(7))!['state'], 'scheduled');
+      },
+    );
 
-    test('the canonical server state overrides the local guess after sync', () async {
-      await progress.applyTransition(7, 'en_route');
+    test(
+      'the canonical server state overrides the local guess after sync',
+      () async {
+        await progress.applyTransition(7, 'en_route');
 
-      // The office reopened the visit while the device was dark.
-      await progress.adoptCanonical([
-        {'id': 7, 'state': 'scheduled'}
-      ]);
+        // The office reopened the visit while the device was dark.
+        await progress.adoptCanonical([
+          {'id': 7, 'state': 'scheduled'},
+        ]);
 
-      expect((await db.visit(7))!['state'], 'scheduled');
-    });
+        expect((await db.visit(7))!['state'], 'scheduled');
+      },
+    );
   });
 
   group('close is held until evidence has landed', () {
@@ -106,40 +124,58 @@ void main() {
         'state': 'pending',
       });
 
-      await queue.enqueue(visitId: 7, eventType: 'checklist.upsert', payload: {'asset_id': 11});
-      await queue.enqueue(visitId: 7, eventType: 'visit.transition', payload: {'to': 'completed'});
+      await queue.enqueue(
+        visitId: 7,
+        eventType: 'checklist.upsert',
+        payload: {'asset_id': 11},
+      );
+      await queue.enqueue(
+        visitId: 7,
+        eventType: 'visit.transition',
+        payload: {'to': 'completed'},
+      );
 
       await engine.sync();
 
       expect(server.sentTypes, contains('checklist.upsert'));
-      expect(server.sentTypes, isNot(contains('visit.transition')),
-          reason: 'the close must wait for the evidence it will be judged on');
+      expect(
+        server.sentTypes,
+        isNot(contains('visit.transition')),
+        reason: 'the close must wait for the evidence it will be judged on',
+      );
 
       // And it is still queued, not lost.
       final pending = await queue.pending();
       expect(pending.map((e) => e.eventType), contains('visit.transition'));
     });
 
-    test('the close is pushed once every upload for that visit is complete', () async {
-      final server = _RecordingServer();
-      final engine = _engine(server, db, queue, clock);
+    test(
+      'the close is pushed once every upload for that visit is complete',
+      () async {
+        final server = _RecordingServer();
+        final engine = _engine(server, db, queue, clock);
 
-      await db.raw.insert('pending_media', {
-        'client_media_id': 'media-1',
-        'visit_id': 7,
-        'kind': 'photo_after',
-        'local_path': '/nonexistent/photo.jpg',
-        'total_bytes': 10,
-        'uploaded_bytes': 10,
-        'state': 'complete',
-      });
+        await db.raw.insert('pending_media', {
+          'client_media_id': 'media-1',
+          'visit_id': 7,
+          'kind': 'photo_after',
+          'local_path': '/nonexistent/photo.jpg',
+          'total_bytes': 10,
+          'uploaded_bytes': 10,
+          'state': 'complete',
+        });
 
-      await queue.enqueue(visitId: 7, eventType: 'visit.transition', payload: {'to': 'completed'});
+        await queue.enqueue(
+          visitId: 7,
+          eventType: 'visit.transition',
+          payload: {'to': 'completed'},
+        );
 
-      await engine.sync();
+        await engine.sync();
 
-      expect(server.sentTypes, contains('visit.transition'));
-    });
+        expect(server.sentTypes, contains('visit.transition'));
+      },
+    );
 
     test('an upload that has given up does not hold the close forever', () async {
       final server = _RecordingServer();
@@ -159,7 +195,11 @@ void main() {
         'attempts': 8,
       });
 
-      await queue.enqueue(visitId: 7, eventType: 'visit.transition', payload: {'to': 'completed'});
+      await queue.enqueue(
+        visitId: 7,
+        eventType: 'visit.transition',
+        payload: {'to': 'completed'},
+      );
 
       await engine.sync();
 
@@ -185,53 +225,169 @@ void main() {
 
       await engine.retryUpload('media-dead');
 
-      final row = (await db.raw.query('pending_media', where: 'client_media_id = ?', whereArgs: ['media-dead'])).first;
+      final row = (await db.raw.query(
+        'pending_media',
+        where: 'client_media_id = ?',
+        whereArgs: ['media-dead'],
+      )).first;
       expect(row['state'], 'pending');
       expect(row['attempts'], 0);
     });
 
-    test('a close for another visit is not held back by this visit’s uploads', () async {
-      final server = _RecordingServer();
-      final engine = _engine(server, db, queue, clock);
+    test(
+      'a close for another visit is not held back by this visit’s uploads',
+      () async {
+        final server = _RecordingServer();
+        final engine = _engine(server, db, queue, clock);
 
-      await db.raw.insert('pending_media', {
-        'client_media_id': 'media-1',
-        'visit_id': 7,
-        'kind': 'photo_after',
-        'local_path': '/x.jpg',
-        'total_bytes': 10,
-        'uploaded_bytes': 0,
-        'state': 'pending',
-      });
+        await db.raw.insert('pending_media', {
+          'client_media_id': 'media-1',
+          'visit_id': 7,
+          'kind': 'photo_after',
+          'local_path': '/x.jpg',
+          'total_bytes': 10,
+          'uploaded_bytes': 0,
+          'state': 'pending',
+        });
 
-      await queue.enqueue(visitId: 99, eventType: 'visit.transition', payload: {'to': 'completed'});
+        await queue.enqueue(
+          visitId: 99,
+          eventType: 'visit.transition',
+          payload: {'to': 'completed'},
+        );
 
-      await engine.sync();
+        await engine.sync();
 
-      expect(server.sentTypes, contains('visit.transition'));
+        expect(server.sentTypes, contains('visit.transition'));
+      },
+    );
+  });
+
+  group('discard reconciliation', () {
+    Future<void> addFailedMedia(String id) => db.raw.insert('pending_media', {
+      'client_media_id': id,
+      'visit_id': 7,
+      'kind': 'photo_after',
+      'local_path': '/gone.jpg',
+      'total_bytes': 10,
+      'uploaded_bytes': 0,
+      'state': 'failed',
+      'attempts': 8,
     });
+
+    Future<String> registration(String mediaId, {bool failed = false}) async {
+      final event = await queue.enqueue(
+        visitId: 7,
+        eventType: 'media.register',
+        payload: {'client_media_id': mediaId},
+      );
+      if (failed) {
+        await queue.markFailed(event.clientEventId, 'registration rejected');
+      }
+      return event.clientEventId;
+    }
+
+    test(
+      'a pending registration is cancelled and a server 404 settles the discard',
+      () async {
+        final server = _RecordingServer()..discardStatus = 404;
+        final engine = _engine(server, db, queue, clock);
+        await addFailedMedia('media-pending');
+        final eventId = await registration('media-pending');
+
+        await engine.discardUpload('media-pending', reason: 'تعذّر الرفع');
+
+        final media = (await db.raw.query('pending_media')).single;
+        final event = (await db.raw.query(
+          'pending_events',
+          where: 'client_event_id = ?',
+          whereArgs: [eventId],
+        )).single;
+        expect(media['state'], 'discarded');
+        expect(event['status'], QueuedStatus.cancelled.name);
+        expect(server.discardedMedia, ['media-pending']);
+      },
+    );
+
+    test(
+      'a rejected registration can be discarded without a permanent deadlock',
+      () async {
+        final server = _RecordingServer()..discardStatus = 404;
+        final engine = _engine(server, db, queue, clock);
+        await addFailedMedia('media-rejected');
+        final eventId = await registration('media-rejected', failed: true);
+
+        await engine.discardUpload('media-rejected', reason: 'رفض التسجيل');
+
+        final media = (await db.raw.query('pending_media')).single;
+        final event = (await db.raw.query(
+          'pending_events',
+          where: 'client_event_id = ?',
+          whereArgs: [eventId],
+        )).single;
+        expect(media['state'], 'discarded');
+        expect(event['status'], QueuedStatus.cancelled.name);
+      },
+    );
+
+    test(
+      'a registered file is discarded remotely and transient errors retry',
+      () async {
+        final server = _RecordingServer()..discardStatus = 503;
+        final engine = _engine(server, db, queue, clock);
+        await addFailedMedia('media-registered');
+        final eventId = await registration('media-registered');
+        await queue.markSynced([eventId]);
+
+        await engine.discardUpload('media-registered', reason: 'ملف تالف');
+        var media = (await db.raw.query('pending_media')).single;
+        expect(media['state'], 'discard_pending');
+
+        server.discardStatus = 200;
+        await engine.sync();
+        media = (await db.raw.query('pending_media')).single;
+        expect(media['state'], 'discarded');
+        expect(server.discardedMedia, ['media-registered', 'media-registered']);
+      },
+    );
   });
 
   group('rejection handling', () {
-    test('a retryable rejection stays queued instead of being parked as failed', () async {
-      final server = _RecordingServer()..rejectWith = {'code': 'VISIT_CLOSE_BLOCKED', 'retryable': true};
-      final engine = _engine(server, db, queue, clock);
+    test(
+      'a retryable rejection stays queued instead of being parked as failed',
+      () async {
+        final server = _RecordingServer()
+          ..rejectWith = {'code': 'VISIT_CLOSE_BLOCKED', 'retryable': true};
+        final engine = _engine(server, db, queue, clock);
 
-      await queue.enqueue(visitId: 7, eventType: 'visit.transition', payload: {'to': 'completed'});
+        await queue.enqueue(
+          visitId: 7,
+          eventType: 'visit.transition',
+          payload: {'to': 'completed'},
+        );
 
-      await engine.sync();
+        await engine.sync();
 
-      expect(await queue.failed(), isEmpty,
-          reason: 'a refusal that clears itself once uploads finish is not a failure');
-      expect(await queue.pending(), hasLength(1));
-    });
+        expect(
+          await queue.failed(),
+          isEmpty,
+          reason:
+              'a refusal that clears itself once uploads finish is not a failure',
+        );
+        expect(await queue.pending(), hasLength(1));
+      },
+    );
 
     test('a permanent rejection is parked as failed with its reason', () async {
       final server = _RecordingServer()
         ..rejectWith = {'code': 'INVALID_VISIT_TRANSITION', 'retryable': false};
       final engine = _engine(server, db, queue, clock);
 
-      await queue.enqueue(visitId: 7, eventType: 'visit.transition', payload: {'to': 'completed'});
+      await queue.enqueue(
+        visitId: 7,
+        eventType: 'visit.transition',
+        payload: {'to': 'completed'},
+      );
 
       await engine.sync();
 
@@ -240,24 +396,36 @@ void main() {
       expect(failed.first.lastError, contains('INVALID_VISIT_TRANSITION'));
     });
 
-    test('a 401 leaves the queue intact and reports the session as dead', () async {
-      final server = _RecordingServer()..failWith = 401;
-      final engine = _engine(server, db, queue, clock);
+    test(
+      'a 401 leaves the queue intact and reports the session as dead',
+      () async {
+        final server = _RecordingServer()..failWith = 401;
+        final engine = _engine(server, db, queue, clock);
 
-      await queue.enqueue(visitId: 7, eventType: 'note.added');
-      await queue.enqueue(visitId: 7, eventType: 'note.added');
+        await queue.enqueue(visitId: 7, eventType: 'note.added');
+        await queue.enqueue(visitId: 7, eventType: 'note.added');
 
-      final outcome = (await engine.sync())!;
+        final outcome = (await engine.sync())!;
 
-      expect(outcome.sessionExpired, isTrue);
-      expect(await queue.failed(), isEmpty,
-          reason: 'the session failed, not the events — a day of field work must survive');
-      expect(await queue.pending(), hasLength(2));
-    });
+        expect(outcome.sessionExpired, isTrue);
+        expect(
+          await queue.failed(),
+          isEmpty,
+          reason:
+              'the session failed, not the events — a day of field work must survive',
+        );
+        expect(await queue.pending(), hasLength(2));
+      },
+    );
   });
 }
 
-SyncEngine _engine(_RecordingServer server, LocalDb db, EventQueue queue, TrustedClock clock) {
+SyncEngine _engine(
+  _RecordingServer server,
+  LocalDb db,
+  EventQueue queue,
+  TrustedClock clock,
+) {
   return SyncEngine(
     api: ApiClient(baseUrl: 'https://test.local', client: server.client),
     queue: queue,
@@ -269,45 +437,69 @@ SyncEngine _engine(_RecordingServer server, LocalDb db, EventQueue queue, Truste
 
 class _RecordingServer {
   final List<String> sentTypes = [];
+  final List<String> discardedMedia = [];
   Map<String, dynamic>? rejectWith;
   int? failWith;
+  int discardStatus = 404;
 
   http.Client get client => MockClient((request) async {
-        if (failWith != null) {
-          return http.Response(jsonEncode({'code': 'X', 'message': 'nope'}), failWith!);
+    if (failWith != null) {
+      return http.Response(
+        jsonEncode({'code': 'X', 'message': 'nope'}),
+        failWith!,
+      );
+    }
+
+    if (request.url.path.endsWith('/sync/events')) {
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final events = (body['events'] as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      final results = <Map<String, dynamic>>[];
+
+      for (final e in events) {
+        sentTypes.add(e['event_type'] as String);
+
+        if (rejectWith != null) {
+          results.add({
+            'client_event_id': e['client_event_id'],
+            'status': 'rejected',
+            'code': rejectWith!['code'],
+            'message': 'refused',
+            if (rejectWith!.containsKey('retryable'))
+              'retryable': rejectWith!['retryable'],
+          });
+        } else {
+          results.add({
+            'client_event_id': e['client_event_id'],
+            'status': 'accepted',
+          });
         }
+      }
 
-        if (request.url.path.endsWith('/sync/events')) {
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          final events = (body['events'] as List<dynamic>).cast<Map<String, dynamic>>();
-          final results = <Map<String, dynamic>>[];
+      return http.Response(
+        jsonEncode({
+          'server_time': DateTime.now().toIso8601String(),
+          'results': results,
+          'visits': [],
+        }),
+        200,
+      );
+    }
 
-          for (final e in events) {
-            sentTypes.add(e['event_type'] as String);
+    if (request.url.path.endsWith('/discard')) {
+      final segments = request.url.pathSegments;
+      discardedMedia.add(segments[segments.length - 2]);
 
-            if (rejectWith != null) {
-              results.add({
-                'client_event_id': e['client_event_id'],
-                'status': 'rejected',
-                'code': rejectWith!['code'],
-                'message': 'refused',
-                if (rejectWith!.containsKey('retryable')) 'retryable': rejectWith!['retryable'],
-              });
-            } else {
-              results.add({'client_event_id': e['client_event_id'], 'status': 'accepted'});
-            }
-          }
+      if (discardStatus >= 400) {
+        return http.Response(
+          jsonEncode({'code': 'MEDIA_NOT_FOUND', 'message': 'not registered'}),
+          discardStatus,
+        );
+      }
 
-          return http.Response(
-            jsonEncode({
-              'server_time': DateTime.now().toIso8601String(),
-              'results': results,
-              'visits': [],
-            }),
-            200,
-          );
-        }
+      return http.Response(jsonEncode({'status': 'discarded'}), discardStatus);
+    }
 
-        return http.Response(jsonEncode({'code': 'NOT_FOUND'}), 404);
-      });
+    return http.Response(jsonEncode({'code': 'NOT_FOUND'}), 404);
+  });
 }

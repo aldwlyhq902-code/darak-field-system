@@ -6,7 +6,6 @@ use App\Models\NotificationMessage;
 use App\Models\User;
 use App\Models\Visit;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 
 /**
@@ -80,7 +79,7 @@ class NotificationService
         // Wording stays inside the operations-management position: a maintenance
         // record, never a compliance certificate.
         $body = "شكراً لكم — تمت زيارة الصيانة في {$client} ({$site}) بتاريخ {$date}.\n"
-            . 'مرفق تقرير الحالة الفنية وسجل الصيانة الموقّع.';
+            .'مرفق تقرير الحالة الفنية وسجل الصيانة الموقّع.';
 
         return $this->queue(
             type: NotificationMessage::TYPE_REPORT_READY,

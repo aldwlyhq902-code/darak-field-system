@@ -57,6 +57,7 @@ class SlaSweepCommand extends Command
                     // would be a lie.
                     if (! $sla->isWithinWindow($now, $contract)) {
                         $skippedOutOfWindow++;
+
                         continue;
                     }
 

@@ -50,7 +50,9 @@ return [
     |
     */
 
-    'expiration' => null,
+    // Device revocation remains immediate, while this bounds the damage from a
+    // bearer token copied without the device. Default: 30 days.
+    'expiration' => (int) env('SANCTUM_EXPIRATION', 43200),
 
     /*
     |--------------------------------------------------------------------------

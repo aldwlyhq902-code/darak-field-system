@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\NotificationMessage;
 use App\Models\StockMove;
 use App\Services\InventoryService;
+use App\Services\NotificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Tests\DarakTestCase;
@@ -110,8 +111,8 @@ class SlaSweepAndAssignmentTest extends DarakTestCase
 
     public function test_notifications_run_command_leaves_manual_whatsapp_for_a_human(): void
     {
-        app(\App\Services\NotificationService::class)->reportReady($this->visit, '0551234567');
-        app(\App\Services\NotificationService::class)->slaAtRisk($this->visit, 20);
+        app(NotificationService::class)->reportReady($this->visit, '0551234567');
+        app(NotificationService::class)->slaAtRisk($this->visit, 20);
 
         $this->artisan('darak:notifications-run')->assertSuccessful();
 

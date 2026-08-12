@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
 use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,9 +16,7 @@ use Illuminate\View\View;
  */
 class PanelAuthController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit)
-    {
-    }
+    public function __construct(private readonly AuditLogger $audit) {}
 
     public function show(): View
     {
@@ -47,10 +44,22 @@ class PanelAuthController extends Controller
             ]);
         }
 
+        $remember = $request->boolean('remember');
         $request->session()->regenerate();
-        $this->audit->record('panel.login', $user, null, ['role' => $user->role], $user->id);
 
-        return redirect()->route('panel.board');
+        if (! $user->hasConfirmedTwoFactor()) {
+            return redirect()->route('panel.two-factor.setup');
+        }
+
+        // A password alone never creates an authorised panel session once MFA is
+        // enabled. Keep only the pending user id until the second factor passes.
+        Auth::guard('web')->logout();
+        $request->session()->put([
+            'two_factor_pending_user_id' => $user->id,
+            'two_factor_remember' => $remember,
+        ]);
+
+        return redirect()->route('panel.two-factor.challenge');
     }
 
     public function logout(Request $request): RedirectResponse

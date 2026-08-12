@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\ExternalDocument;
 use App\Models\StockMove;
-use App\Models\Visit;
 use App\Services\InvoiceService;
 use Illuminate\Support\Str;
 use Tests\DarakTestCase;

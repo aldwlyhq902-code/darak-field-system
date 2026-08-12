@@ -15,9 +15,7 @@ use Illuminate\View\View;
 
 class SubcontractorPanelController extends Controller
 {
-    public function __construct(private readonly SubcontractorService $service)
-    {
-    }
+    public function __construct(private readonly SubcontractorService $service) {}
 
     public function index(): View
     {
@@ -70,7 +68,7 @@ class SubcontractorPanelController extends Controller
         // A loss-making assignment is possible but never accidental — it takes a
         // deliberate second confirmation.
         if ($preview['margin'] < 0 && ! $request->boolean('confirm_negative_margin')) {
-            return back()->with('err', $preview['warning'] . ' فعّل تأكيد الهامش السالب إن كنت متعمداً.');
+            return back()->with('err', $preview['warning'].' فعّل تأكيد الهامش السالب إن كنت متعمداً.');
         }
 
         try {

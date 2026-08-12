@@ -7,6 +7,7 @@ use App\Http\Controllers\Web\NotificationPanelController;
 use App\Http\Controllers\Web\PanelAuthController;
 use App\Http\Controllers\Web\SubcontractorPanelController;
 use App\Http\Controllers\Web\TeamController;
+use App\Http\Controllers\Web\TwoFactorController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -22,12 +23,20 @@ Route::get('/', fn () => redirect()->route('panel.board'));
 
 Route::get('login', [PanelAuthController::class, 'show'])->name('panel.login');
 Route::post('login', [PanelAuthController::class, 'login'])->middleware('throttle:10,1');
+Route::get('two-factor-challenge', [TwoFactorController::class, 'challenge'])->name('panel.two-factor.challenge');
+Route::post('two-factor-challenge', [TwoFactorController::class, 'verifyChallenge'])
+    ->middleware('throttle:10,1')->name('panel.two-factor.verify');
 
 // `auth:web` alone only asks "is someone signed in", never "are they still
 // allowed to be". A disabled account kept its cookie session and the whole panel.
 Route::middleware(['auth:web', 'panel.active'])->group(function () {
     Route::post('logout', [PanelAuthController::class, 'logout'])->name('panel.logout');
+    Route::get('two-factor/setup', [TwoFactorController::class, 'setup'])->name('panel.two-factor.setup');
+    Route::post('two-factor/setup', [TwoFactorController::class, 'confirm'])
+        ->middleware('throttle:10,1')->name('panel.two-factor.confirm');
+});
 
+Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed'])->group(function () {
     Route::get('board', [BoardController::class, 'index'])->name('panel.board');
     Route::get('visits/{visit}', [BoardController::class, 'show'])->name('panel.visit');
     Route::post('visits/{visit}/assign', [BoardController::class, 'assign'])->name('panel.visit.assign');
@@ -59,6 +68,10 @@ Route::middleware(['auth:web', 'panel.active'])->group(function () {
     Route::post('team/technicians', [TeamController::class, 'storeTechnician'])->name('panel.team.technician');
     Route::post('team/users/{user}/toggle', [TeamController::class, 'toggleActive'])->name('panel.team.toggle');
     Route::post('team/devices/{device}/revoke', [TeamController::class, 'revokeDevice'])->name('panel.team.revoke');
+    Route::post('team/users/{user}/two-factor-reset', [TwoFactorController::class, 'reset'])
+        ->name('panel.team.two-factor-reset');
+    Route::post('two-factor/recovery-codes', [TwoFactorController::class, 'regenerateRecoveryCodes'])
+        ->name('panel.two-factor.recovery-codes');
 
     Route::get('notifications', [NotificationPanelController::class, 'index'])->name('panel.notifications');
     Route::post('notifications/run', [NotificationPanelController::class, 'run'])->name('panel.notifications.run');

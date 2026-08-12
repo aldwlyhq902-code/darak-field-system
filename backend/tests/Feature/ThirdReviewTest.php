@@ -5,8 +5,9 @@ namespace Tests\Feature;
 use App\Models\Asset;
 use App\Models\ChecklistInstance;
 use App\Models\MediaFile;
-use App\Models\StockMove;
+use App\Models\StockLocation;
 use App\Models\User;
+use App\Models\Vehicle;
 use App\Models\Visit;
 use App\Services\CloseGate;
 use App\Services\InventoryService;
@@ -232,9 +233,9 @@ class ThirdReviewTest extends DarakTestCase
 
         $issue = $inv->issueToVisit((string) Str::uuid(), $this->part->id, 2, $this->vehicleStock->id, $this->visit);
 
-        $secondVehicle = \App\Models\Vehicle::create(['plate' => 'SECOND-1', 'assigned_user_id' => $this->technician->id]);
-        $secondStock = \App\Models\StockLocation::create([
-            'type' => \App\Models\StockLocation::TYPE_VEHICLE,
+        $secondVehicle = Vehicle::create(['plate' => 'SECOND-1', 'assigned_user_id' => $this->technician->id]);
+        $secondStock = StockLocation::create([
+            'type' => StockLocation::TYPE_VEHICLE,
             'name' => 'Vehicle 2',
             'vehicle_id' => $secondVehicle->id,
         ]);
@@ -258,6 +259,11 @@ class ThirdReviewTest extends DarakTestCase
             'role' => User::ROLE_ADMIN,
             'is_active' => true,
         ]);
+        $admin->forceFill([
+            'two_factor_secret' => 'JBSWY3DPEHPK3PXP',
+            'two_factor_recovery_codes' => [],
+            'two_factor_confirmed_at' => now(),
+        ])->save();
 
         $this->actingAs($admin, 'web')->get(route('panel.board'))->assertOk();
 

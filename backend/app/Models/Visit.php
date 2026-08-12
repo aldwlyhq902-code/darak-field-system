@@ -13,11 +13,17 @@ class Visit extends Model
 
     /** MVP state machine (PRD v1.2 §2). */
     public const STATE_SCHEDULED = 'scheduled';
+
     public const STATE_EN_ROUTE = 'en_route';
+
     public const STATE_STARTED = 'started';
+
     public const STATE_PAUSED = 'paused';
+
     public const STATE_AWAITING_CLOSE = 'awaiting_close';
+
     public const STATE_COMPLETED = 'completed';
+
     public const STATE_REOPENED = 'reopened';
 
     /**

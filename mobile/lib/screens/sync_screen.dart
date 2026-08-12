@@ -53,7 +53,10 @@ class _SyncScreenState extends State<SyncScreen> {
           'التقط بديلاً إن كان الدليل ما زال مطلوباً.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('تراجع')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('تراجع'),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
@@ -119,102 +122,138 @@ class _SyncScreenState extends State<SyncScreen> {
                         await _load();
                       },
                 icon: const Icon(Icons.cloud_upload_outlined),
-                label: Text(widget.state.syncing ? 'جارٍ المزامنة…' : 'مزامنة الآن'),
+                label: Text(
+                  widget.state.syncing ? 'جارٍ المزامنة…' : 'مزامنة الآن',
+                ),
               ),
               if (widget.state.lastSyncMessage != null) ...[
                 const SizedBox(height: 12),
-                Text(widget.state.lastSyncMessage!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                Text(
+                  widget.state.lastSyncMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                ),
               ],
               const SizedBox(height: 24),
               if (_failedUploads.isNotEmpty) ...[
-                Text('أدلة لم تُرفع', style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'أدلة لم تُرفع',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const SizedBox(height: 4),
                 const Text(
                   'الزيارة لا تُقفل بدونها. أعد المحاولة، وإن تعذّر فأعد الالتقاط.',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
                 const SizedBox(height: 10),
-                ..._failedUploads.map((upload) => Card(
-                      color: Colors.orange.shade50,
-                      child: ListTile(
-                        leading: const Icon(Icons.image_not_supported_outlined, color: Colors.orange),
-                        title: Text(
-                          upload['kind'] == 'signature' ? 'توقيع' : 'صورة',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('زيارة ${upload['visit_id']} · محاولات: ${upload['attempts']}',
-                                style: const TextStyle(fontSize: 12)),
-                            if (upload['last_error'] != null)
-                              Text('${upload['last_error']}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(fontSize: 11, color: Colors.orange.shade900)),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'إعادة الرفع',
-                              icon: const Icon(Icons.upload_file),
-                              onPressed: () async {
-                                await widget.state.sync.retryUpload(upload['client_media_id'] as String);
-                                await widget.state.runSync();
-                                await _load();
-                              },
-                            ),
-                            // The way out. Without it a file that will never
-                            // upload holds the visit open indefinitely and the
-                            // technician has nothing to press.
-                            IconButton(
-                              tooltip: 'إسقاط الملف',
-                              icon: const Icon(Icons.delete_outline, color: Colors.red),
-                              onPressed: () => _confirmDiscard(upload),
-                            ),
-                          ],
-                        ),
+                ..._failedUploads.map(
+                  (upload) => Card(
+                    color: Colors.orange.shade50,
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.image_not_supported_outlined,
+                        color: Colors.orange,
                       ),
-                    )),
+                      title: Text(
+                        upload['kind'] == 'signature' ? 'توقيع' : 'صورة',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'زيارة ${upload['visit_id']} · محاولات: ${upload['attempts']}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          if (upload['last_error'] != null)
+                            Text(
+                              '${upload['last_error']}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.orange.shade900,
+                              ),
+                            ),
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'إعادة الرفع',
+                            icon: const Icon(Icons.upload_file),
+                            onPressed: () async {
+                              await widget.state.sync.retryUpload(
+                                upload['client_media_id'] as String,
+                              );
+                              await widget.state.runSync();
+                              await _load();
+                            },
+                          ),
+                          // The way out. Without it a file that will never
+                          // upload holds the visit open indefinitely and the
+                          // technician has nothing to press.
+                          IconButton(
+                            tooltip: 'إسقاط الملف',
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                            ),
+                            onPressed: () => _confirmDiscard(upload),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 24),
               ],
               if (_failed.isNotEmpty) ...[
-                Text('عمليات مرفوضة', style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'عمليات مرفوضة',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const SizedBox(height: 4),
                 const Text(
                   'رفضها الخادم لسبب واضح. صحّح السبب ثم أعد المحاولة.',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
                 const SizedBox(height: 10),
-                ..._failed.map((event) => Card(
-                      color: Colors.red.shade50,
-                      child: ListTile(
-                        title: Text(event.eventType),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('زيارة ${event.visitId} · محاولات: ${event.attempts}',
-                                style: const TextStyle(fontSize: 12)),
-                            if (event.lastError != null)
-                              Text(event.lastError!,
-                                  style: TextStyle(fontSize: 12, color: Colors.red.shade900)),
-                          ],
-                        ),
-                        trailing: IconButton(
-                          tooltip: 'إعادة المحاولة',
-                          icon: const Icon(Icons.refresh),
-                          onPressed: () async {
-                            await widget.state.queue.requeue(event.clientEventId);
-                            await widget.state.runSync();
-                            await _load();
-                          },
-                        ),
+                ..._failed.map(
+                  (event) => Card(
+                    color: Colors.red.shade50,
+                    child: ListTile(
+                      title: Text(event.eventType),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'زيارة ${event.visitId} · محاولات: ${event.attempts}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          if (event.lastError != null)
+                            Text(
+                              event.lastError!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.red.shade900,
+                              ),
+                            ),
+                        ],
                       ),
-                    )),
+                      trailing: IconButton(
+                        tooltip: 'إعادة المحاولة',
+                        icon: const Icon(Icons.refresh),
+                        onPressed: () async {
+                          await widget.state.queue.requeue(event.clientEventId);
+                          await widget.state.runSync();
+                          await _load();
+                        },
+                      ),
+                    ),
+                  ),
+                ),
               ] else
                 const Card(
                   child: ListTile(
@@ -257,12 +296,20 @@ class _CountTile extends StatelessWidget {
           children: [
             Icon(icon, color: color, size: 22),
             const SizedBox(height: 6),
-            Text('$value',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+            Text(
+              '$value',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
             const SizedBox(height: 2),
-            Text(label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 11, color: Colors.black54)),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11, color: Colors.black54),
+            ),
           ],
         ),
       ),

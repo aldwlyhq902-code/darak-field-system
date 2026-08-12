@@ -15,7 +15,7 @@ class VisitCloseBlocked extends RuntimeException
     /** @param array<int, array{code:string, message_ar:string, message_en:string, ref?:mixed}> $blockers */
     public function __construct(public readonly array $blockers)
     {
-        parent::__construct('Visit cannot be closed: ' . count($blockers) . ' item(s) missing.');
+        parent::__construct('Visit cannot be closed: '.count($blockers).' item(s) missing.');
     }
 
     public function render(): JsonResponse

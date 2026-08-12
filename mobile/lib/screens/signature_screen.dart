@@ -13,7 +13,11 @@ class SignatureScreen extends StatefulWidget {
 }
 
 class SignatureResult {
-  const SignatureResult({required this.png, required this.name, required this.role});
+  const SignatureResult({
+    required this.png,
+    required this.name,
+    required this.role,
+  });
 
   final Uint8List png;
   final String name;
@@ -57,11 +61,13 @@ class _SignatureScreenState extends State<SignatureScreen> {
       return;
     }
 
-    Navigator.of(context).pop(SignatureResult(
-      png: png,
-      name: _name.text.trim(),
-      role: _role.text.trim(),
-    ));
+    Navigator.of(context).pop(
+      SignatureResult(
+        png: png,
+        name: _name.text.trim(),
+        role: _role.text.trim(),
+      ),
+    );
   }
 
   @override

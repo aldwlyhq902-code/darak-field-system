@@ -44,14 +44,19 @@ void main() {
       expect(a.clientEventId, hasLength(36));
     });
 
-    test('sequence increases monotonically and survives clock changes', () async {
-      final events = <QueuedEvent>[];
-      for (var i = 0; i < 5; i++) {
-        events.add(await queue.enqueue(visitId: 1, eventType: 'geofence.ping'));
-      }
+    test(
+      'sequence increases monotonically and survives clock changes',
+      () async {
+        final events = <QueuedEvent>[];
+        for (var i = 0; i < 5; i++) {
+          events.add(
+            await queue.enqueue(visitId: 1, eventType: 'geofence.ping'),
+          );
+        }
 
-      expect(events.map((e) => e.sequence).toList(), [1, 2, 3, 4, 5]);
-    });
+        expect(events.map((e) => e.sequence).toList(), [1, 2, 3, 4, 5]);
+      },
+    );
 
     test('pending returns rows in sequence order, oldest first', () async {
       for (var i = 0; i < 3; i++) {
@@ -60,13 +65,20 @@ void main() {
 
       final pending = await queue.pending();
 
-      expect(pending.map((e) => e.eventType).toList(), ['step.0', 'step.1', 'step.2']);
+      expect(pending.map((e) => e.eventType).toList(), [
+        'step.0',
+        'step.1',
+        'step.2',
+      ]);
     });
 
     test('a rejected event keeps its reason instead of disappearing', () async {
       final event = await queue.enqueue(visitId: 1, eventType: 'part.issue');
 
-      await queue.markFailed(event.clientEventId, 'EVENT_FAILED: Insufficient stock');
+      await queue.markFailed(
+        event.clientEventId,
+        'EVENT_FAILED: Insufficient stock',
+      );
 
       final failed = await queue.failed();
       expect(failed, hasLength(1));
@@ -76,6 +88,54 @@ void main() {
       await queue.requeue(event.clientEventId);
       expect(await queue.pending(), hasLength(1));
     });
+
+    test(
+      'discard cancellation covers pending and failed media registrations',
+      () async {
+        final pending = await queue.enqueue(
+          visitId: 1,
+          eventType: 'media.register',
+          payload: {'client_media_id': 'media-pending'},
+        );
+        final failed = await queue.enqueue(
+          visitId: 1,
+          eventType: 'media.register',
+          payload: {'client_media_id': 'media-failed'},
+        );
+        await queue.markFailed(failed.clientEventId, 'registration rejected');
+
+        expect(
+          await queue.cancelUnsettledMediaRegistration('media-pending'),
+          isTrue,
+        );
+        expect(
+          await queue.cancelUnsettledMediaRegistration('media-failed'),
+          isTrue,
+        );
+
+        final rows = await db.raw.query(
+          'pending_events',
+          columns: ['client_event_id', 'status'],
+          orderBy: 'sequence',
+        );
+        expect(
+          rows.map((row) => row['status']),
+          everyElement(QueuedStatus.cancelled.name),
+        );
+
+        // A response that was already in flight cannot revive the cancelled row.
+        await queue.markSynced([pending.clientEventId]);
+        await queue.requeue(failed.clientEventId);
+        final afterLateWrites = await db.raw.query(
+          'pending_events',
+          orderBy: 'sequence',
+        );
+        expect(
+          afterLateWrites.map((row) => row['status']),
+          everyElement(QueuedStatus.cancelled.name),
+        );
+      },
+    );
   });
 
   group('sync engine', () {
@@ -84,7 +144,11 @@ void main() {
       final engine = _engine(server, db, queue, clock);
 
       for (var i = 0; i < 20; i++) {
-        await queue.enqueue(visitId: 7, eventType: 'checklist.upsert', payload: {'i': i});
+        await queue.enqueue(
+          visitId: 7,
+          eventType: 'checklist.upsert',
+          payload: {'i': i},
+        );
       }
 
       expect(await queue.pending(), hasLength(20));
@@ -103,30 +167,49 @@ void main() {
       final second = (await engine.sync())!;
       expect(second.duplicate, 20, reason: 'server recognises the same UUIDs');
       expect(second.accepted, 0);
-      expect(server.uniqueEventIds, hasLength(20), reason: 'no duplicate side effects');
-      expect(await queue.pending(), isEmpty, reason: 'the retry settles the queue');
+      expect(
+        server.uniqueEventIds,
+        hasLength(20),
+        reason: 'no duplicate side effects',
+      );
+      expect(
+        await queue.pending(),
+        isEmpty,
+        reason: 'the retry settles the queue',
+      );
     });
 
-    test('network failure leaves events pending, not lost and not failed', () async {
-      final server = _FakeServer()..failWith = 503;
-      final engine = _engine(server, db, queue, clock);
+    test(
+      'network failure leaves events pending, not lost and not failed',
+      () async {
+        final server = _FakeServer()..failWith = 503;
+        final engine = _engine(server, db, queue, clock);
 
-      await queue.enqueue(visitId: 7, eventType: 'note.added');
-      await queue.enqueue(visitId: 7, eventType: 'note.added');
+        await queue.enqueue(visitId: 7, eventType: 'note.added');
+        await queue.enqueue(visitId: 7, eventType: 'note.added');
 
-      final outcome = (await engine.sync())!;
+        final outcome = (await engine.sync())!;
 
-      expect(outcome.deferred, 2);
-      expect(outcome.rejected, 0);
-      expect(await queue.pending(), hasLength(2), reason: 'still queued for retry');
-      expect(await queue.failed(), isEmpty, reason: 'transport failure is not the event\'s fault');
+        expect(outcome.deferred, 2);
+        expect(outcome.rejected, 0);
+        expect(
+          await queue.pending(),
+          hasLength(2),
+          reason: 'still queued for retry',
+        );
+        expect(
+          await queue.failed(),
+          isEmpty,
+          reason: 'transport failure is not the event\'s fault',
+        );
 
-      // Server recovers.
-      server.failWith = null;
-      final retry = (await engine.sync())!;
-      expect(retry.accepted, 2);
-      expect(await queue.pending(), isEmpty);
-    });
+        // Server recovers.
+        server.failWith = null;
+        final retry = (await engine.sync())!;
+        expect(retry.accepted, 2);
+        expect(await queue.pending(), isEmpty);
+      },
+    );
 
     test('a server rejection is surfaced with its reason', () async {
       final server = _FakeServer()..rejectTypes = {'part.issue'};
@@ -179,20 +262,26 @@ void main() {
   });
 
   group('trusted clock', () {
-    test('reports a null offset instead of guessing before the first sync', () async {
-      expect(clock.monotonicOffsetMs, isNull);
-      expect(clock.suspectedDrift, isNull);
-    });
+    test(
+      'reports a null offset instead of guessing before the first sync',
+      () async {
+        expect(clock.monotonicOffsetMs, isNull);
+        expect(clock.suspectedDrift, isNull);
+      },
+    );
 
-    test('after adopting server time the offset advances monotonically', () async {
-      await clock.adopt(DateTime.utc(2026, 8, 10, 12));
+    test(
+      'after adopting server time the offset advances monotonically',
+      () async {
+        await clock.adopt(DateTime.utc(2026, 8, 10, 12));
 
-      expect(clock.monotonicOffsetMs, isNotNull);
-      expect(clock.lastTrustedServerTime, DateTime.utc(2026, 8, 10, 12));
+        expect(clock.monotonicOffsetMs, isNotNull);
+        expect(clock.lastTrustedServerTime, DateTime.utc(2026, 8, 10, 12));
 
-      await Future<void>.delayed(const Duration(milliseconds: 25));
-      expect(clock.monotonicOffsetMs, greaterThanOrEqualTo(20));
-    });
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+        expect(clock.monotonicOffsetMs, greaterThanOrEqualTo(20));
+      },
+    );
 
     test('queued events carry the clock evidence the server needs', () async {
       await clock.adopt(DateTime.utc(2026, 8, 10, 12));
@@ -208,7 +297,12 @@ void main() {
   });
 }
 
-SyncEngine _engine(_FakeServer server, LocalDb db, EventQueue queue, TrustedClock clock) {
+SyncEngine _engine(
+  _FakeServer server,
+  LocalDb db,
+  EventQueue queue,
+  TrustedClock clock,
+) {
   return SyncEngine(
     api: ApiClient(baseUrl: 'https://test.local', client: server.client),
     queue: queue,
@@ -226,51 +320,52 @@ class _FakeServer {
   int? failWith;
 
   http.Client get client => MockClient((request) async {
-        if (failWith != null) {
-          return http.Response(
-            jsonEncode({'code': 'SERVER', 'message': 'upstream unavailable'}),
-            failWith!,
-          );
+    if (failWith != null) {
+      return http.Response(
+        jsonEncode({'code': 'SERVER', 'message': 'upstream unavailable'}),
+        failWith!,
+      );
+    }
+
+    if (request.url.path.endsWith('/sync/events')) {
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final events = (body['events'] as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      final results = <Map<String, dynamic>>[];
+
+      for (final event in events) {
+        final id = event['client_event_id'] as String;
+        final type = event['event_type'] as String;
+
+        if (rejectTypes.contains(type)) {
+          results.add({
+            'client_event_id': id,
+            'status': 'rejected',
+            'code': 'EVENT_FAILED',
+            'message': 'Insufficient stock at [Vehicle 1]',
+          });
+          continue;
         }
 
-        if (request.url.path.endsWith('/sync/events')) {
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          final events = (body['events'] as List<dynamic>).cast<Map<String, dynamic>>();
-          final results = <Map<String, dynamic>>[];
-
-          for (final event in events) {
-            final id = event['client_event_id'] as String;
-            final type = event['event_type'] as String;
-
-            if (rejectTypes.contains(type)) {
-              results.add({
-                'client_event_id': id,
-                'status': 'rejected',
-                'code': 'EVENT_FAILED',
-                'message': 'Insufficient stock at [Vehicle 1]',
-              });
-              continue;
-            }
-
-            if (uniqueEventIds.contains(id)) {
-              results.add({'client_event_id': id, 'status': 'duplicate'});
-            } else {
-              uniqueEventIds.add(id);
-              receivedEventIds.add(id);
-              results.add({'client_event_id': id, 'status': 'accepted'});
-            }
-          }
-
-          return http.Response(
-            jsonEncode({
-              'server_time': DateTime.now().toIso8601String(),
-              'results': results,
-              'visits': [],
-            }),
-            200,
-          );
+        if (uniqueEventIds.contains(id)) {
+          results.add({'client_event_id': id, 'status': 'duplicate'});
+        } else {
+          uniqueEventIds.add(id);
+          receivedEventIds.add(id);
+          results.add({'client_event_id': id, 'status': 'accepted'});
         }
+      }
 
-        return http.Response(jsonEncode({'code': 'NOT_FOUND'}), 404);
-      });
+      return http.Response(
+        jsonEncode({
+          'server_time': DateTime.now().toIso8601String(),
+          'results': results,
+          'visits': [],
+        }),
+        200,
+      );
+    }
+
+    return http.Response(jsonEncode({'code': 'NOT_FOUND'}), 404);
+  });
 }

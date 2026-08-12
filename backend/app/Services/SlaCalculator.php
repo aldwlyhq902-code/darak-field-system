@@ -23,6 +23,7 @@ use Carbon\CarbonInterface;
 class SlaCalculator
 {
     private const DEFAULT_START = '07:00:00';
+
     private const DEFAULT_END = '23:00:00';
 
     /**
@@ -51,12 +52,14 @@ class SlaCalculator
             if ($cursor->lt($windowOpen)) {
                 // Before opening: jump to the open time, nothing consumed.
                 $cursor = $windowOpen;
+
                 continue;
             }
 
             if ($cursor->gte($windowClose)) {
                 // After closing: jump to the next opening.
                 $cursor = $this->at($cursor->addDay(), $startTime);
+
                 continue;
             }
 
@@ -103,11 +106,13 @@ class SlaCalculator
 
             if ($cursor->lt($windowOpen)) {
                 $cursor = $windowOpen;
+
                 continue;
             }
 
             if ($cursor->gte($windowClose)) {
                 $cursor = $this->at($cursor->addDay(), $startTime);
+
                 continue;
             }
 
@@ -208,7 +213,7 @@ class SlaCalculator
 
         $string = $value instanceof \DateTimeInterface ? $value->format('H:i:s') : (string) $value;
 
-        return strlen($string) === 5 ? $string . ':00' : $string;
+        return strlen($string) === 5 ? $string.':00' : $string;
     }
 
     private function at(CarbonImmutable $day, string $time): CarbonImmutable

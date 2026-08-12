@@ -184,7 +184,7 @@
                 @csrf
                 <div class="field">
                     <label>الموقع</label>
-                    <select name="site_id" id="siteSelect" required onchange="filterAssets()">
+                    <select name="site_id" id="siteSelect" required>
                         @foreach ($client->sites as $site)
                             <option value="{{ $site->id }}">{{ $site->name }}</option>
                         @endforeach
@@ -234,7 +234,7 @@
                 <button class="btn">إنشاء أمر العمل والزيارة</button>
             </form>
 
-            <script>
+            <script nonce="{{ $cspNonce }}">
             // Assets belong to one branch. Showing all of the client's at once
             // let a visit for branch A carry an asset from branch B — the server
             // then demanded a unit the technician's phone never listed.
@@ -256,6 +256,7 @@
                 }
             }
 
+            document.getElementById('siteSelect').addEventListener('change', filterAssets);
             filterAssets();
             </script>
         </div>

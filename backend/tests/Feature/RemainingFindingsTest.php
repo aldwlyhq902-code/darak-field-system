@@ -11,6 +11,7 @@ use App\Services\InventoryService;
 use App\Services\InvoiceService;
 use App\Services\NotificationService;
 use App\Services\SubcontractorService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Tests\DarakTestCase;
@@ -140,7 +141,7 @@ class RemainingFindingsTest extends DarakTestCase
         $second = $service->assign($partner, $this->visit->workOrder, 100, 200, $this->visit);
 
         $this->assertNotSame($first->order_no, $second->order_no);
-        $this->assertSame('SUB-' . str_pad((string) $first->id, 5, '0', STR_PAD_LEFT), $first->order_no);
+        $this->assertSame('SUB-'.str_pad((string) $first->id, 5, '0', STR_PAD_LEFT), $first->order_no);
         $this->assertStringNotContainsString('TMP', $second->order_no);
     }
 
@@ -174,6 +175,11 @@ class RemainingFindingsTest extends DarakTestCase
             'role' => User::ROLE_ADMIN,
             'is_active' => true,
         ]);
+        $admin->forceFill([
+            'two_factor_secret' => 'JBSWY3DPEHPK3PXP',
+            'two_factor_recovery_codes' => [],
+            'two_factor_confirmed_at' => now(),
+        ])->save();
 
         $this->actingAs($admin, 'web')
             ->post(route('panel.team.revoke', $this->device))
@@ -214,10 +220,10 @@ class RemainingFindingsTest extends DarakTestCase
             $inv->receipt((string) Str::uuid(), $part->id, 3, $this->warehouse->id);
         }
 
-        \Illuminate\Support\Facades\DB::enableQueryLog();
+        DB::enableQueryLog();
         $balances = $inv->locationBalances($this->warehouse->id);
-        $queries = count(\Illuminate\Support\Facades\DB::getQueryLog());
-        \Illuminate\Support\Facades\DB::disableQueryLog();
+        $queries = count(DB::getQueryLog());
+        DB::disableQueryLog();
 
         $this->assertCount(12, $balances);
         $this->assertLessThanOrEqual(

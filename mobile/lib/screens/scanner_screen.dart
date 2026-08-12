@@ -7,7 +7,11 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 /// than filling a form from the van. It works with no network — the code is read
 /// on-device and matched against the cached visit data.
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key, this.title = 'مسح رمز QR', this.expectedPrefix});
+  const ScannerScreen({
+    super.key,
+    this.title = 'مسح رمز QR',
+    this.expectedPrefix,
+  });
 
   final String title;
 
@@ -41,7 +45,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
     final prefix = widget.expectedPrefix;
     if (prefix != null && !value.startsWith(prefix)) {
-      setState(() => _warning = 'هذا الرمز ليس من النوع المطلوب ($prefix). امسح الملصق الصحيح.');
+      setState(
+        () => _warning =
+            'هذا الرمز ليس من النوع المطلوب ($prefix). امسح الملصق الصحيح.',
+      );
       return;
     }
 
@@ -92,7 +99,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     child: Text(_warning!, textAlign: TextAlign.center),
                   ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(24),

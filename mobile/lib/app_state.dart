@@ -65,7 +65,8 @@ class AppState extends ChangeNotifier {
       await prefs.setString('device_uuid', deviceUuid!);
     }
 
-    db = await LocalDb.open(directory: dir.path);
+    final databaseKey = await tokens.readOrCreateDatabaseKey();
+    db = await LocalDb.open(directory: dir.path, password: databaseKey);
     clock = await TrustedClock.load();
     queue = EventQueue(db, clock);
     sync = SyncEngine(
@@ -76,7 +77,12 @@ class AppState extends ChangeNotifier {
       deviceUuid: deviceUuid!,
       evidenceRoot: dir.path,
     );
-    evidence = EvidenceStore(db: db, queue: queue, clock: clock, rootDirectory: dir.path);
+    evidence = EvidenceStore(
+      db: db,
+      queue: queue,
+      clock: clock,
+      rootDirectory: dir.path,
+    );
     progress = VisitProgress(db);
 
     // Queued work used to sit untouched until someone tapped sync. A technician
@@ -90,7 +96,7 @@ class AppState extends ChangeNotifier {
       }
     });
 
-    // The credential comes from the keystore, not from the sqlite file.
+    // Credentials and the SQLCipher key come from the platform keystore.
     api.token = await tokens.readToken();
     technicianName = await tokens.readTechnicianName();
 
@@ -114,10 +120,13 @@ class AppState extends ChangeNotifier {
       );
 
       await tokens.writeToken(response['token'] as String);
-      technicianName = (response['user'] as Map<String, dynamic>)['name'] as String?;
+      technicianName =
+          (response['user'] as Map<String, dynamic>)['name'] as String?;
       await tokens.writeTechnicianName(technicianName ?? '');
 
-      final serverTime = DateTime.tryParse(response['server_time'] as String? ?? '');
+      final serverTime = DateTime.tryParse(
+        response['server_time'] as String? ?? '',
+      );
       if (serverTime != null) await clock.adopt(serverTime);
 
       await pullWork();
@@ -173,7 +182,8 @@ class AppState extends ChangeNotifier {
       api.token = null;
       sessionExpired = true;
       syncing = false;
-      lastSyncMessage = 'انتهت الجلسة — سجّل الدخول مرة أخرى. عملك محفوظ ولم يضع منه شيء.';
+      lastSyncMessage =
+          'انتهت الجلسة — سجّل الدخول مرة أخرى. عملك محفوظ ولم يضع منه شيء.';
       notifyListeners();
       return;
     }
@@ -182,7 +192,8 @@ class AppState extends ChangeNotifier {
     lastSyncedAt = online ? DateTime.now() : lastSyncedAt;
     lastSyncMessage = switch (outcome) {
       _ when outcome.error != null => 'تعذّرت المزامنة: ${outcome.error}',
-      _ when outcome.rejected > 0 => 'رُفضت ${outcome.rejected} عملية — راجع شاشة المزامنة',
+      _ when outcome.rejected > 0 =>
+        'رُفضت ${outcome.rejected} عملية — راجع شاشة المزامنة',
       _ when outcome.heldBack > 0 =>
         'بانتظار اكتمال رفع الأدلة قبل إرسال الإقفال (${outcome.heldBack})',
       _ when outcome.total == 0 => 'لا شيء بانتظار المزامنة',
@@ -203,7 +214,11 @@ class AppState extends ChangeNotifier {
     String eventType, {
     Map<String, dynamic> payload = const {},
   }) async {
-    await queue.enqueue(visitId: visitId, eventType: eventType, payload: payload);
+    await queue.enqueue(
+      visitId: visitId,
+      eventType: eventType,
+      payload: payload,
+    );
     await refreshLocal();
     unawaited(runSync());
   }
@@ -239,7 +254,11 @@ class AppState extends ChangeNotifier {
       whereArgs: [visitId],
     );
 
-    await record(visitId, 'parts.declaration', payload: {'no_parts_used': value});
+    await record(
+      visitId,
+      'parts.declaration',
+      payload: {'no_parts_used': value},
+    );
     await refreshLocal();
   }
 
@@ -259,25 +278,25 @@ class AppState extends ChangeNotifier {
     String? note,
     bool noPartsUsed = false,
   }) async {
-    await db.raw.insert(
-      'local_checklists',
-      {
-        'visit_id': visitId,
-        'asset_id': assetId,
-        'status': status,
-        'note': note,
-        'no_parts_used': noPartsUsed ? 1 : 0,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-
-    await record(visitId, 'checklist.upsert', payload: {
+    await db.raw.insert('local_checklists', {
+      'visit_id': visitId,
       'asset_id': assetId,
       'status': status,
       'note': note,
-      'no_parts_used': noPartsUsed,
-    });
+      'no_parts_used': noPartsUsed ? 1 : 0,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+    await record(
+      visitId,
+      'checklist.upsert',
+      payload: {
+        'asset_id': assetId,
+        'status': status,
+        'note': note,
+        'no_parts_used': noPartsUsed,
+      },
+    );
   }
 
   /// Camera capture for one asset. Returns null when the technician cancels.
@@ -320,11 +339,15 @@ class AppState extends ChangeNotifier {
 
     // The name and role travel as their own event so the signature image is never
     // the only record of who approved the work.
-    await record(visitId, 'signature.captured', payload: {
-      'client_media_id': id,
-      'signer_name': signerName,
-      'signer_role': signerRole,
-    });
+    await record(
+      visitId,
+      'signature.captured',
+      payload: {
+        'client_media_id': id,
+        'signer_name': signerName,
+        'signer_role': signerRole,
+      },
+    );
 
     return id;
   }

@@ -7,7 +7,10 @@ import 'local_db.dart';
 import 'trusted_clock.dart';
 
 /// Status of a queued action as the technician sees it: بانتظار المزامنة / فشل / تمت.
-enum QueuedStatus { pending, failed, synced }
+/// `cancelled` is for work the technician withdrew before it was ever sent —
+/// a registration for a photo they discarded. It is terminal like `synced`, but
+/// it must not be counted as delivered.
+enum QueuedStatus { pending, failed, synced, cancelled }
 
 class QueuedEvent {
   QueuedEvent({
@@ -43,43 +46,45 @@ class QueuedEvent {
   final String? lastError;
 
   factory QueuedEvent.fromRow(Map<String, dynamic> row) => QueuedEvent(
-        clientEventId: row['client_event_id'] as String,
-        visitId: row['visit_id'] as int,
-        eventType: row['event_type'] as String,
-        payload: row['payload'] == null
-            ? <String, dynamic>{}
-            : jsonDecode(row['payload'] as String) as Map<String, dynamic>,
-        deviceTimestamp: DateTime.parse(row['device_timestamp'] as String),
-        sequence: row['sequence'] as int,
-        monotonicOffsetMs: row['monotonic_offset_ms'] as int?,
-        lastTrustedServerTime: row['last_trusted_server_time'] == null
-            ? null
-            : DateTime.tryParse(row['last_trusted_server_time'] as String),
-        lat: (row['lat'] as num?)?.toDouble(),
-        lng: (row['lng'] as num?)?.toDouble(),
-        source: (row['source'] as String?) ?? 'offline',
-        status: QueuedStatus.values.byName(row['status'] as String),
-        attempts: row['attempts'] as int? ?? 0,
-        lastError: row['last_error'] as String?,
-      );
+    clientEventId: row['client_event_id'] as String,
+    visitId: row['visit_id'] as int,
+    eventType: row['event_type'] as String,
+    payload: row['payload'] == null
+        ? <String, dynamic>{}
+        : jsonDecode(row['payload'] as String) as Map<String, dynamic>,
+    deviceTimestamp: DateTime.parse(row['device_timestamp'] as String),
+    sequence: row['sequence'] as int,
+    monotonicOffsetMs: row['monotonic_offset_ms'] as int?,
+    lastTrustedServerTime: row['last_trusted_server_time'] == null
+        ? null
+        : DateTime.tryParse(row['last_trusted_server_time'] as String),
+    lat: (row['lat'] as num?)?.toDouble(),
+    lng: (row['lng'] as num?)?.toDouble(),
+    source: (row['source'] as String?) ?? 'offline',
+    status: QueuedStatus.values.byName(row['status'] as String),
+    attempts: row['attempts'] as int? ?? 0,
+    lastError: row['last_error'] as String?,
+  );
 
   Map<String, dynamic> toWire() => {
-        'client_event_id': clientEventId,
-        'visit_id': visitId,
-        'event_type': eventType,
-        'payload': payload,
-        // UTC, always. A bare local timestamp with no offset is reinterpreted in
-        // the server's timezone, so a device in a different zone looked hours out
-        // of step and was falsely flagged as having a tampered clock.
-        'device_timestamp': deviceTimestamp.toUtc().toIso8601String(),
-        if (monotonicOffsetMs != null) 'monotonic_offset_ms': monotonicOffsetMs,
-        if (lastTrustedServerTime != null)
-          'last_trusted_server_time': lastTrustedServerTime!.toUtc().toIso8601String(),
-        'sequence': sequence,
-        if (lat != null) 'lat': lat,
-        if (lng != null) 'lng': lng,
-        'source': source,
-      };
+    'client_event_id': clientEventId,
+    'visit_id': visitId,
+    'event_type': eventType,
+    'payload': payload,
+    // UTC, always. A bare local timestamp with no offset is reinterpreted in
+    // the server's timezone, so a device in a different zone looked hours out
+    // of step and was falsely flagged as having a tampered clock.
+    'device_timestamp': deviceTimestamp.toUtc().toIso8601String(),
+    if (monotonicOffsetMs != null) 'monotonic_offset_ms': monotonicOffsetMs,
+    if (lastTrustedServerTime != null)
+      'last_trusted_server_time': lastTrustedServerTime!
+          .toUtc()
+          .toIso8601String(),
+    'sequence': sequence,
+    if (lat != null) 'lat': lat,
+    if (lng != null) 'lng': lng,
+    'source': source,
+  };
 }
 
 /// The outbound queue.
@@ -91,7 +96,8 @@ class QueuedEvent {
 ///  2. Nothing is deleted on send. A row moves pending -> synced, and a rejected
 ///     row keeps its reason so the technician can be told what went wrong.
 class EventQueue {
-  EventQueue(this._db, this._clock, {Uuid? uuid}) : _uuid = uuid ?? const Uuid();
+  EventQueue(this._db, this._clock, {Uuid? uuid})
+    : _uuid = uuid ?? const Uuid();
 
   final LocalDb _db;
   final TrustedClock _clock;
@@ -120,26 +126,23 @@ class EventQueue {
       source: source,
     );
 
-    await _db.raw.insert(
-      'pending_events',
-      {
-        'client_event_id': event.clientEventId,
-        'visit_id': event.visitId,
-        'event_type': event.eventType,
-        'payload': jsonEncode(event.payload),
-        'device_timestamp': event.deviceTimestamp.toIso8601String(),
-        'monotonic_offset_ms': event.monotonicOffsetMs,
-        'last_trusted_server_time': event.lastTrustedServerTime?.toIso8601String(),
-        'sequence': event.sequence,
-        'lat': event.lat,
-        'lng': event.lng,
-        'source': event.source,
-        'status': QueuedStatus.pending.name,
-        'attempts': 0,
-        'created_at': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    await _db.raw.insert('pending_events', {
+      'client_event_id': event.clientEventId,
+      'visit_id': event.visitId,
+      'event_type': event.eventType,
+      'payload': jsonEncode(event.payload),
+      'device_timestamp': event.deviceTimestamp.toIso8601String(),
+      'monotonic_offset_ms': event.monotonicOffsetMs,
+      'last_trusted_server_time': event.lastTrustedServerTime
+          ?.toIso8601String(),
+      'sequence': event.sequence,
+      'lat': event.lat,
+      'lng': event.lng,
+      'source': event.source,
+      'status': QueuedStatus.pending.name,
+      'attempts': 0,
+      'created_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
     return event;
   }
@@ -165,8 +168,11 @@ class EventQueue {
       batch.update(
         'pending_events',
         {'status': QueuedStatus.synced.name, 'last_error': null},
-        where: 'client_event_id = ?',
-        whereArgs: [id],
+        // A response can arrive after the technician discarded the evidence.
+        // Never revive a registration that was cancelled while the request was
+        // in flight.
+        where: 'client_event_id = ? AND status = ?',
+        whereArgs: [id, QueuedStatus.pending.name],
       );
     }
     await batch.commit(noResult: true);
@@ -174,8 +180,9 @@ class EventQueue {
 
   Future<void> markFailed(String id, String reason) async {
     await _db.raw.rawUpdate(
-      'UPDATE pending_events SET status = ?, attempts = attempts + 1, last_error = ? WHERE client_event_id = ?',
-      [QueuedStatus.failed.name, reason, id],
+      'UPDATE pending_events SET status = ?, attempts = attempts + 1, last_error = ? '
+      'WHERE client_event_id = ? AND status = ?',
+      [QueuedStatus.failed.name, reason, id, QueuedStatus.pending.name],
     );
   }
 
@@ -187,20 +194,23 @@ class EventQueue {
     final batch = _db.raw.batch();
     for (final id in ids) {
       batch.rawUpdate(
-        'UPDATE pending_events SET attempts = attempts + 1, last_error = ? WHERE client_event_id = ?',
-        [reason, id],
+        'UPDATE pending_events SET attempts = attempts + 1, last_error = ? '
+        'WHERE client_event_id = ? AND status = ?',
+        [reason, id, QueuedStatus.pending.name],
       );
     }
     await batch.commit(noResult: true);
   }
 
   Future<Map<QueuedStatus, int>> counts() async {
-    final rows = await _db.raw
-        .rawQuery('SELECT status, COUNT(*) AS c FROM pending_events GROUP BY status');
+    final rows = await _db.raw.rawQuery(
+      'SELECT status, COUNT(*) AS c FROM pending_events GROUP BY status',
+    );
 
     return {
       for (final status in QueuedStatus.values)
-        status: rows
+        status:
+            rows
                 .cast<Map<String, dynamic>>()
                 .where((r) => r['status'] == status.name)
                 .map((r) => r['c'] as int)
@@ -220,13 +230,65 @@ class EventQueue {
     return rows.map(QueuedEvent.fromRow).toList();
   }
 
+  /// Cancels a `media.register` that can no longer produce useful work.
+  ///
+  /// Both pending and rejected registrations are terminally cancelled. We still
+  /// ask the server to discard the media afterwards: a pending request may have
+  /// reached the server even when its response never reached this device.
+  Future<bool> cancelUnsettledMediaRegistration(String clientMediaId) async {
+    final rows = await _db.raw.query(
+      'pending_events',
+      where: 'event_type = ? AND status IN (?, ?) AND payload LIKE ?',
+      whereArgs: [
+        'media.register',
+        QueuedStatus.pending.name,
+        QueuedStatus.failed.name,
+        '%$clientMediaId%',
+      ],
+    );
+
+    // LIKE is a coarse filter; confirm against the decoded payload so a partial
+    // string match cannot cancel the wrong registration.
+    final matching = rows.where((row) {
+      final payload =
+          jsonDecode(row['payload'] as String? ?? '{}') as Map<String, dynamic>;
+      return payload['client_media_id'] == clientMediaId;
+    }).toList();
+
+    if (matching.isEmpty) {
+      return false;
+    }
+
+    var cancelled = 0;
+
+    for (final row in matching) {
+      cancelled += await _db.raw.update(
+        'pending_events',
+        {
+          'status': QueuedStatus.cancelled.name,
+          'last_error': 'discarded before it synced',
+        },
+        // Compare-and-set keeps a late sync result and a technician action from
+        // silently overwriting each other.
+        where: 'client_event_id = ? AND status IN (?, ?)',
+        whereArgs: [
+          row['client_event_id'],
+          QueuedStatus.pending.name,
+          QueuedStatus.failed.name,
+        ],
+      );
+    }
+
+    return cancelled > 0;
+  }
+
   /// Supervisor-approved retry of a rejected action.
   Future<void> requeue(String id) async {
     await _db.raw.update(
       'pending_events',
       {'status': QueuedStatus.pending.name, 'last_error': null},
-      where: 'client_event_id = ?',
-      whereArgs: [id],
+      where: 'client_event_id = ? AND status = ?',
+      whereArgs: [id, QueuedStatus.failed.name],
     );
   }
 }

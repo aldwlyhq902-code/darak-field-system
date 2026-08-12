@@ -10,13 +10,12 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\View\View;
 
 class TeamController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit)
-    {
-    }
+    public function __construct(private readonly AuditLogger $audit) {}
 
     public function index(): View
     {
@@ -46,7 +45,11 @@ class TeamController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:190'],
             'email' => ['required', 'email', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
+            'password' => [
+                'required',
+                'string',
+                Password::min(12)->letters()->mixedCase()->numbers()->symbols(),
+            ],
             'phone' => ['nullable', 'string', 'max:32'],
             // The profession exactly as written on the work permit. The system
             // records it; it does not interpret labour law.
@@ -103,7 +106,7 @@ class TeamController extends Controller
             'revoked_reason' => $data['reason'] ?? 'أُبطل من اللوحة',
         ])->save();
 
-        $device->user?->tokens()->where('name', 'device:' . $device->device_uuid)->delete();
+        $device->user?->tokens()->where('name', 'device:'.$device->device_uuid)->delete();
 
         $this->audit->record('device.revoked', $device, null, ['reason' => $device->revoked_reason]);
 

@@ -15,7 +15,9 @@ use Laravel\Sanctum\HasApiTokens;
     'name', 'email', 'password', 'role', 'phone', 'trade',
     'specialties', 'shift_start', 'shift_end', 'is_active',
 ])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden([
+    'password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes',
+])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -23,7 +25,9 @@ class User extends Authenticatable
 
     /** MVP roles (PRD v1.2 §2). Sales rep and warehouse keeper are backlog. */
     public const ROLE_OWNER = 'owner_supervisor';
+
     public const ROLE_TECHNICIAN = 'technician';
+
     public const ROLE_ADMIN = 'admin';
 
     public const ROLES = [self::ROLE_OWNER, self::ROLE_TECHNICIAN, self::ROLE_ADMIN];
@@ -35,7 +39,15 @@ class User extends Authenticatable
             'password' => 'hashed',
             'specialties' => 'array',
             'is_active' => 'boolean',
+            'two_factor_secret' => 'encrypted',
+            'two_factor_recovery_codes' => 'encrypted:array',
+            'two_factor_confirmed_at' => 'datetime',
         ];
+    }
+
+    public function hasConfirmedTwoFactor(): bool
+    {
+        return $this->two_factor_confirmed_at !== null && $this->two_factor_secret !== null;
     }
 
     public function devices(): HasMany

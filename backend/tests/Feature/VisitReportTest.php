@@ -61,6 +61,8 @@ class VisitReportTest extends DarakTestCase
 
         // And it says what it actually is.
         $this->assertStringContainsString('تقرير حالة فنية وسجل صيانة', $template);
+        $this->assertStringContainsString('$retiredAssets', $template);
+        $this->assertStringContainsString('كان مجدولاً ضمن الزيارة', $template);
     }
 
     public function test_csv_export_carries_a_bom_so_excel_reads_arabic(): void

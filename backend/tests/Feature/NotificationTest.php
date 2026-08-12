@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\VisitCloseBlocked;
 use App\Models\ChecklistInstance;
 use App\Models\Contact;
 use App\Models\MediaFile;
@@ -49,7 +50,7 @@ class NotificationTest extends DarakTestCase
         try {
             $machine->transition($this->visit->refresh(), Visit::STATE_COMPLETED);
             $this->fail('Close should have been blocked.');
-        } catch (\App\Exceptions\VisitCloseBlocked) {
+        } catch (VisitCloseBlocked) {
             // expected
         }
 

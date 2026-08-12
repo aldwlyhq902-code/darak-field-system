@@ -11,6 +11,7 @@ class StockLocation extends Model
     use HasFactory;
 
     public const TYPE_WAREHOUSE = 'warehouse';
+
     public const TYPE_VEHICLE = 'vehicle';
 
     protected $fillable = ['type', 'name', 'vehicle_id', 'is_active'];

@@ -15,8 +15,7 @@ class InventoryController extends Controller
     public function __construct(
         private readonly InventoryService $inventory,
         private readonly InvoiceService $invoices,
-    ) {
-    }
+    ) {}
 
     public function balances(StockLocation $location): JsonResponse
     {

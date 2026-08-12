@@ -29,7 +29,12 @@ void main() {
     final clock = await TrustedClock.load();
     queue = EventQueue(db, clock);
     root = await Directory.systemTemp.createTemp('darak_evidence_test');
-    evidence = EvidenceStore(db: db, queue: queue, clock: clock, rootDirectory: root.path);
+    evidence = EvidenceStore(
+      db: db,
+      queue: queue,
+      clock: clock,
+      rootDirectory: root.path,
+    );
   });
 
   tearDown(() async {
@@ -73,11 +78,40 @@ void main() {
     final payload = bytes(512);
     final expected = sha256.convert(payload).toString();
 
-    await evidence.store(visitId: 5, kind: EvidenceStore.kindPhotoBefore, bytes: payload);
+    await evidence.store(
+      visitId: 5,
+      kind: EvidenceStore.kindPhotoBefore,
+      bytes: payload,
+    );
 
     final rows = await evidence.forVisit(5);
     expect(rows.first['sha256'], expected);
   });
+
+  test(
+    'oversized evidence is rejected before a file or event is written',
+    () async {
+      final limited = EvidenceStore(
+        db: db,
+        queue: queue,
+        clock: await TrustedClock.load(),
+        rootDirectory: root.path,
+        maxBytes: 10,
+      );
+
+      await expectLater(
+        limited.store(
+          visitId: 5,
+          kind: EvidenceStore.kindPhotoAfter,
+          bytes: bytes(11),
+        ),
+        throwsArgumentError,
+      );
+
+      expect(await limited.forVisit(5), isEmpty);
+      expect(await queue.pending(), isEmpty);
+    },
+  );
 
   test('a signature is recorded as its own kind', () async {
     expect(await evidence.hasSignature(9), isFalse);
@@ -91,43 +125,81 @@ void main() {
     );
 
     expect(await evidence.hasSignature(9), isTrue);
-    expect(await evidence.photoCount(9), 0, reason: 'a signature is not a photo');
+    expect(
+      await evidence.photoCount(9),
+      0,
+      reason: 'a signature is not a photo',
+    );
   });
 
   test('captures are counted per visit', () async {
-    await evidence.store(visitId: 1, kind: EvidenceStore.kindPhotoBefore, bytes: bytes(100));
-    await evidence.store(visitId: 1, kind: EvidenceStore.kindPhotoAfter, bytes: bytes(100));
-    await evidence.store(visitId: 2, kind: EvidenceStore.kindPhotoAfter, bytes: bytes(100));
+    await evidence.store(
+      visitId: 1,
+      kind: EvidenceStore.kindPhotoBefore,
+      bytes: bytes(100),
+    );
+    await evidence.store(
+      visitId: 1,
+      kind: EvidenceStore.kindPhotoAfter,
+      bytes: bytes(100),
+    );
+    await evidence.store(
+      visitId: 2,
+      kind: EvidenceStore.kindPhotoAfter,
+      bytes: bytes(100),
+    );
 
     expect(await evidence.photoCount(1), 2);
     expect(await evidence.photoCount(2), 1);
   });
 
-  test('pruning removes uploaded files and never touches pending ones', () async {
-    await evidence.store(visitId: 3, kind: EvidenceStore.kindPhotoAfter, bytes: bytes(400));
-    await evidence.store(visitId: 3, kind: EvidenceStore.kindPhotoAfter, bytes: bytes(400));
+  test(
+    'pruning removes uploaded files and never touches pending ones',
+    () async {
+      await evidence.store(
+        visitId: 3,
+        kind: EvidenceStore.kindPhotoAfter,
+        bytes: bytes(400),
+      );
+      await evidence.store(
+        visitId: 3,
+        kind: EvidenceStore.kindPhotoAfter,
+        bytes: bytes(400),
+      );
 
-    final rows = await evidence.forVisit(3);
-    await db.raw.update(
-      'pending_media',
-      {'state': 'complete'},
-      where: 'client_media_id = ?',
-      whereArgs: [rows.first['client_media_id']],
-    );
+      final rows = await evidence.forVisit(3);
+      await db.raw.update(
+        'pending_media',
+        {'state': 'complete'},
+        where: 'client_media_id = ?',
+        whereArgs: [rows.first['client_media_id']],
+      );
 
-    final removed = await evidence.pruneUploaded(3);
+      final removed = await evidence.pruneUploaded(3);
 
-    expect(removed, 1);
-    expect(await File(rows.first['local_path'] as String).exists(), isFalse);
-    expect(await File(rows.last['local_path'] as String).exists(), isTrue,
-        reason: 'unsent evidence is never deleted');
-  });
+      expect(removed, 1);
+      expect(await File(rows.first['local_path'] as String).exists(), isFalse);
+      expect(
+        await File(rows.last['local_path'] as String).exists(),
+        isTrue,
+        reason: 'unsent evidence is never deleted',
+      );
+    },
+  );
 
   test('each capture gets its own id even for identical bytes', () async {
     final payload = bytes(64);
 
-    final first = await evidence.store(visitId: 4, kind: EvidenceStore.kindPhotoAfter, bytes: payload);
-    final second = await evidence.store(visitId: 4, kind: EvidenceStore.kindPhotoAfter, bytes: payload);
+    final first = await evidence.store(
+      visitId: 4,
+      kind: EvidenceStore.kindPhotoAfter,
+      bytes: payload,
+    );
+    final second = await evidence.store(
+      visitId: 4,
+      kind: EvidenceStore.kindPhotoAfter,
+      bytes: payload,
+    );
 
     expect(first, isNot(second));
     expect(await evidence.forVisit(4), hasLength(2));

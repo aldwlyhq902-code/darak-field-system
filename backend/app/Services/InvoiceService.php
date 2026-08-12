@@ -7,7 +7,6 @@ use App\Models\ExternalDocument;
 use App\Models\StockMove;
 use App\Models\Visit;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
@@ -25,8 +24,7 @@ class InvoiceService
         private readonly InvoiceProvider $provider,
         private readonly InventoryService $inventory,
         private readonly AuditLogger $audit,
-    ) {
-    }
+    ) {}
 
     /** Issue an invoice for out-of-contract work on a visit. */
     public function invoiceVisit(Visit $visit, ?string $idempotencyKey = null): ExternalDocument
@@ -134,7 +132,7 @@ class InvoiceService
             );
         }
 
-        $key = $idempotencyKey ?? ('cn:' . $returnMove->idempotency_key);
+        $key = $idempotencyKey ?? ('cn:'.$returnMove->idempotency_key);
 
         $existing = ExternalDocument::where('idempotency_key', $key)->first();
         if ($existing !== null) {
@@ -211,7 +209,7 @@ class InvoiceService
                 // The sku is carried so a later credit note can find the price
                 // this invoice actually charged.
                 'sku' => $row['sku'],
-                'description' => $row['name'] . ' (' . $row['sku'] . ')',
+                'description' => $row['name'].' ('.$row['sku'].')',
                 'qty' => $row['qty'],
                 'unit_price' => $row['unit_price'],
                 'total' => round($row['qty'] * $row['unit_price'], 2),

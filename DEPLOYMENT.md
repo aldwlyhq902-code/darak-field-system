@@ -45,11 +45,17 @@ DB_PASSWORD=<كلمة قوية>
 QUEUE_CONNECTION=redis
 CACHE_STORE=redis
 SESSION_DRIVER=redis
+SESSION_SECURE_COOKIE=true
+SESSION_HTTP_ONLY=true
+SESSION_SAME_SITE=lax
+SANCTUM_EXPIRATION=43200
 
 DARAK_INVOICE_PROVIDER=fake       # يُبدَّل عند التعاقد مع مزود الفوترة
 DARAK_SERVICE_START=07:00:00
 DARAK_SERVICE_END=23:00:00
+DARAK_MAX_MEDIA_BYTES=26214400
 DARAK_BACKUP_PATH=/var/backups/darak
+DARAK_BACKUP_PASSWORD=<سر عشوائي طويل محفوظ في مدير الأسرار>
 ```
 
 > `APP_DEBUG=false` غير قابل للتفاوض في الإنتاج: `true` يكشف مسارات الملفات ومتغيرات البيئة في أي صفحة خطأ.
@@ -61,7 +67,10 @@ php artisan storage:link
 php artisan config:cache && php artisan route:cache && php artisan view:cache
 chown -R www-data:www-data storage bootstrap/cache
 mkdir -p /var/backups/darak && chown www-data:www-data /var/backups/darak
+php artisan darak:preflight
 ```
+
+`darak:preflight` حاجز نشر إلزامي: يعيد كود فشل إذا كانت البيئة أو HTTPS أو Cookie الجلسة أو عمر الرموز أو PostgreSQL أو تشفير/مسار النسخ الاحتياطي غير آمن.
 
 **أول حساب في الإنتاج** (بدل بيانات البذر):
 
@@ -224,14 +233,20 @@ php artisan sentry:publish --dsn=<dsn>
 ## 8. الأمن قبل الإطلاق
 
 - [ ] `APP_DEBUG=false` و`APP_ENV=production`
+- [ ] نجاح `php artisan darak:preflight` بلا أي `FAIL`
 - [ ] كلمات مرور البذر مُبدَّلة، وحسابات `*@darak.test` محذوفة
 - [ ] HTTPS إجباري وشهادة تتجدد آلياً
 - [ ] PostgreSQL لا يستمع على واجهة عامة
 - [ ] Redis بكلمة مرور وعلى localhost
 - [ ] `storage/` و`.env` غير قابلين للوصول عبر الويب
-- [ ] النسخ الاحتياطية بحساب تخزين منفصل عن الخادم
+- [ ] النسخ الاحتياطية مشفرة بـAES-256 وبحساب تخزين منفصل عن الخادم، ومفتاحها في مدير أسرار
 - [ ] المستودع وكل الخدمات والمفاتيح **بحساب المالك**
 - [ ] لا أسرار في `.env.example` ولا في المستودع
+- [ ] اعتماد جدول الخصوصية والاحتفاظ ونص الإشعار في `PRIVACY_AND_RETENTION.md`
+- [ ] تنفيذ دورة هاتف حقيقية كاملة: كاميرا + QR + توقيع + موقع + وضع طيران + عودة الشبكة
+- [ ] تثبيت 0.2.0 فوق نسخة تحمل قاعدة قديمة، والتحقق ميدانياً من بقاء الزيارات والطابور بعد ترحيل SQLCipher
+- [ ] بناء APK/AAB من نفس commit المنشور والتحقق من بصمة توقيعهما وSHA-256
+- [ ] نجاح CI على commit الإصدار ووسمه بإصدار غير قابل للتغيير
 
 ---
 
@@ -257,8 +272,10 @@ php artisan up
 ```bash
 cd mobile
 flutter build apk --release --dart-define=DARAK_API=https://panel.darak.sa
+flutter build appbundle --release --dart-define=DARAK_API=https://panel.darak.sa
 ```
 
-يُوزَّع كـAPK مباشرة على أجهزة الشركة — لا حاجة لمتجر Play لتطبيق داخلي.
+يُوزَّع APK مباشرة على أجهزة الشركة، أو AAB عبر قناة Play داخلية. لا تُنقل حزمة
+مبنية لبيئة اختبار إلى الإنتاج: عنوان API جزء من البناء.
 
 **قبل التوزيع اختبر على جهاز حقيقي:** الكاميرا، التوقيع، مسح QR، أذونات الموقع، ودورة زيارة كاملة في وضع الطيران ثم مزامنة. **هذا لم يُختبر على جهاز بعد.**

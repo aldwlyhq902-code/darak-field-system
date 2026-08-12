@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Exceptions\InvalidSyncPayload;
 use App\Exceptions\InvalidVisitTransition;
 use App\Exceptions\VisitCloseBlocked;
+use App\Models\Asset;
 use App\Models\ChecklistInstance;
 use App\Models\Device;
 use App\Models\MediaFile;
@@ -40,8 +42,7 @@ class SyncService
         private readonly ClockGuard $clockGuard,
         private readonly VisitStateMachine $stateMachine,
         private readonly InventoryService $inventory,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  array<int, array<string, mixed>>  $events
@@ -65,11 +66,13 @@ class SyncService
                     'code' => 'MISSING_CLIENT_EVENT_ID',
                     'message' => 'Every event must carry a device-generated client_event_id.',
                 ];
+
                 continue;
             }
 
             if (VisitEvent::where('client_event_id', $clientEventId)->exists()) {
                 $results[] = ['client_event_id' => $clientEventId, 'status' => 'duplicate'];
+
                 continue;
             }
 
@@ -95,6 +98,7 @@ class SyncService
                 // Unique violation = a concurrent replay won the race. Same outcome.
                 if ($this->isUniqueViolation($e)) {
                     $results[] = ['client_event_id' => $clientEventId, 'status' => 'duplicate'];
+
                     continue;
                 }
 
@@ -104,6 +108,12 @@ class SyncService
                 $results[] = $this->rejection($clientEventId, 'INVALID_VISIT_TRANSITION', $e->getMessage(), [
                     'from' => $e->fromState, 'to' => $e->toState, 'allowed' => $e->allowed,
                 ]);
+            } catch (InvalidSyncPayload $e) {
+                $results[] = $this->rejection(
+                    $clientEventId,
+                    'INVALID_EVENT_PAYLOAD',
+                    $e->getMessage(),
+                );
             } catch (VisitCloseBlocked $e) {
                 // The state machine writes the blockers after ITS transaction, but
                 // that write is still inside THIS one, which is now rolling back.
@@ -158,9 +168,17 @@ class SyncService
             );
         }
 
-        $event = $this->storeEvent($device, $visit, $raw, $clock);
         $type = (string) $raw['event_type'];
         $payload = $raw['payload'] ?? [];
+
+        if ($type === 'media.register') {
+            $payload = $this->validatedMediaPayload($visit, $payload);
+            $raw['payload'] = $payload;
+        }
+
+        // Validation happens before the audit event is stored. Rejected data must
+        // not look like a successfully synced business event in the immutable log.
+        $event = $this->storeEvent($device, $visit, $raw, $clock);
         $meta = [];
 
         switch ($type) {
@@ -286,6 +304,11 @@ class SyncService
                         'upload_state' => 'pending',
                     ],
                 );
+
+                if ($media->visit_id !== $visit->id) {
+                    throw new InvalidSyncPayload('client_media_id is already bound to another visit.');
+                }
+
                 $meta['media_file_id'] = $media->id;
                 $meta['upload_state'] = $media->upload_state;
                 $meta['uploaded_bytes'] = $media->uploaded_bytes;
@@ -298,6 +321,79 @@ class SyncService
         }
 
         return ['visit_id' => $visit->id, 'meta' => $meta];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function validatedMediaPayload(Visit $visit, array $payload): array
+    {
+        $clientMediaId = $payload['client_media_id'] ?? null;
+        $kind = $payload['kind'] ?? null;
+        $mime = $payload['mime'] ?? null;
+        $totalBytes = $payload['total_bytes'] ?? null;
+        $maxBytes = (int) config('darak.max_media_bytes', 25 * 1024 * 1024);
+
+        if (! is_string($clientMediaId) || ! Uuid::isValid($clientMediaId)) {
+            throw new InvalidSyncPayload('client_media_id must be a UUID.');
+        }
+
+        if (! in_array($kind, ['photo_before', 'photo_after', 'signature'], true)) {
+            throw new InvalidSyncPayload('Unsupported evidence kind.');
+        }
+
+        if (! in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+            throw new InvalidSyncPayload('Unsupported evidence MIME type.');
+        }
+
+        if (! is_int($totalBytes) || $totalBytes < 1 || $totalBytes > $maxBytes) {
+            throw new InvalidSyncPayload("Evidence size must be between 1 and {$maxBytes} bytes.");
+        }
+
+        if ($kind === 'signature' && $mime !== 'image/png') {
+            throw new InvalidSyncPayload('A signature must be registered as image/png.');
+        }
+
+        if ($kind !== 'signature' && ! str_starts_with($mime, 'image/')) {
+            throw new InvalidSyncPayload('A photo must use an image MIME type.');
+        }
+
+        $source = $payload['declared_source'] ?? 'camera';
+
+        if (! in_array($source, ['camera', 'on_screen'], true)) {
+            throw new InvalidSyncPayload('Unsupported evidence source.');
+        }
+
+        if (isset($payload['asset_id'])) {
+            $assetId = filter_var($payload['asset_id'], FILTER_VALIDATE_INT);
+
+            if ($assetId === false || ! Asset::whereKey($assetId)->where('site_id', $visit->site_id)->exists()) {
+                throw new InvalidSyncPayload('The evidence asset does not belong to this visit site.');
+            }
+
+            $payload['asset_id'] = $assetId;
+        }
+
+        if (isset($payload['checklist_instance_id'])) {
+            $instanceId = filter_var($payload['checklist_instance_id'], FILTER_VALIDATE_INT);
+
+            if ($instanceId === false || ! ChecklistInstance::whereKey($instanceId)
+                ->where('visit_id', $visit->id)->exists()) {
+                throw new InvalidSyncPayload('The checklist instance does not belong to this visit.');
+            }
+
+            $payload['checklist_instance_id'] = $instanceId;
+        }
+
+        foreach (['lat' => [-90, 90], 'lng' => [-180, 180]] as $field => [$min, $max]) {
+            if (isset($payload[$field])
+                && (! is_numeric($payload[$field]) || (float) $payload[$field] < $min || (float) $payload[$field] > $max)) {
+                throw new InvalidSyncPayload("{$field} is outside its valid range.");
+            }
+        }
+
+        return $payload;
     }
 
     private function storeEvent(Device $device, Visit $visit, array $raw, array $clock): VisitEvent
@@ -399,7 +495,7 @@ class SyncService
      */
     public static function derivedEventId(string $parentId, string $purpose): string
     {
-        return (string) Uuid::uuid5(Uuid::NAMESPACE_OID, $parentId . ':' . $purpose);
+        return (string) Uuid::uuid5(Uuid::NAMESPACE_OID, $parentId.':'.$purpose);
     }
 
     /** @param array<int, array<string, mixed>> $blockers */

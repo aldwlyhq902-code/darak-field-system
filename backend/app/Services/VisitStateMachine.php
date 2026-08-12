@@ -7,6 +7,7 @@ use App\Exceptions\VisitCloseBlocked;
 use App\Models\Visit;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * The visit lifecycle. Every transition is validated against Visit::TRANSITIONS,
@@ -18,8 +19,7 @@ class VisitStateMachine
         private readonly CloseGate $closeGate,
         private readonly AuditLogger $audit,
         private readonly NotificationService $notifications,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  array<string, mixed>  $context  device_id, actor_user_id, lat, lng, source, client_event_id
@@ -104,7 +104,7 @@ class VisitStateMachine
             $visit->forceFill($attributes)->save();
 
             $visit->events()->create([
-                'client_event_id' => $context['client_event_id'] ?? (string) \Illuminate\Support\Str::uuid(),
+                'client_event_id' => $context['client_event_id'] ?? (string) Str::uuid(),
                 'event_type' => "state.{$from}.to.{$target}",
                 'payload' => ['from' => $from, 'to' => $target],
                 'device_id' => $context['device_id'] ?? null,
@@ -154,7 +154,7 @@ class VisitStateMachine
         // The device timestamp of the transition that put the visit into
         // 'started' — the only honest starting point for this segment.
         $startedEvent = $visit->events()
-            ->where('event_type', 'like', 'state.%.to.' . Visit::STATE_STARTED)
+            ->where('event_type', 'like', 'state.%.to.'.Visit::STATE_STARTED)
             ->whereNotNull('device_timestamp')
             ->latest('id')
             ->first();

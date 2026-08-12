@@ -19,9 +19,7 @@ use App\Models\WorkOrder;
  */
 class ReworkDetector
 {
-    public function __construct(private readonly int $windowDays = 30)
-    {
-    }
+    public function __construct(private readonly int $windowDays = 30) {}
 
     /** Returns the visit this one appears to repeat, or null. */
     public function findParent(WorkOrder $workOrder): ?Visit

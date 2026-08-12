@@ -15,9 +15,9 @@ class BackupCommand extends Command
     {
         $result = $backups->create($this->option('label'));
 
-        $this->info('أُنشئت النسخة: ' . $result['path']);
-        $this->line('  السجلات: ' . array_sum($result['manifest']['counts']) . ' صف عبر ' . count($result['manifest']['counts']) . ' جدولاً');
-        $this->line('  الملفات: ' . count($result['manifest']['files']));
+        $this->info('أُنشئت النسخة: '.$result['path']);
+        $this->line('  السجلات: '.array_sum($result['manifest']['counts']).' صف عبر '.count($result['manifest']['counts']).' جدولاً');
+        $this->line('  الملفات: '.count($result['manifest']['files']));
 
         $verification = $backups->verify($result['path']);
 

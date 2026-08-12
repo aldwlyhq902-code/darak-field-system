@@ -113,7 +113,7 @@ class SeamTest extends DarakTestCase
         $this->assertSame(
             'accepted',
             $result['status'],
-            'close was refused: ' . json_encode($result, JSON_UNESCAPED_UNICODE),
+            'close was refused: '.json_encode($result, JSON_UNESCAPED_UNICODE),
         );
 
         $this->assertSame(Visit::STATE_COMPLETED, $this->visit->refresh()->state);
@@ -270,7 +270,7 @@ class SeamTest extends DarakTestCase
             [
                 'HTTP_X_UPLOAD_OFFSET' => '0',
                 'CONTENT_TYPE' => 'application/octet-stream',
-                'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
+                'HTTP_AUTHORIZATION' => 'Bearer '.$token,
                 'HTTP_ACCEPT' => 'application/json',
             ],
             $bytes,
