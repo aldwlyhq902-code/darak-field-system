@@ -109,8 +109,7 @@ class PerformanceScoreService
         Collection $settings,
         Collection $visits,
         array $visitCosts,
-    ): array
-    {
+    ): array {
         return [
             'technicians' => $this->technicians($actor, $from, $to, $settings->get('technicians', collect()), $visits, $visitCosts),
             'supervisors' => $this->supervisors($actor, $from, $to, $settings->get('supervisors', collect()), $visits),

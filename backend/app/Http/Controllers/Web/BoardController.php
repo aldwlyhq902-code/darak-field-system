@@ -48,14 +48,38 @@ class BoardController extends Controller
             ->map(function (Visit $visit) use ($now) {
                 $contract = $visit->workOrder?->contract;
                 $due = $visit->workOrder?->sla_due_at;
+                $slaStatus = $due
+                    ? $this->sla->status($now, $due, $visit->workOrder->sla_minutes_budget ?? 240, $contract)
+                    : null;
+                $slaRemaining = $due ? $this->sla->remainingMinutes($now, $due, $contract) : null;
+                $reasons = [];
+                $priorityScore = 0;
+
+                if ($slaStatus === 'red') {
+                    $reasons[] = 'متجاوزة لاتفاقية الخدمة';
+                    $priorityScore += 100;
+                } elseif ($slaStatus === 'amber') {
+                    $reasons[] = 'اتفاقية الخدمة تقترب';
+                    $priorityScore += 60;
+                }
+
+                if ($visit->assigned_user_id === null && $visit->state !== Visit::STATE_COMPLETED) {
+                    $reasons[] = 'تحتاج إسناد فني';
+                    $priorityScore += 80;
+                }
+
+                if (in_array($visit->state, ['paused', 'reopened'], true)) {
+                    $reasons[] = $visit->state === 'paused' ? 'العمل متوقف' : 'أُعيد فتحها';
+                    $priorityScore += 50;
+                }
 
                 return [
                     'visit' => $visit,
-                    'sla_status' => $due
-                        ? $this->sla->status($now, $due, $visit->workOrder->sla_minutes_budget ?? 240, $contract)
-                        : null,
-                    'sla_remaining' => $due ? $this->sla->remainingMinutes($now, $due, $contract) : null,
+                    'sla_status' => $slaStatus,
+                    'sla_remaining' => $slaRemaining,
                     'in_window' => $this->sla->isWithinWindow($now, $contract),
+                    'priority_score' => $priorityScore,
+                    'priority_reasons' => $reasons,
                 ];
             });
 
@@ -68,13 +92,27 @@ class BoardController extends Controller
             ->map(fn (Device $d) => [
                 'device' => $d,
                 'minutes_since_sync' => $d->last_sync_at?->diffInMinutes($now),
-            ]);
+            ])
+            ->sortByDesc(fn (array $entry) => $entry['minutes_since_sync'] ?? PHP_INT_MAX)
+            ->values();
+
+        $counts = $this->counts($visits);
+        $counts['stale_devices'] = $devices
+            ->filter(fn (array $entry) => $entry['minutes_since_sync'] === null || $entry['minutes_since_sync'] > 60)
+            ->count();
 
         return view('panel.board', [
             'date' => $date,
             'rows' => $visits,
             'devices' => $devices,
-            'counts' => $this->counts($visits),
+            'counts' => $counts,
+            'priorities' => $visits
+                ->filter(fn (array $row) => $row['priority_score'] > 0)
+                ->sortByDesc('priority_score')
+                ->values(),
+            'completionRate' => $counts['total'] > 0
+                ? (int) round(($counts['done'] / $counts['total']) * 100)
+                : 0,
             'firstTimeFix' => $this->rework->firstTimeFixRate($now->subDays(90), $now),
         ]);
     }
@@ -150,6 +188,7 @@ class BoardController extends Controller
             'open' => $rows->filter(fn ($r) => $r['visit']->state !== Visit::STATE_COMPLETED)->count(),
             'done' => $rows->filter(fn ($r) => $r['visit']->state === Visit::STATE_COMPLETED)->count(),
             'red' => $rows->filter(fn ($r) => $r['sla_status'] === 'red')->count(),
+            'amber' => $rows->filter(fn ($r) => $r['sla_status'] === 'amber')->count(),
             'unassigned' => $rows->filter(fn ($r) => $r['visit']->assigned_user_id === null)->count(),
         ];
     }

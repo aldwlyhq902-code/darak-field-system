@@ -36,11 +36,11 @@ class FinanceInsightsController extends Controller
             ->groupBy('clients.id')
             ->get()
             ->map(fn ($client) => [
-            'client' => $client,
-            'billed' => (float) $client->billed_total,
-            'paid' => (float) $client->paid_total,
-            'overdue' => (float) $client->overdue_total,
-        ]);
+                'client' => $client,
+                'billed' => (float) $client->billed_total,
+                'paid' => (float) $client->paid_total,
+                'overdue' => (float) $client->overdue_total,
+            ]);
 
         $visitModels = Visit::with(['site.client', 'technician'])->where('state', Visit::STATE_COMPLETED)->latest('closed_at')->limit(40)->get();
         $visitProfits = $this->profitability->forVisitModels($visitModels);

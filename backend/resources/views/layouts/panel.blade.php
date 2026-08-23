@@ -1,173 +1,53 @@
 <!DOCTYPE html>
 <html lang="{{ app()->getLocale() }}" dir="{{ app()->isLocale('ar') ? 'rtl' : 'ltr' }}">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b5f58">
     <title>@yield('title', 'لوحة '.($panelCompany?->name ?? 'دارك'))</title>
-    <style>
-        :root {
-            --teal: #0f766e; --teal-50: #f0fdfa; --ink: #1a1a1a; --muted: #6b7280;
-            --line: #e5e7eb; --bg: #f8fafc; --red: #b91c1c; --amber: #b45309; --green: #15803d;
-        }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0; background: var(--bg); color: var(--ink);
-            font-family: "Segoe UI", Tahoma, system-ui, sans-serif; font-size: 15px; line-height: 1.6;
-        }
-        a { color: var(--teal); text-decoration: none; }
-        header {
-            background: var(--teal); color: #fff; padding: 0 20px;
-            display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
-        }
-        header .brand { display:flex;align-items:center;gap:10px;font-size:21px;font-weight:700;padding:10px 0;color:#fff; }
-        header .brand img,.brand-fallback { width:42px;height:42px;border-radius:10px;object-fit:contain;background:#fff;padding:4px;flex:0 0 42px; }
-        .brand-fallback { display:grid;place-items:center;color:var(--teal);font-size:20px;font-weight:900; }
-        header .brand small { display:block;color:#b9ece5;font-size:10px;font-weight:500;line-height:1.2; }
-        header nav a {
-            color: #d7f5f0; padding: 16px 2px; display: inline-block;
-            border-bottom: 3px solid transparent; font-size: 14px;
-        }
-        header nav a.active, header nav a:hover { color: #fff; border-bottom-color: #99f6e4; }
-        header nav { display: flex; gap: 18px; flex-wrap: wrap; }
-        .nav-toggle { display:none;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:8px;min-width:44px;min-height:44px;font:inherit;cursor:pointer; }
-        header .who { margin-inline-start: auto; font-size: 13px; color: #b9ece5; }
-        main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 60px; }
-        h1 { font-size: 22px; margin: 0 0 4px; }
-        .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
-        .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 18px; }
-        .card > .hd {
-            padding: 12px 16px; border-bottom: 1px solid var(--line);
-            font-weight: 600; display: flex; align-items: center; gap: 10px;
-        }
-        .card > .bd { padding: 16px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 10px 14px; text-align: start; border-bottom: 1px solid var(--line); font-size: 14px; }
-        th { background: var(--teal-50); font-weight: 600; color: #115e59; }
-        tr:last-child td { border-bottom: 0; }
-        .pill { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-        .pill.green { background: #dcfce7; color: var(--green); }
-        .pill.amber { background: #fef3c7; color: var(--amber); }
-        .pill.red { background: #fee2e2; color: var(--red); }
-        .pill.grey { background: #f1f5f9; color: #475569; }
-        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
-        .kpi { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
-        .kpi .v { font-size: 26px; font-weight: 700; }
-        .kpi .l { font-size: 12px; color: var(--muted); }
-        .kpi .n { font-size: 11px; color: var(--muted); margin-top: 4px; }
-        .btn {
-            display: inline-flex; align-items:center; justify-content:center; min-height:44px; background: var(--teal); color: #fff; border: 0;
-            padding: 9px 16px; border-radius: 8px; font-size: 14px; cursor: pointer; font-family: inherit;
-        }
-        .btn.ghost { background: #fff; color: var(--teal); border: 1px solid var(--teal); }
-        .btn.small { padding: 5px 11px; font-size: 13px; min-height:44px; }
-        input, select, textarea {
-            width: 100%; padding: 9px 11px; border: 1px solid var(--line);
-            border-radius: 8px; font-family: inherit; font-size: 14px; background: #fff;
-        }
-        label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-        .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-        .field { margin-bottom: 14px; }
-        .flash { padding: 12px 16px; border-radius: 10px; margin-bottom: 18px; font-size: 14px; }
-        .flash.ok { background: #dcfce7; color: #14532d; }
-        .flash.err { background: #fee2e2; color: #7f1d1d; }
-        .empty { padding: 30px; text-align: center; color: var(--muted); }
-        .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px 14px; font-size: 13px; }
-        .org-profile { display:grid;grid-template-columns:150px 1fr;gap:20px;align-items:start; }
-        .org-logo { min-height:130px;border:1px dashed #99d8d1;border-radius:12px;background:var(--teal-50);display:grid;place-items:center;padding:12px;text-align:center;color:var(--muted); }
-        .org-logo img { width:100%;height:105px;object-fit:contain; }
-        .org-meta { font-size:12px;color:var(--muted);margin-top:7px; }
-        @media (max-width: 760px) {
-            .grid2, .grid3 { grid-template-columns: 1fr; }
-            header { gap:8px;padding:6px 14px; }
-            header .brand { padding:4px 0; }
-            .nav-toggle { display:inline-grid;place-items:center;margin-inline-start:auto; }
-            header nav { display:none;flex:1 0 100%;flex-direction:column;gap:0;padding:4px 0 10px; }
-            header nav.open { display:flex; }
-            header nav a { min-height:44px;padding:9px 4px;border-bottom-width:1px; }
-            header .who { width:100%;margin:0;padding:0 0 8px;display:flex;align-items:center;justify-content:space-between; }
-        }
-        @media (max-width: 760px) { .org-profile { grid-template-columns:1fr; }.org-logo{min-height:110px}.org-logo img{height:90px} }
+    <style nonce="{{ $cspNonce }}">
+        :root{--teal:#0f766e;--teal-dark:#0b5f58;--teal-50:#f0fdfa;--ink:#17211f;--muted:#64748b;--line:#e2e8f0;--bg:#f5f7f8;--surface:#fff;--red:#b91c1c;--amber:#b45309;--green:#15803d;--sidebar:272px;--shadow:0 10px 30px rgba(15,23,42,.08)}
+        *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font-family:Tahoma,"Segoe UI",Arial,sans-serif;font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit}a{color:var(--teal);text-decoration:none}button,a{-webkit-tap-highlight-color:transparent}:focus-visible{outline:3px solid #2dd4bf;outline-offset:2px;border-radius:6px}.skip-link{position:fixed;z-index:1000;inset-block-start:8px;inset-inline-start:8px;transform:translateY(-150%);padding:9px 14px;border-radius:8px;background:#fff;color:var(--teal-dark);font-weight:700;box-shadow:var(--shadow)}.skip-link:focus{transform:none}
+        .app-shell{min-height:100vh;padding-inline-start:var(--sidebar)}.app-sidebar{position:fixed;z-index:70;inset-block:0;inset-inline-start:0;width:var(--sidebar);display:flex;flex-direction:column;background:#093f3b;color:#fff;border-inline-end:1px solid rgba(255,255,255,.08)}.sidebar-head{height:78px;display:flex;align-items:center;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.1)}.brand{min-width:0;display:flex;align-items:center;gap:11px;color:#fff}.brand img,.brand-fallback{width:43px;height:43px;border-radius:12px;object-fit:contain;background:#fff;padding:5px;flex:0 0 43px}.brand-fallback{display:grid;place-items:center;color:var(--teal-dark);font-size:21px;font-weight:900}.brand-copy{min-width:0;display:block}.brand-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:17px}.brand-copy small{display:block;color:#a7d8d3;font-size:11px;line-height:1.3}.sidebar-close{display:none;margin-inline-start:auto;width:42px;height:42px;border:0;border-radius:10px;background:rgba(255,255,255,.09);color:#fff;font-size:25px;cursor:pointer}
+        .sidebar-nav{overflow-y:auto;padding:12px 10px 24px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}.nav-section{margin:0 0 15px}.nav-section h2{margin:0;padding:5px 12px;color:#83bdb7;font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.04em}.nav-link{position:relative;display:flex;align-items:center;gap:11px;min-height:43px;margin:2px 0;padding:8px 12px;border-radius:9px;color:#d9efed;font-size:13.5px;transition:background .16s,color .16s}.nav-link:hover{background:rgba(255,255,255,.08);color:#fff}.nav-link.active{background:#fff;color:#075e56;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.12)}.nav-link.active::before{content:"";position:absolute;inset-block:11px;inset-inline-start:-1px;width:3px;border-radius:4px;background:#2dd4bf}.nav-icon{width:22px;height:22px;display:grid;place-items:center;flex:0 0 22px;border-radius:6px;background:rgba(255,255,255,.07);font-size:14px;font-weight:700}.nav-link.active .nav-icon{background:#dff8f4}
+        .topbar{position:sticky;z-index:50;inset-block-start:0;height:68px;display:flex;align-items:center;gap:14px;padding:0 clamp(16px,3vw,32px);background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}.menu-toggle{display:none;width:44px;height:44px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--teal-dark);font-size:20px;cursor:pointer}.page-context{min-width:0}.breadcrumbs{display:flex;align-items:center;gap:7px;margin:0;color:var(--muted);font-size:12px}.breadcrumbs a{color:var(--muted)}.breadcrumbs a:hover{color:var(--teal)}.topbar-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:700;color:var(--ink)}.topbar-actions{margin-inline-start:auto;display:flex;align-items:center;gap:8px}.user-menu{position:relative}.user-menu>summary{list-style:none;display:flex;align-items:center;gap:10px;min-height:46px;padding:5px 8px 5px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer}.user-menu>summary::-webkit-details-marker{display:none}.user-avatar{width:34px;height:34px;display:grid;place-items:center;border-radius:9px;background:#dff8f4;color:var(--teal-dark);font-weight:800}.user-copy{display:block;max-width:160px;line-height:1.25}.user-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.user-copy small{display:block;color:var(--muted);font-size:10px}.chevron{color:var(--muted);font-size:11px}.user-popover{position:absolute;z-index:80;inset-block-start:calc(100% + 8px);inset-inline-end:0;width:220px;padding:7px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow)}.user-action{width:100%;min-height:42px;display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:var(--ink);text-align:start;cursor:pointer}.user-action:hover{background:#f1f5f9}.user-action.danger{color:var(--red)}.user-action-icon{width:22px;text-align:center;color:var(--muted)}.user-popover form{margin:0}.menu-divider{height:1px;margin:5px 4px;background:var(--line)}.sidebar-scrim{display:none;position:fixed;z-index:60;inset:0;border:0;background:rgba(15,23,42,.5);cursor:pointer}
+        main{max-width:1440px;margin:0 auto;padding:24px clamp(16px,3vw,34px) 64px}h1{font-size:23px;line-height:1.35;margin:0 0 5px;letter-spacing:-.01em}.sub{color:var(--muted);font-size:13px;margin-bottom:20px}.card{background:var(--surface);border:1px solid var(--line);border-radius:13px;margin-bottom:18px;box-shadow:0 1px 2px rgba(15,23,42,.025)}.card>.hd{padding:13px 17px;border-bottom:1px solid var(--line);font-weight:700;display:flex;align-items:center;gap:10px}.card>.bd{padding:17px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{padding:11px 14px;text-align:start;border-bottom:1px solid var(--line);font-size:14px}th{background:var(--teal-50);font-weight:700;color:#115e59}tr:last-child td{border-bottom:0}.pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:700}.pill.green{background:#dcfce7;color:var(--green)}.pill.amber{background:#fef3c7;color:var(--amber)}.pill.red{background:#fee2e2;color:var(--red)}.pill.grey{background:#f1f5f9;color:#475569}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}.kpi{background:#fff;border:1px solid var(--line);border-radius:13px;padding:15px 17px}.kpi .v{font-size:27px;font-weight:800}.kpi .l{font-size:12px;color:var(--muted)}.kpi .n{font-size:11px;color:var(--muted);margin-top:4px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;background:var(--teal);color:#fff;border:0;padding:9px 16px;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer}.btn:hover{background:var(--teal-dark)}.btn.ghost{background:#fff;color:var(--teal);border:1px solid var(--teal)}.btn.small{padding:5px 11px;font-size:13px;min-height:42px}input,select,textarea{width:100%;min-height:44px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;background:#fff;color:var(--ink)}textarea{min-height:90px}input:focus,select:focus,textarea:focus{border-color:#14b8a6;box-shadow:0 0 0 3px rgba(20,184,166,.12);outline:0}label{display:block;font-size:13px;color:#475569;margin-bottom:5px;font-weight:600}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.field{margin-bottom:14px}.flash{padding:12px 16px;border-radius:10px;margin-bottom:18px;font-size:14px;border:1px solid transparent}.flash.ok{background:#dcfce7;color:#14532d;border-color:#bbf7d0}.flash.err{background:#fee2e2;color:#7f1d1d;border-color:#fecaca}.empty{padding:32px;text-align:center;color:var(--muted)}.note{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;font-size:13px}.org-profile{display:grid;grid-template-columns:150px 1fr;gap:20px;align-items:start}.org-logo{min-height:130px;border:1px dashed #99d8d1;border-radius:12px;background:var(--teal-50);display:grid;place-items:center;padding:12px;text-align:center;color:var(--muted)}.org-logo img{width:100%;height:105px;object-fit:contain}.org-meta{font-size:12px;color:var(--muted);margin-top:7px}.guest-main{max-width:1120px;margin:0 auto;padding:48px 20px 60px}
+        @media(max-width:1024px){:root{--sidebar:260px}.user-copy{display:none}}@media(max-width:820px){body.sidebar-open{overflow:hidden}.app-shell{padding-inline-start:0}.app-sidebar{width:min(300px,86vw);transform:translateX(calc((100% + 8px) * -1));transition:transform .2s ease;box-shadow:var(--shadow)}[dir="rtl"] .app-sidebar{transform:translateX(calc(100% + 8px))}.sidebar-open .app-sidebar{transform:translateX(0)}.sidebar-open .sidebar-scrim{display:block}.sidebar-close,.menu-toggle{display:grid;place-items:center}.topbar{height:62px}.topbar-title{font-size:15px}.breadcrumbs{display:none}main{padding-top:18px}.user-menu>summary{padding:5px}.chevron{display:none}}@media(max-width:600px){.grid2,.grid3{grid-template-columns:1fr}.org-profile{grid-template-columns:1fr}.org-logo{min-height:110px}.org-logo img{height:90px}th,td{padding:9px 11px;font-size:13px}.card>.bd{padding:14px}.topbar{padding-inline:12px}.page-context{max-width:calc(100vw - 130px)}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
     </style>
 </head>
 <body>
-@include('partials.language-switcher')
-
+<a class="skip-link" href="#main-content">تجاوز إلى المحتوى</a>
 @auth('web')
 @php($panelUser = auth('web')->user())
-<header>
-    <a class="brand" href="{{ route('panel.board') }}">
-        @if($panelCompany?->logo_path)
-            <img src="{{ route('panel.organization.logo', $panelCompany) }}" alt="شعار {{ $panelCompany->name }}">
-        @else
-            <span class="brand-fallback">{{ mb_substr($panelCompany?->name ?? 'دارك', 0, 1) }}</span>
-        @endif
-        <span>{{ $panelCompany?->name ?? 'دارك' }}<small>لوحة التحكم</small></span>
-    </a>
-    <button type="button" class="nav-toggle" aria-label="فتح قائمة التنقل" aria-controls="panel-navigation" aria-expanded="false">☰</button>
-    <nav id="panel-navigation" aria-label="التنقل الرئيسي">
-        @if($panelUser->canPanel('operations'))
-        <a href="{{ route('panel.board') }}" class="{{ request()->routeIs('panel.board') ? 'active' : '' }}">لوحة اليوم</a>
-        <a href="{{ route('panel.operations') }}" class="{{ request()->routeIs('panel.operations') ? 'active' : '' }}">الجدولة والمؤشرات</a>
-        <a href="{{ route('panel.maintenance') }}" class="{{ request()->routeIs('panel.maintenance*') ? 'active' : '' }}">الصيانة الوقائية</a>
-        <a href="{{ route('panel.sub') }}" class="{{ request()->routeIs('panel.sub*') ? 'active' : '' }}">الباطن</a>
-        <a href="{{ route('panel.notifications') }}" class="{{ request()->routeIs('panel.notifications') ? 'active' : '' }}">الإشعارات</a>
-        <a href="{{ route('panel.emergencies') }}" class="{{ request()->routeIs('panel.emergenc*') ? 'active' : '' }}">البلاغات الطارئة</a>
-        @endif
-        @if(config('darak.experimental_analytics') && $panelUser->canPanel('performance'))<a href="{{ route('panel.performance') }}" class="{{ request()->routeIs('panel.performance*') ? 'active' : '' }}">الأداء والترتيب</a>@endif
-        @if($panelUser->canPanel('sales'))<a href="{{ route('sales.home') }}" class="{{ request()->routeIs('sales.*') ? 'active' : '' }}">تطبيق المسوق</a>@endif
-        @if(config('darak.experimental_analytics') && $panelUser->canPanel('intelligence'))
-        <a href="{{ route('panel.intelligence') }}" class="{{ request()->routeIs('panel.intelligence*') ? 'active' : '' }}">ذكاء الأعطال</a>
-        @endif
-        @if($panelUser->canPanel('clients'))
-        <a href="{{ route('panel.clients') }}" class="{{ request()->routeIs('panel.clients*') ? 'active' : '' }}">العملاء والعقود</a>
-        @endif
-        @if($panelUser->canPanel('commercial'))
-        <a href="{{ route('panel.commercial') }}" class="{{ request()->routeIs('panel.commercial') || request()->routeIs('panel.quotation*') || request()->routeIs('panel.installment*') ? 'active' : '' }}">العروض والتحصيل</a>
-        @endif
-        @if($panelUser->canPanel('finance'))
-        <a href="{{ route('panel.finance') }}" class="{{ request()->routeIs('panel.finance*') ? 'active' : '' }}">الربحية</a>
-        @endif
-        @if($panelUser->canPanel('inventory'))
-        <a href="{{ route('panel.inventory') }}" class="{{ request()->routeIs('panel.inventory*') ? 'active' : '' }}">المخزون</a>
-        <a href="{{ route('panel.procurement') }}" class="{{ request()->routeIs('panel.procurement*') ? 'active' : '' }}">المشتريات والحجوزات</a>
-        @endif
-        @if($panelUser->canPanel('team'))
-        <a href="{{ route('panel.team') }}" class="{{ request()->routeIs('panel.team') ? 'active' : '' }}">الفريق والأجهزة</a>
-        @endif
-        @if($panelUser->canPanel('hr'))<a href="{{ route('panel.hr') }}" class="{{ request()->routeIs('panel.hr*') ? 'active' : '' }}">شؤون الموظفين</a>@endif
-        @if($panelUser->canPanel('fleet'))<a href="{{ route('panel.fleet') }}" class="{{ request()->routeIs('panel.fleet*') ? 'active' : '' }}">إدارة الأسطول</a>@endif
-        @if($panelUser->canPanel('admin'))<a href="{{ route('panel.admin-operations') }}" class="{{ request()->routeIs('panel.admin-operations') ? 'active' : '' }}">الإدارة وCRM</a><a href="{{ route('panel.admin.organization') }}" class="{{ request()->routeIs('panel.admin.organization') ? 'active' : '' }}">بيانات المؤسسة</a>@endif
-    </nav>
-    <div class="who">
-        {{ auth('web')->user()->name }}
-        <form method="POST" action="{{ route('panel.logout') }}" style="display:inline">
-            @csrf
-            <button class="btn small ghost" style="margin-inline-start:8px">خروج</button>
-        </form>
-    </div>
-</header>
-@endauth
-
-<main>
-    @if (session('ok'))   <div class="flash ok">{{ session('ok') }}</div>   @endif
-    @if (session('err'))  <div class="flash err">{{ session('err') }}</div> @endif
-
-    @if ($errors->any())
-        <div class="flash err">
-            @foreach ($errors->all() as $error) <div>• {{ $error }}</div> @endforeach
-        </div>
-    @endif
-
+<div class="app-shell">
+    @include('partials.ui-sidebar')
+    <button type="button" class="sidebar-scrim" data-sidebar-close tabindex="-1" aria-label="إغلاق قائمة التنقل"></button>
+    <header class="topbar">
+        <button type="button" class="menu-toggle" data-sidebar-open aria-controls="panel-navigation" aria-expanded="false" aria-label="فتح قائمة التنقل">☰</button>
+        <div class="page-context"><nav class="breadcrumbs" aria-label="مسار الصفحة"><a href="{{ route('panel.board') }}">الرئيسية</a><span aria-hidden="true">/</span><span aria-current="page">@yield('title', 'لوحة التحكم')</span></nav><div class="topbar-title">@yield('title', 'لوحة التحكم')</div></div>
+        <div class="topbar-actions"><details class="user-menu"><summary aria-label="فتح قائمة الحساب"><span class="user-avatar" aria-hidden="true">{{ mb_substr($panelUser->name, 0, 1) }}</span><span class="user-copy"><strong>{{ $panelUser->name }}</strong><small>حساب المستخدم</small></span><span class="chevron" aria-hidden="true">⌄</span></summary><div class="user-popover">
+            <form method="POST" action="{{ route('locale.switch', app()->isLocale('ar') ? 'en' : 'ar') }}">@csrf<button class="user-action" type="submit"><span class="user-action-icon" aria-hidden="true">文</span><span>{{ app()->isLocale('ar') ? 'English' : 'العربية' }}</span></button></form>
+            <div class="menu-divider"></div><form method="POST" action="{{ route('panel.logout') }}">@csrf<button class="user-action danger" type="submit"><span class="user-action-icon" aria-hidden="true">↪</span><span>تسجيل الخروج</span></button></form>
+        </div></details></div>
+    </header>
+    <main id="main-content" tabindex="-1">
+        @if(session('ok'))<div class="flash ok" role="status">{{ session('ok') }}</div>@endif
+        @if(session('err'))<div class="flash err" role="alert">{{ session('err') }}</div>@endif
+        @if($errors->any())<div class="flash err" role="alert">@foreach($errors->all() as $error)<div>• {{ $error }}</div>@endforeach</div>@endif
+        @yield('content')
+    </main>
+</div>
+@else
+@include('partials.language-switcher')
+<main class="guest-main" id="main-content" tabindex="-1">
+    @if(session('ok'))<div class="flash ok" role="status">{{ session('ok') }}</div>@endif
+    @if(session('err'))<div class="flash err" role="alert">{{ session('err') }}</div>@endif
+    @if($errors->any())<div class="flash err" role="alert">@foreach($errors->all() as $error)<div>• {{ $error }}</div>@endforeach</div>@endif
     @yield('content')
 </main>
-
+@endauth
 @include('partials.form-accessibility')
 <script nonce="{{ $cspNonce }}">
-const navToggle=document.querySelector('.nav-toggle');const panelNav=document.getElementById('panel-navigation');
-navToggle?.addEventListener('click',()=>{const open=panelNav.classList.toggle('open');navToggle.setAttribute('aria-expanded',String(open));navToggle.setAttribute('aria-label',open?'إغلاق قائمة التنقل':'فتح قائمة التنقل')});
+(()=>{const body=document.body,openButton=document.querySelector('[data-sidebar-open]'),closeButtons=document.querySelectorAll('[data-sidebar-close]'),sidebar=document.getElementById('panel-navigation');const closeSidebar=(restore=true)=>{body.classList.remove('sidebar-open');openButton?.setAttribute('aria-expanded','false');if(restore)openButton?.focus()};openButton?.addEventListener('click',()=>{body.classList.add('sidebar-open');openButton.setAttribute('aria-expanded','true');sidebar?.querySelector('[data-sidebar-close]')?.focus()});closeButtons.forEach(button=>button.addEventListener('click',()=>closeSidebar()));document.addEventListener('keydown',event=>{if(event.key==='Escape'){if(body.classList.contains('sidebar-open'))closeSidebar();document.querySelectorAll('.user-menu[open]').forEach(menu=>menu.removeAttribute('open'))}});document.addEventListener('click',event=>{document.querySelectorAll('.user-menu[open]').forEach(menu=>{if(!menu.contains(event.target))menu.removeAttribute('open')})});window.matchMedia('(min-width:821px)').addEventListener('change',event=>{if(event.matches)closeSidebar(false)})})();
 </script>
 @include('partials.runtime-localization')
-
 </body>
 </html>

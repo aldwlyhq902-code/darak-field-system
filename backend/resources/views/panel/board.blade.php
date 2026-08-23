@@ -1,143 +1,31 @@
 @extends('layouts.panel')
 @section('title', 'لوحة اليوم')
-
 @section('content')
-<h1>لوحة اليوم</h1>
-<div class="sub">{{ $date->translatedFormat('l، j F Y') }}</div>
-
-<div class="kpis">
-    <div class="kpi"><div class="v">{{ $counts['total'] }}</div><div class="l">زيارات اليوم</div></div>
-    <div class="kpi"><div class="v">{{ $counts['open'] }}</div><div class="l">مفتوحة</div></div>
-    <div class="kpi"><div class="v">{{ $counts['done'] }}</div><div class="l">مقفلة</div></div>
-    <div class="kpi">
-        <div class="v" style="color:{{ $counts['red'] > 0 ? 'var(--red)' : 'inherit' }}">{{ $counts['red'] }}</div>
-        <div class="l">تجاوزت SLA</div>
-        <div class="n">داخل نافذة الخدمة</div>
-    </div>
-    <div class="kpi">
-        <div class="v" style="color:{{ $counts['unassigned'] > 0 ? 'var(--amber)' : 'inherit' }}">{{ $counts['unassigned'] }}</div>
-        <div class="l">بلا إسناد</div>
-    </div>
-    <div class="kpi">
-        <div class="v">{{ $firstTimeFix['strict'] }}%</div>
-        <div class="l">حل من أول زيارة</div>
-        <div class="n">المعدّل بعد الاستثناءات: {{ $firstTimeFix['adjusted'] }}%</div>
-    </div>
+@php
+    $states = ['scheduled'=>'مجدولة','en_route'=>'في الطريق','started'=>'قيد التنفيذ','paused'=>'متوقفة','awaiting_close'=>'بانتظار الإقفال','completed'=>'مقفلة','reopened'=>'أُعيد فتحها'];
+    $types = ['preventive'=>'وقائية','reactive'=>'بلاغ','out_of_contract'=>'خارج العقد'];
+@endphp
+<style>
+.board-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px}.board-head .sub{margin:0}.date-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.date-tools .btn{min-height:38px;padding:6px 12px}.date-tools input{width:145px;min-height:38px;padding:6px 9px}.board-kpis{grid-template-columns:1.3fr repeat(3,1fr)}.board-kpi{min-height:116px;overflow:hidden}.board-kpi.primary{background:linear-gradient(145deg,#0f766e,#115e59);color:#fff;border:0}.board-kpi.primary .l,.board-kpi.primary .n{color:#ccfbf1}.board-kpi.alert{border-color:#fecaca}.trend{margin-top:8px;font-size:12px;color:var(--muted)}.primary .trend{color:#d4f4ee}.progress{height:7px;background:#d1fae5;border-radius:20px;overflow:hidden;margin-top:9px}.progress span{display:block;height:100%;background:#34d399}.signal-strip{display:flex;gap:9px;flex-wrap:wrap;margin:-5px 0 20px}.signal{background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px;color:#475569}.signal strong{color:var(--ink);font-size:14px;margin-inline-end:5px}.board-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(245px,.75fr);gap:18px;align-items:start}.quick-actions,.priority-list{display:grid;gap:9px;padding:14px}.quick-action{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:9px;padding:10px 12px;color:var(--ink);font-weight:600}.quick-action:hover{border-color:#5eead4;background:var(--teal-50);color:#115e59}.quick-action span{color:var(--teal);font-size:18px}.priority-item{display:grid;grid-template-columns:54px minmax(0,1fr) auto;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:11px 12px}.priority-item.critical{border-inline-start:4px solid var(--red)}.priority-item.warning{border-inline-start:4px solid #d97706}.priority-time{font-weight:700;font-variant-numeric:tabular-nums;color:#334155}.priority-title{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.priority-meta,.mobile-meta{color:var(--muted);font-size:12px}.reason-list{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.section-head{justify-content:space-between;flex-wrap:wrap}.section-head .meta{color:var(--muted);font-size:12px;font-weight:400}.status-legend{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 12px;color:var(--muted);font-size:12px}.status-legend span:before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-inline-end:5px}.status-legend .safe:before{background:var(--green)}.status-legend .near:before{background:#d97706}.status-legend .late:before{background:var(--red)}.mobile-cards{display:none}.visit-card,.device-card{border-bottom:1px solid var(--line);padding:14px 16px}.mobile-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px}.empty strong{display:block;color:#334155;font-size:15px;margin-bottom:4px}
+@media(max-width:900px){.board-kpis{grid-template-columns:repeat(2,1fr)}.board-grid{grid-template-columns:1fr}}@media(max-width:760px){.board-head{flex-direction:column}.date-tools{width:100%}.date-tools form{flex:1;display:flex}.date-tools input{flex:1;width:auto}.board-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.board-kpi{min-height:105px;padding:12px}.board-kpi .v{font-size:23px}.desktop-table{display:none}.mobile-cards{display:block}.priority-item{grid-template-columns:45px minmax(0,1fr)}.priority-item .btn{grid-column:1/-1;width:100%}}
+</style>
+<div class="board-head"><div><h1>لوحة اليوم</h1><div class="sub">{{ $date->translatedFormat('l، j F Y') }} · ملخص التشغيل والأعمال التي تحتاج تدخلك</div></div><div class="date-tools" aria-label="التنقل بين الأيام"><a class="btn ghost" href="{{ route('panel.board',['date'=>$date->subDay()->toDateString()]) }}">السابق</a><form method="get" action="{{ route('panel.board') }}"><input type="date" name="date" value="{{ $date->toDateString() }}" aria-label="اختر التاريخ" onchange="this.form.submit()"></form><a class="btn ghost" href="{{ route('panel.board',['date'=>$date->addDay()->toDateString()]) }}">التالي</a>@unless($date->isToday())<a class="btn" href="{{ route('panel.board') }}">اليوم</a>@endunless</div></div>
+<div class="kpis board-kpis" aria-label="مؤشرات اليوم">
+ <div class="kpi board-kpi primary"><div class="v">{{ $completionRate }}%</div><div class="l">نسبة إنجاز زيارات اليوم</div><div class="progress"><span style="width:{{ $completionRate }}%"></span></div><div class="trend">{{ $counts['done'] }} مكتملة من أصل {{ $counts['total'] }}</div></div>
+ <div class="kpi board-kpi {{ $counts['red']?'alert':'' }}"><div class="v" style="color:{{ $counts['red']?'var(--red)':'var(--green)' }}">{{ $counts['red'] }}</div><div class="l">متجاوزة لاتفاقية الخدمة</div><div class="trend">{{ $counts['red']?'تحتاج تدخلاً فوريًا':'لا توجد تجاوزات' }}</div></div>
+ <div class="kpi board-kpi"><div class="v" style="color:{{ $counts['unassigned']?'var(--amber)':'var(--green)' }}">{{ $counts['unassigned'] }}</div><div class="l">زيارات بلا فني</div><div class="trend">{{ $counts['unassigned']?'راجع الإسناد قبل الموعد':'جميع الزيارات مسندة' }}</div></div>
+ <div class="kpi board-kpi"><div class="v">{{ $counts['open'] }}</div><div class="l">متبقية اليوم</div><div class="trend">{{ $counts['total'] }} زيارة مجدولة إجمالاً</div></div>
 </div>
-
-<div class="card">
-    <div class="hd">الزيارات</div>
-    @if ($rows->isEmpty())
-        <div class="empty">لا توجد زيارات مجدولة في هذا اليوم.</div>
-    @else
-        <table>
-            <thead>
-            <tr>
-                <th style="width:70px">الوقت</th>
-                <th>العميل والموقع</th>
-                <th style="width:120px">النوع</th>
-                <th style="width:130px">الحالة</th>
-                <th style="width:140px">الفني</th>
-                <th style="width:130px">SLA</th>
-                <th style="width:70px"></th>
-            </tr>
-            </thead>
-            <tbody>
-            @foreach ($rows as $row)
-                @php $visit = $row['visit']; @endphp
-                <tr>
-                    <td>{{ $visit->scheduled_start?->format('H:i') ?? '—' }}</td>
-                    <td>
-                        <strong>{{ $visit->workOrder?->client?->name }}</strong><br>
-                        <span style="color:var(--muted);font-size:13px">{{ $visit->site?->name }} — {{ $visit->workOrder?->title }}</span>
-                        @if ($visit->is_rework)
-                            <span class="pill red" style="margin-inline-start:6px">إعادة زيارة</span>
-                        @endif
-                    </td>
-                    <td>
-                        @php $types = ['preventive' => 'وقائية', 'reactive' => 'بلاغ', 'out_of_contract' => 'خارج العقد']; @endphp
-                        <span class="pill grey">{{ $types[$visit->workOrder?->type] ?? '—' }}</span>
-                    </td>
-                    <td>
-                        @php
-                            $states = [
-                                'scheduled' => 'مجدولة', 'en_route' => 'في الطريق', 'started' => 'قيد التنفيذ',
-                                'paused' => 'متوقفة', 'awaiting_close' => 'بانتظار الإقفال',
-                                'completed' => 'مقفلة', 'reopened' => 'أُعيد فتحها',
-                            ];
-                        @endphp
-                        <span class="pill {{ $visit->state === 'completed' ? 'green' : 'grey' }}">
-                            {{ $states[$visit->state] ?? $visit->state }}
-                        </span>
-                    </td>
-                    <td>{{ $visit->technician?->name ?? '—' }}</td>
-                    <td>
-                        @if ($row['sla_status'])
-                            <span class="pill {{ $row['sla_status'] }}">
-                                @if ($row['sla_remaining'] < 0)
-                                    تأخر {{ abs($row['sla_remaining']) }} د
-                                @else
-                                    {{ $row['sla_remaining'] }} د
-                                @endif
-                            </span>
-                            @unless ($row['in_window'])
-                                <div style="font-size:11px;color:var(--muted)">خارج نافذة الخدمة — العداد متوقف</div>
-                            @endunless
-                        @else
-                            —
-                        @endif
-                    </td>
-                    <td><a class="btn small ghost" href="{{ route('panel.visit', $visit) }}">فتح</a></td>
-                </tr>
-            @endforeach
-            </tbody>
-        </table>
-    @endif
-</div>
-
-<div class="card">
-    <div class="hd">الأجهزة وآخر مزامنة</div>
-    <div class="bd" style="padding-bottom:6px">
-        <div class="note" style="margin-bottom:14px">
-            جهاز لم يزامن منذ فترة طويلة قد يكون خارج التغطية أو التطبيق مغلق.
-            البيانات المعروضة عنه قديمة بقدر هذا الرقم — لا تُقرأ كأنها لحظية.
-        </div>
-    </div>
-    @if ($devices->isEmpty())
-        <div class="empty">لا توجد أجهزة مسجلة بعد. يسجّل الفني دخوله من التطبيق فيظهر جهازه هنا.</div>
-    @else
-        <table>
-            <thead>
-            <tr><th>الفني</th><th style="width:150px">آخر مزامنة</th><th style="width:140px">انحراف الساعة</th><th>الإصدار</th></tr>
-            </thead>
-            <tbody>
-            @foreach ($devices as $entry)
-                @php $minutes = $entry['minutes_since_sync']; @endphp
-                <tr>
-                    <td>{{ $entry['device']->user?->name ?? '—' }}</td>
-                    <td>
-                        @if ($minutes === null)
-                            <span class="pill grey">لم يزامن بعد</span>
-                        @else
-                            <span class="pill {{ $minutes > 180 ? 'red' : ($minutes > 60 ? 'amber' : 'green') }}">
-                                قبل {{ (int) $minutes }} دقيقة
-                            </span>
-                        @endif
-                    </td>
-                    <td>
-                        @if ($entry['device']->clock_skew_seconds === null)
-                            —
-                        @else
-                            <span class="pill {{ abs($entry['device']->clock_skew_seconds) > 120 ? 'red' : 'grey' }}">
-                                {{ $entry['device']->clock_skew_seconds }} ثانية
-                            </span>
-                        @endif
-                    </td>
-                    <td style="color:var(--muted);font-size:13px">{{ $entry['device']->app_version ?? '—' }}</td>
-                </tr>
-            @endforeach
-            </tbody>
-        </table>
-    @endif
-</div>
+<div class="signal-strip"><div class="signal"><strong>{{ $counts['amber'] }}</strong>SLA يقترب</div><div class="signal"><strong>{{ $counts['stale_devices'] }}</strong>أجهزة تحتاج مراجعة</div><div class="signal"><strong>{{ $firstTimeFix['strict'] }}%</strong>حل من أول زيارة</div><div class="signal"><strong>{{ $firstTimeFix['adjusted'] }}%</strong>بعد الاستثناءات</div></div>
+<div class="board-grid"><div class="card"><div class="hd section-head"><span>أولويات اليوم</span><span class="meta">تجاوز SLA، الإسناد، وحالة العمل</span></div>
+@if($priorities->isEmpty())<div class="empty"><strong>لا توجد حالات حرجة الآن</strong>كل زيارات اليوم ضمن المسار الطبيعي.</div>@else<div class="priority-list">@foreach($priorities as $row) @php($visit=$row['visit'])<div class="priority-item {{ $row['sla_status']==='red'?'critical':'warning' }}"><div class="priority-time">{{ $visit->scheduled_start?->format('H:i')??'—' }}</div><div><div class="priority-title">{{ $visit->workOrder?->client?->name??'عميل غير محدد' }} — {{ $visit->workOrder?->title??'زيارة' }}</div><div class="priority-meta">{{ $visit->site?->name??'موقع غير محدد' }} · {{ $visit->technician?->name??'لم يُسند فني' }}</div><div class="reason-list">@foreach($row['priority_reasons'] as $reason)<span class="pill {{ $row['sla_status']==='red'?'red':'amber' }}">{{ $reason }}</span>@endforeach</div></div><a class="btn small ghost" href="{{ route('panel.visit',$visit) }}">معالجة</a></div>@endforeach</div>@endif</div>
+<aside class="card"><div class="hd">إجراءات سريعة</div><div class="quick-actions">@if(auth('web')->user()->canPanel('operations'))<a class="quick-action" href="{{ route('panel.operations') }}">فتح الجدولة <span>←</span></a><a class="quick-action" href="{{ route('panel.notifications') }}">مراجعة الإشعارات <span>←</span></a><a class="quick-action" href="{{ route('panel.emergencies') }}">البلاغات الطارئة <span>←</span></a>@endif @if(auth('web')->user()->canPanel('clients'))<a class="quick-action" href="{{ route('panel.clients') }}">العملاء والعقود <span>←</span></a>@endif @if(auth('web')->user()->canPanel('inventory'))<a class="quick-action" href="{{ route('panel.inventory') }}">المخزون <span>←</span></a>@endif</div></aside></div>
+<div class="card"><div class="hd section-head"><span>كل زيارات اليوم</span><span class="meta">{{ $counts['total'] }} زيارة</span></div><div class="status-legend"><span class="safe">ضمن المهلة</span><span class="near">المهلة تقترب</span><span class="late">متجاوزة</span></div>
+@if($rows->isEmpty())<div class="empty"><strong>لا توجد زيارات مجدولة</strong>اختر يومًا آخر أو أضف الزيارات من شاشة الجدولة.</div>@else
+<div class="desktop-table"><table><thead><tr><th>الوقت</th><th>العميل والموقع</th><th>النوع</th><th>الحالة</th><th>الفني</th><th>SLA</th><th></th></tr></thead><tbody>@foreach($rows as $row) @php($visit=$row['visit'])<tr><td><strong>{{ $visit->scheduled_start?->format('H:i')??'—' }}</strong></td><td><strong>{{ $visit->workOrder?->client?->name??'—' }}</strong><br><span class="mobile-meta">{{ $visit->site?->name }} — {{ $visit->workOrder?->title }}</span>@if($visit->is_rework) <span class="pill red">إعادة زيارة</span>@endif</td><td><span class="pill grey">{{ $types[$visit->workOrder?->type]??'—' }}</span></td><td><span class="pill {{ $visit->state==='completed'?'green':(in_array($visit->state,['paused','reopened'])?'amber':'grey') }}">{{ $states[$visit->state]??$visit->state }}</span></td><td>{{ $visit->technician?->name??'غير مسند' }}</td><td>@if($row['sla_status'])<span class="pill {{ $row['sla_status'] }}">{{ $row['sla_remaining']<0?'متأخرة '.abs($row['sla_remaining']).' د':$row['sla_remaining'].' د متبقية' }}</span>@unless($row['in_window'])<div class="mobile-meta">خارج نافذة الخدمة · العداد متوقف</div>@endunless @else — @endif</td><td><a class="btn small ghost" href="{{ route('panel.visit',$visit) }}">فتح</a></td></tr>@endforeach</tbody></table></div>
+<div class="mobile-cards">@foreach($rows as $row) @php($visit=$row['visit'])<article class="visit-card"><div class="mobile-row"><strong>{{ $visit->scheduled_start?->format('H:i')??'—' }} · {{ $visit->workOrder?->client?->name??'عميل غير محدد' }}</strong><span class="pill {{ $visit->state==='completed'?'green':'grey' }}">{{ $states[$visit->state]??$visit->state }}</span></div><div class="mobile-meta">{{ $visit->site?->name }} · {{ $visit->workOrder?->title }}</div><div class="mobile-row" style="margin-top:10px"><span>{{ $visit->technician?->name??'غير مسند' }}</span>@if($row['sla_status'])<span class="pill {{ $row['sla_status'] }}">{{ $row['sla_remaining']<0?'تأخر '.abs($row['sla_remaining']).' د':$row['sla_remaining'].' د' }}</span>@endif</div><a class="btn small ghost" style="width:100%" href="{{ route('panel.visit',$visit) }}">فتح تفاصيل الزيارة</a></article>@endforeach</div>@endif</div>
+<div class="card"><div class="hd section-head"><span>جاهزية أجهزة الفنيين</span><span class="meta">المزامنة الأقدم تظهر أولاً</span></div><div class="bd"><div class="note">المزامنة الأقدم من ساعة تحتاج مراجعة؛ قد يكون الفني خارج التغطية أو التطبيق مغلقًا، فلا تتعامل مع موقعه كبيانات لحظية.</div></div>
+@if($devices->isEmpty())<div class="empty"><strong>لا توجد أجهزة مسجلة</strong>سيظهر الجهاز هنا بعد دخول الفني من التطبيق.</div>@else
+<div class="desktop-table"><table><thead><tr><th>الفني</th><th>آخر مزامنة</th><th>انحراف الساعة</th><th>الإصدار</th></tr></thead><tbody>@foreach($devices as $entry) @php($minutes=$entry['minutes_since_sync'])<tr><td><strong>{{ $entry['device']->user?->name??'—' }}</strong></td><td>@if($minutes===null)<span class="pill red">لم يزامن بعد</span>@else<span class="pill {{ $minutes>180?'red':($minutes>60?'amber':'green') }}">قبل {{ (int)$minutes }} دقيقة</span>@endif</td><td>@if($entry['device']->clock_skew_seconds===null) — @else<span class="pill {{ abs($entry['device']->clock_skew_seconds)>120?'red':'grey' }}">{{ $entry['device']->clock_skew_seconds }} ثانية</span>@endif</td><td class="mobile-meta">{{ $entry['device']->app_version??'—' }}</td></tr>@endforeach</tbody></table></div>
+<div class="mobile-cards">@foreach($devices as $entry) @php($minutes=$entry['minutes_since_sync'])<article class="device-card"><div class="mobile-row"><strong>{{ $entry['device']->user?->name??'—' }}</strong>@if($minutes===null)<span class="pill red">لم يزامن</span>@else<span class="pill {{ $minutes>180?'red':($minutes>60?'amber':'green') }}">قبل {{ (int)$minutes }} د</span>@endif</div><div class="mobile-meta">الإصدار: {{ $entry['device']->app_version??'—' }} · انحراف الساعة: {{ $entry['device']->clock_skew_seconds??'—' }} ثانية</div></article>@endforeach</div>@endif</div>
 @endsection

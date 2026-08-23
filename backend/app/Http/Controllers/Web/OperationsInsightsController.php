@@ -34,6 +34,58 @@ class OperationsInsightsController extends Controller
 
     public function calendar(Request $request): View
     {
+        $tab = in_array($request->string('tab')->toString(), ['schedule', 'requests', 'quality', 'resources'], true)
+            ? $request->string('tab')->toString()
+            : 'schedule';
+
+        $data = ['activeTab' => $tab];
+
+        if ($tab === 'requests') {
+            $data['serviceRequests'] = ClientServiceRequest::with(['client', 'site', 'asset', 'portalUser', 'visit'])
+                ->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
+                ->latest('id')
+                ->limit(30)
+                ->get();
+
+            return view('panel.operations', $data);
+        }
+
+        if ($tab === 'quality') {
+            $data['feedbackItems'] = VisitFeedback::with(['visit.site.client', 'portalUser'])
+                ->where('is_complaint', true)
+                ->latest('id')
+                ->limit(30)
+                ->get();
+            $data['disputes'] = ReportDispute::with(['visit.site.client'])
+                ->whereIn('status', ['new', 'reviewed'])
+                ->latest()
+                ->limit(30)
+                ->get();
+            $data['assetSignals'] = $this->assetSignals();
+            $data['partSignals'] = $this->partSignals();
+
+            return view('panel.operations', $data);
+        }
+
+        if ($tab === 'resources') {
+            $data['technicians'] = User::where('role', User::ROLE_TECHNICIAN)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get();
+            $data['absences'] = TechnicianAbsence::with('user')
+                ->where('ends_on', '>=', now()->toDateString())
+                ->latest()
+                ->limit(30)
+                ->get();
+            $data['outages'] = VehicleOutage::with('vehicle.assignedUser')
+                ->where('status', 'open')
+                ->latest()
+                ->get();
+            $data['vehicles'] = Vehicle::with('assignedUser')->where('is_active', true)->get();
+
+            return view('panel.operations', $data);
+        }
+
         $mode = in_array($request->string('view')->toString(), ['day', 'week', 'month'], true) ? $request->string('view')->toString() : 'week';
         $anchor = $request->date('date') ?? $request->date('week') ?? CarbonImmutable::now();
         $start = match ($mode) {
@@ -52,16 +104,9 @@ class OperationsInsightsController extends Controller
             ->whereBetween('scheduled_start', [$start, $end])->orderBy('scheduled_start')->get();
         $suggestions = $visits->whereNull('assigned_user_id')->mapWithKeys(fn (Visit $visit) => [$visit->id => $this->dispatch->suggest($visit)]);
 
-        return view('panel.operations', [
+        return view('panel.operations', $data + [
             'start' => $start, 'end' => $end, 'dayCount' => $dayCount, 'viewMode' => $mode, 'technicians' => $technicians, 'visits' => $visits,
             'suggestions' => $suggestions,
-            'serviceRequests' => ClientServiceRequest::with(['client', 'site', 'asset', 'portalUser', 'visit'])->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")->latest('id')->limit(30)->get(),
-            'feedbackItems' => VisitFeedback::with(['visit.site.client', 'portalUser'])->where('is_complaint', true)->latest('id')->limit(30)->get(),
-            'disputes' => ReportDispute::with(['visit.site.client'])->whereIn('status', ['new', 'reviewed'])->latest()->limit(30)->get(),
-            'assetSignals' => $this->assetSignals(), 'partSignals' => $this->partSignals(),
-            'absences' => TechnicianAbsence::with('user')->where('ends_on', '>=', now()->toDateString())->latest()->limit(30)->get(),
-            'outages' => VehicleOutage::with('vehicle.assignedUser')->where('status', 'open')->latest()->get(),
-            'vehicles' => Vehicle::with('assignedUser')->where('is_active', true)->get(),
         ]);
     }
 
@@ -125,13 +170,13 @@ class OperationsInsightsController extends Controller
         return Asset::query()->with('site.client')
             ->whereHas('workOrders', $faultsInYear, '>=', 2)
             ->withCount([
-            'workOrders as faults_90d' => fn ($q) => $q->whereIn('type', ['reactive', 'out_of_contract'])->where('reported_at', '>=', now()->subDays(90)),
-            'workOrders as faults_365d' => $faultsInYear,
-        ])->orderByDesc('faults_90d')->limit(30)->get()->map(function ($asset) {
-            $asset->signal = $asset->faults_90d >= 3 ? 'critical' : ($asset->faults_365d >= 3 ? 'watch' : 'observe');
+                'workOrders as faults_90d' => fn ($q) => $q->whereIn('type', ['reactive', 'out_of_contract'])->where('reported_at', '>=', now()->subDays(90)),
+                'workOrders as faults_365d' => $faultsInYear,
+            ])->orderByDesc('faults_90d')->limit(30)->get()->map(function ($asset) {
+                $asset->signal = $asset->faults_90d >= 3 ? 'critical' : ($asset->faults_365d >= 3 ? 'watch' : 'observe');
 
-            return $asset;
-        });
+                return $asset;
+            });
     }
 
     private function partSignals()

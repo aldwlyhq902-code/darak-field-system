@@ -101,7 +101,7 @@ return [
             // serverless runtimes and does not support server-side prepared
             // statements. Enable PDO emulation there via the environment.
             'options' => extension_loaded('pdo_pgsql') ? array_filter([
-                \PDO::ATTR_EMULATE_PREPARES => env('DB_EMULATE_PREPARES'),
+                PDO::ATTR_EMULATE_PREPARES => env('DB_EMULATE_PREPARES'),
             ], fn ($value) => $value !== null) : [],
         ],
 
