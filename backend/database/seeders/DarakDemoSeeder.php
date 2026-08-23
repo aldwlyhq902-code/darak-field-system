@@ -6,6 +6,8 @@ use App\Models\Asset;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\Contract;
+use App\Models\OperatingBranch;
+use App\Models\OperatingCompany;
 use App\Models\Part;
 use App\Models\Site;
 use App\Models\StockLocation;
@@ -39,6 +41,22 @@ class DarakDemoSeeder extends Seeder
 
         $sla = app(SlaCalculator::class);
 
+        $company = OperatingCompany::create([
+            'name' => 'دارك للصيانة',
+            'legal_name' => 'شركة دارك للصيانة',
+            'city' => 'جدة',
+            'country' => 'SA',
+            'currency' => 'SAR',
+            'is_active' => true,
+        ]);
+        $branch = OperatingBranch::create([
+            'operating_company_id' => $company->id,
+            'name' => 'فرع جدة',
+            'code' => 'JED',
+            'address' => 'جدة',
+            'is_active' => true,
+        ]);
+
         $owner = User::create([
             'name' => 'مالك دارك',
             'email' => 'owner@darak.test',
@@ -46,6 +64,7 @@ class DarakDemoSeeder extends Seeder
             'role' => User::ROLE_OWNER,
             'phone' => '0500000000',
             'is_active' => true,
+            'operating_company_id' => $company->id,
         ]);
 
         User::create([
@@ -54,6 +73,8 @@ class DarakDemoSeeder extends Seeder
             'password' => Hash::make('password'),
             'role' => User::ROLE_ADMIN,
             'is_active' => true,
+            'operating_company_id' => $company->id,
+            'operating_branch_id' => $branch->id,
         ]);
 
         // Four technicians, two shifts. The trade recorded is the one written on the
@@ -73,18 +94,31 @@ class DarakDemoSeeder extends Seeder
             'shift_start' => $t['shift'][0],
             'shift_end' => $t['shift'][1],
             'is_active' => true,
+            'operating_company_id' => $company->id,
+            'operating_branch_id' => $branch->id,
         ]));
 
         // Two vehicles, each its own stock location.
-        $warehouse = StockLocation::create(['type' => StockLocation::TYPE_WAREHOUSE, 'name' => 'المستودع المركزي']);
+        $warehouse = StockLocation::create([
+            'type' => StockLocation::TYPE_WAREHOUSE,
+            'name' => 'المستودع المركزي',
+            'operating_branch_id' => $branch->id,
+        ]);
 
-        $vehicleLocations = collect(['ح ن ر 1234', 'ط ب ل 5678'])->map(function (string $plate, int $i) {
-            $vehicle = Vehicle::create(['plate' => $plate, 'internal_code' => 'V'.($i + 1), 'model' => 'Hilux', 'year' => 2024]);
+        $vehicleLocations = collect(['ح ن ر 1234', 'ط ب ل 5678'])->map(function (string $plate, int $i) use ($branch) {
+            $vehicle = Vehicle::create([
+                'plate' => $plate,
+                'internal_code' => 'V'.($i + 1),
+                'model' => 'Hilux',
+                'year' => 2024,
+                'operating_branch_id' => $branch->id,
+            ]);
 
             return StockLocation::create([
                 'type' => StockLocation::TYPE_VEHICLE,
                 'name' => 'مستودع السيارة '.($i + 1),
                 'vehicle_id' => $vehicle->id,
+                'operating_branch_id' => $branch->id,
             ]);
         });
 
@@ -165,6 +199,8 @@ class DarakDemoSeeder extends Seeder
                 'payment_term' => 'quarterly_advance',
                 'credit_limit' => 5000,
                 'cr_number' => (string) random_int(4030000000, 4039999999),
+                'operating_company_id' => $company->id,
+                'operating_branch_id' => $branch->id,
             ]);
 
             $contract = Contract::create([
