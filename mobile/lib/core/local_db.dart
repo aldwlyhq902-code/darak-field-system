@@ -324,10 +324,25 @@ class LocalDb {
 
   /// Monotonically increasing per-device counter. Survives clock changes, which
   /// is exactly why the server orders replayed events by it.
-  Future<int> nextSequence() async {
-    final current = int.tryParse(await getValue('event_sequence') ?? '0') ?? 0;
+  Future<int> nextSequence([plain.DatabaseExecutor? executor]) async {
+    final target = executor ?? _db;
+    final rows = await target.query(
+      'kv',
+      columns: ['v'],
+      where: 'k = ?',
+      whereArgs: ['event_sequence'],
+      limit: 1,
+    );
+    final current =
+        int.tryParse(
+          rows.isEmpty ? '0' : (rows.first['v'] as String? ?? '0'),
+        ) ??
+        0;
     final next = current + 1;
-    await setValue('event_sequence', '$next');
+    await target.insert('kv', {
+      'k': 'event_sequence',
+      'v': '$next',
+    }, conflictAlgorithm: plain.ConflictAlgorithm.replace);
     return next;
   }
 

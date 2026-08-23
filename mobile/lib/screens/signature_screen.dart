@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+
+import '../l10n/app_localizations.dart';
 import 'package:signature/signature.dart';
 
 /// Site representative sign-off. Returns PNG bytes plus the signer's name and
@@ -45,7 +47,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
   Future<void> _save() async {
     if (_controller.isEmpty || _name.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('التوقيع واسم المسؤول مطلوبان.')),
+        const SnackBar(content: LText('التوقيع واسم المسؤول مطلوبان.')),
       );
       return;
     }
@@ -74,10 +76,10 @@ class _SignatureScreenState extends State<SignatureScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('اعتماد مسؤول الموقع'),
+        title: const LText('اعتماد مسؤول الموقع'),
         actions: [
           IconButton(
-            tooltip: 'مسح',
+            tooltip: context.tr('مسح'),
             onPressed: _controller.clear,
             icon: const Icon(Icons.refresh),
           ),
@@ -90,23 +92,23 @@ class _SignatureScreenState extends State<SignatureScreen> {
             TextField(
               controller: _name,
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'اسم المسؤول',
+              decoration: InputDecoration(
+                labelText: context.tr('اسم المسؤول'),
                 border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _role,
-              decoration: const InputDecoration(
-                labelText: 'الصفة (مدير الفرع، الكابتن…)',
+              decoration: InputDecoration(
+                labelText: context.tr('الصفة (مدير الفرع، الكابتن…)'),
                 border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
             const Align(
               alignment: AlignmentDirectional.centerStart,
-              child: Text('وقّع في المساحة أدناه:'),
+              child: LText('وقّع في المساحة أدناه:'),
             ),
             const SizedBox(height: 8),
             Expanded(
@@ -127,7 +129,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
             FilledButton.icon(
               onPressed: _saving ? null : _save,
               icon: const Icon(Icons.check),
-              label: Text(_saving ? 'جارٍ الحفظ…' : 'حفظ التوقيع'),
+              label: LText(_saving ? 'جارٍ الحفظ…' : 'حفظ التوقيع'),
             ),
           ],
         ),

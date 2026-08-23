@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StockMove extends Model
 {
-    use HasFactory;
+    use HasFactory, ScopedToOperatingBranch;
 
     public const RECEIPT = 'RECEIPT';
 
@@ -20,15 +21,18 @@ class StockMove extends Model
 
     public const ADJUSTMENT = 'ADJUSTMENT';
 
+    public const VEHICLE_TRANSFER = 'VEHICLE_TRANSFER';
+
     public const TYPES = [
         self::RECEIPT, self::VEHICLE_LOAD, self::VISIT_ISSUE,
-        self::VISIT_RETURN, self::ADJUSTMENT,
+        self::VISIT_RETURN, self::ADJUSTMENT, self::VEHICLE_TRANSFER,
     ];
 
     protected $fillable = [
         'move_type', 'part_id', 'qty', 'from_location_id', 'to_location_id',
         'visit_id', 'user_id', 'device_id', 'idempotency_key', 'reversal_of_id',
         'unit_cost', 'device_timestamp', 'server_received_at', 'note',
+        'inventory_lot_id',
     ];
 
     protected function casts(): array
@@ -59,5 +63,10 @@ class StockMove extends Model
     public function visit(): BelongsTo
     {
         return $this->belongsTo(Visit::class);
+    }
+
+    public function lot(): BelongsTo
+    {
+        return $this->belongsTo(InventoryLot::class, 'inventory_lot_id');
     }
 }

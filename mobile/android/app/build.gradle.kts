@@ -15,6 +15,26 @@ val keystoreProperties = Properties().apply {
         load(FileInputStream(keystorePropertiesFile))
     }
 }
+val releaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+
+if (releaseBuildRequested && !keystorePropertiesFile.exists()) {
+    throw GradleException(
+        "Release signing is not configured. Create android/key.properties before building a release."
+    )
+}
+
+if (releaseBuildRequested) {
+    val requiredSigningKeys = listOf("keyAlias", "keyPassword", "storeFile", "storePassword")
+    val missingSigningKeys = requiredSigningKeys.filter { keystoreProperties.getProperty(it).isNullOrBlank() }
+    if (missingSigningKeys.isNotEmpty()) {
+        throw GradleException("Missing release signing properties: ${missingSigningKeys.joinToString()}")
+    }
+    if (!rootProject.file(keystoreProperties.getProperty("storeFile")).isFile) {
+        throw GradleException("The configured release keystore does not exist.")
+    }
+}
 
 android {
     namespace = "com.darak.darak_field"
@@ -43,27 +63,21 @@ android {
 
     signingConfigs {
         create("release") {
-            // Loaded from android/key.properties, which is gitignored. Without it
-            // the build falls back to debug signing — fine for a local run, wrong
-            // for anything installed on a company phone, because the debug key is
-            // shared by every Android developer on earth.
             if (keystorePropertiesFile.exists()) {
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
                 // rootProject, not file(): the latter resolves against app/ while
                 // key.properties and the keystore live one level up in android/.
-                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
-                storePassword = keystoreProperties["storePassword"] as String
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
             }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
             }
 
             isMinifyEnabled = true

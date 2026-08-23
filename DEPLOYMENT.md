@@ -56,6 +56,21 @@ DARAK_SERVICE_END=23:00:00
 DARAK_MAX_MEDIA_BYTES=26214400
 DARAK_BACKUP_PATH=/var/backups/darak
 DARAK_BACKUP_PASSWORD=<سر عشوائي طويل محفوظ في مدير الأسرار>
+DARAK_ENABLE_EXPERIMENTAL_ANALYTICS=false # يبقى مغلقاً حتى اعتماد الميزات التجريبية
+
+# لا تُملأ إلا بالقيم المعتمدة في PRIVACY_AND_RETENTION.md
+DARAK_PRIVACY_CONTROLLER_NAME=<الاسم النظامي المعتمد>
+DARAK_PRIVACY_REQUEST_CHANNEL=<القناة المعتمدة>
+DARAK_PRIVACY_PROVIDERS_REGISTER=<مرجع سجل المزودين المعتمد>
+DARAK_PRIVACY_REQUEST_PROCEDURE=<مرجع الإجراء المعتمد>
+DARAK_PRIVACY_NOTICE_VERSION=<إصدار الإشعار المعتمد>
+DARAK_PRIVACY_EMERGENCY_CONSENT_VERSION=<إصدار موافقة بلاغ QR>
+DARAK_RETENTION_VISIT_PHOTOS_DAYS=<أيام>
+DARAK_RETENTION_EMERGENCY_REPORTS_DAYS=<أيام>
+DARAK_RETENTION_SIGNATURES_REPORTS_DAYS=<أيام>
+DARAK_RETENTION_CAPTURE_COORDINATES_DAYS=<أيام>
+DARAK_RETENTION_AUDIT_LOGS_DAYS=<أيام>
+DARAK_RETENTION_BACKUPS_DAYS=<أيام>
 ```
 
 > `APP_DEBUG=false` غير قابل للتفاوض في الإنتاج: `true` يكشف مسارات الملفات ومتغيرات البيئة في أي صفحة خطأ.
@@ -70,7 +85,9 @@ mkdir -p /var/backups/darak && chown www-data:www-data /var/backups/darak
 php artisan darak:preflight
 ```
 
-`darak:preflight` حاجز نشر إلزامي: يعيد كود فشل إذا كانت البيئة أو HTTPS أو Cookie الجلسة أو عمر الرموز أو PostgreSQL أو تشفير/مسار النسخ الاحتياطي غير آمن.
+`darak:preflight` حاجز نشر إلزامي: يعيد كود فشل إذا كانت البيئة أو HTTPS أو Cookie الجلسة أو عمر الرموز أو PostgreSQL أو تشفير/مسار النسخ الاحتياطي غير آمن، أو كانت قرارات الخصوصية ومدد الاحتفاظ ناقصة، أو كانت المنصة ذات قرص مؤقت مثل Vercel.
+
+> **Vercel للعرض غير الإنتاجي فقط.** نقطة `api/index.php` ترفض التشغيل افتراضياً، ولا تعمل إلا عند `DARAK_VERCEL_EPHEMERAL_DEMO=true` مع `APP_ENV` غير production. لا تضع بيانات عميل أو أدلة حقيقية هناك؛ `/tmp` مؤقت ولا يضمن بقاء أجزاء الرفع أو الصور.
 
 **أول حساب في الإنتاج** (بدل بيانات البذر):
 
@@ -274,6 +291,8 @@ cd mobile
 flutter build apk --release --dart-define=DARAK_API=https://panel.darak.sa
 flutter build appbundle --release --dart-define=DARAK_API=https://panel.darak.sa
 ```
+
+بناء release **يفشل** إذا غاب `mobile/android/key.properties` أو أي مفتاح مطلوب أو ملف keystore؛ لا توجد عودة تلقائية إلى توقيع debug. احتفظ بالـkeystore وكلمات مروره في مدير أسرار وخزنة مستقلة، لأن فقده يمنع تحديث النسخة المثبتة.
 
 يُوزَّع APK مباشرة على أجهزة الشركة، أو AAB عبر قناة Play داخلية. لا تُنقل حزمة
 مبنية لبيئة اختبار إلى الإنتاج: عنوان API جزء من البناء.

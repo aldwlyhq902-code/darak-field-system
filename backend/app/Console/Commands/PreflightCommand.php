@@ -15,6 +15,21 @@ class PreflightCommand extends Command
         $backupPath = (string) config('darak.backup_path');
         $backupPassword = (string) config('darak.backup_password');
         $expiration = (int) config('sanctum.expiration');
+        $privacy = (array) config('darak.privacy', []);
+        $retention = (array) ($privacy['retention_days'] ?? []);
+        $requiredPrivacyText = [
+            'controller_name', 'request_channel', 'providers_register',
+            'request_procedure', 'notice_version', 'emergency_consent_version',
+        ];
+        $privacyTextApproved = collect($requiredPrivacyText)
+            ->every(fn (string $key): bool => is_string($privacy[$key] ?? null) && trim($privacy[$key]) !== '');
+        $requiredRetention = [
+            'visit_photos', 'emergency_reports', 'signatures_reports',
+            'capture_coordinates', 'audit_security_logs', 'backups',
+        ];
+        $retentionApproved = collect($requiredRetention)
+            ->every(fn (string $key): bool => filter_var($retention[$key] ?? null, FILTER_VALIDATE_INT) !== false
+                && (int) $retention[$key] > 0);
 
         $checks = [
             ['Production environment', config('app.env') === 'production', (string) config('app.env')],
@@ -26,6 +41,9 @@ class PreflightCommand extends Command
             ['PostgreSQL selected', config('database.default') === 'pgsql', (string) config('database.default')],
             ['Encrypted backups', strlen($backupPassword) >= 20, strlen($backupPassword) >= 20 ? 'configured' : 'missing'],
             ['External backup path', $this->isExternalBackupPath($backupPath), $backupPath === '' ? 'missing' : $backupPath],
+            ['Persistent production runtime', ! (bool) config('darak.ephemeral_serverless'), config('darak.ephemeral_serverless') ? 'ephemeral/serverless' : 'persistent'],
+            ['Privacy decisions approved', $privacyTextApproved, $privacyTextApproved ? 'configured' : 'missing required values'],
+            ['Retention periods approved', $retentionApproved, $retentionApproved ? 'configured' : 'missing required positive day values'],
         ];
 
         $rows = [];

@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#062e2b">
+  <meta name="description" content="دليل تفاعلي يشرح منظومة دارك لإدارة عمليات الصيانة الميدانية.">
+  <title>دارك | الدليل الكامل للمنظومة</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #10201f;
+      --muted: #64706f;
+      --teal-950: #052f2c;
+      --teal-900: #07413c;
+      --teal-800: #075e56;
+      --teal-700: #08786d;
+      --teal-600: #0b9181;
+      --mint: #b9f6e9;
+      --mint-soft: #eafbf7;
+      --sand: #f5efe3;
+      --paper: #fffdf8;
+      --line: rgba(12, 72, 67, .14);
+      --amber: #eaa52d;
+      --red: #c95454;
+      --green: #148467;
+      --shadow: 0 24px 70px rgba(4, 47, 44, .12);
+      --radius: 28px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 96px; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 9%, rgba(185, 246, 233, .55), transparent 24rem),
+        radial-gradient(circle at 92% 42%, rgba(234, 165, 45, .10), transparent 28rem),
+        var(--paper);
+      font-family: Tahoma, "Segoe UI", Arial, sans-serif;
+      line-height: 1.75;
+    }
+
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a { color: inherit; }
+    button { font: inherit; }
+    img { max-width: 100%; }
+    .container { width: min(1180px, calc(100% - 40px)); margin-inline: auto; }
+    .skip-link {
+      position: fixed; inset-inline-start: 14px; top: -80px; z-index: 100;
+      padding: 10px 16px; border-radius: 10px; background: #fff; color: var(--teal-950);
+    }
+    .skip-link:focus { top: 14px; }
+
+    .site-header {
+      position: sticky; top: 0; z-index: 50;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      background: rgba(5, 47, 44, .94);
+      color: #fff;
+      backdrop-filter: blur(18px);
+    }
+    .nav-wrap { min-height: 76px; display: flex; align-items: center; gap: 26px; }
+    .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; flex: 0 0 auto; }
+    .brand-mark {
+      width: 42px; aspect-ratio: 1; display: grid; place-items: center;
+      border-radius: 14px; background: var(--mint); color: var(--teal-950);
+      font-size: 21px; font-weight: 900; box-shadow: inset 0 0 0 1px rgba(255,255,255,.5);
+    }
+    .brand-copy strong { display: block; font-size: 20px; line-height: 1.1; }
+    .brand-copy span { color: #a8d5cf; font-size: 11px; }
+    .main-nav { margin-inline-start: auto; display: flex; align-items: center; gap: 4px; }
+    .main-nav a {
+      padding: 10px 12px; border-radius: 12px; color: #d6ebe8;
+      text-decoration: none; font-size: 13px; transition: .2s ease;
+    }
+    .main-nav a:hover, .main-nav a:focus-visible { background: rgba(255,255,255,.09); color: #fff; }
+    .nav-cta {
+      display: inline-flex; align-items: center; justify-content: center; min-height: 42px;
+      padding: 0 17px; border-radius: 13px; background: var(--mint); color: var(--teal-950);
+      text-decoration: none; font-size: 13px; font-weight: 800;
+    }
+    .menu-button {
+      display: none; margin-inline-start: auto; width: 44px; height: 44px;
+      border: 1px solid rgba(255,255,255,.18); border-radius: 13px;
+      background: transparent; color: #fff; cursor: pointer;
+    }
+
+    .hero { position: relative; overflow: hidden; padding: 78px 0 64px; }
+    .hero::after {
+      content: ""; position: absolute; z-index: -1; width: 480px; height: 480px;
+      inset-inline-end: -210px; top: -120px; border: 90px solid rgba(7, 120, 109, .07);
+      border-radius: 50%;
+    }
+    .hero-grid { display: grid; grid-template-columns: 1.05fr .95fr; align-items: center; gap: 64px; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 9px; margin-bottom: 18px;
+      padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px;
+      background: rgba(255,255,255,.72); color: var(--teal-800); font-size: 12px; font-weight: 800;
+    }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 5px rgba(20,132,103,.12); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 740px; margin-bottom: 20px; font-size: clamp(42px, 6vw, 78px); line-height: 1.08; letter-spacing: -2px; }
+    h1 span { color: var(--teal-700); }
+    .lead { max-width: 660px; margin-bottom: 28px; color: var(--muted); font-size: clamp(16px, 2vw, 19px); }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .button {
+      min-height: 52px; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+      padding: 0 22px; border: 1px solid transparent; border-radius: 16px;
+      background: var(--teal-800); color: #fff; text-decoration: none; font-weight: 800;
+      box-shadow: 0 10px 25px rgba(7,94,86,.18); transition: transform .2s ease, box-shadow .2s ease;
+    }
+    .button:hover { transform: translateY(-2px); box-shadow: 0 15px 30px rgba(7,94,86,.22); }
+    .button.secondary { border-color: var(--line); background: #fff; color: var(--teal-900); box-shadow: none; }
+    .micro-proof { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 34px; color: var(--muted); font-size: 12px; }
+    .micro-proof span::before { content: "✓"; margin-inline-end: 7px; color: var(--green); font-weight: 900; }
+
+    .ops-window {
+      position: relative; min-height: 500px; padding: 18px;
+      border: 1px solid rgba(255,255,255,.17); border-radius: 36px;
+      background: linear-gradient(145deg, var(--teal-950), #0a5b53);
+      box-shadow: 0 40px 100px rgba(5,47,44,.28); color: #fff;
+      transform: rotate(-1deg);
+    }
+    .window-top { display: flex; align-items: center; gap: 7px; padding: 3px 5px 17px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #ffcd67; }
+    .dot:nth-child(2) { background: #f08989; }
+    .dot:nth-child(3) { background: #7dddbf; }
+    .window-label { margin-inline-start: auto; color: #9ccbc5; font-size: 11px; }
+    .ops-body { display: grid; grid-template-columns: 74px 1fr; min-height: 440px; overflow: hidden; border-radius: 23px; background: #f8fbfa; color: var(--ink); }
+    .mini-rail { padding: 18px 12px; background: #063d39; display: flex; flex-direction: column; gap: 13px; }
+    .rail-item { height: 46px; display: grid; place-items: center; border-radius: 14px; color: #b4d7d3; background: rgba(255,255,255,.04); font-size: 17px; }
+    .rail-item.active { background: var(--mint); color: var(--teal-950); }
+    .dashboard { padding: 22px; }
+    .dash-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 19px; }
+    .dash-head strong { display: block; font-size: 17px; }
+    .dash-head span { color: var(--muted); font-size: 10px; }
+    .live-badge { padding: 5px 9px; border-radius: 999px; background: #def8ee; color: var(--green); font-size: 9px; font-weight: 900; }
+    .dash-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .dash-kpi { padding: 13px; border: 1px solid #e6efed; border-radius: 14px; background: #fff; }
+    .dash-kpi b { display: block; font-size: 22px; line-height: 1.2; color: var(--teal-900); }
+    .dash-kpi span { color: var(--muted); font-size: 9px; }
+    .visit-list { display: grid; gap: 8px; margin-top: 15px; }
+    .visit-row { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 10px; padding: 11px; border-radius: 13px; background: #fff; border: 1px solid #e8efee; }
+    .visit-time { color: var(--teal-800); font-size: 10px; font-weight: 900; }
+    .visit-copy strong { display: block; font-size: 10px; }
+    .visit-copy span { display: block; color: var(--muted); font-size: 8px; }
+    .status { padding: 4px 7px; border-radius: 999px; font-size: 8px; font-weight: 800; }
+    .status.green { background: #e3f8ee; color: var(--green); }
+    .status.amber { background: #fff2d5; color: #9a6508; }
+    .status.red { background: #fde8e8; color: var(--red); }
+    .floating-note {
+      position: absolute; inset-inline-start: -48px; bottom: 54px; width: 180px;
+      padding: 14px; border-radius: 17px; background: #fff; color: var(--ink);
+      box-shadow: var(--shadow); transform: rotate(1deg);
+    }
+    .floating-note small { display: block; color: var(--muted); font-size: 9px; }
+    .floating-note strong { font-size: 12px; }
+    .sync-line { height: 5px; overflow: hidden; margin-top: 8px; border-radius: 9px; background: #e5efed; }
+    .sync-line::after { content: ""; display: block; width: 84%; height: 100%; border-radius: inherit; background: var(--teal-600); }
+
+    .proof-strip { padding: 22px 0; border-block: 1px solid var(--line); background: rgba(234,251,247,.55); }
+    .proof-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .proof-item { padding: 8px 18px; border-inline-start: 1px solid var(--line); }
+    .proof-item:first-child { border-inline-start: 0; }
+    .proof-item b { display: block; color: var(--teal-900); font-size: 25px; line-height: 1.2; }
+    .proof-item span { color: var(--muted); font-size: 12px; }
+
+    section { padding: 92px 0; }
+    .section-head { max-width: 720px; margin-bottom: 38px; }
+    .section-head.center { margin-inline: auto; text-align: center; }
+    .kicker { margin-bottom: 8px; color: var(--teal-700); font-size: 12px; font-weight: 900; letter-spacing: .4px; }
+    h2 { margin-bottom: 15px; font-size: clamp(30px, 4vw, 49px); line-height: 1.2; letter-spacing: -1px; }
+    .section-head p { color: var(--muted); font-size: 16px; }
+
+    .surface-switcher {
+      padding: 16px; border: 1px solid var(--line); border-radius: 32px;
+      background: rgba(255,255,255,.72); box-shadow: var(--shadow);
+    }
+    .surface-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+    .surface-tab {
+      min-height: 62px; padding: 9px 13px; border: 1px solid transparent; border-radius: 17px;
+      background: transparent; color: var(--muted); cursor: pointer; text-align: right;
+    }
+    .surface-tab strong, .surface-tab span { display: block; }
+    .surface-tab strong { color: var(--ink); font-size: 13px; }
+    .surface-tab span { font-size: 10px; }
+    .surface-tab[aria-selected="true"] { border-color: rgba(7,120,109,.18); background: var(--mint-soft); }
+    .surface-tab[aria-selected="true"] strong { color: var(--teal-800); }
+    .surface-panel { display: none; }
+    .surface-panel.active { display: grid; grid-template-columns: .82fr 1.18fr; gap: 26px; min-height: 550px; }
+    .surface-copy { padding: 42px 30px; }
+    .surface-icon { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 17px; background: var(--mint-soft); color: var(--teal-800); font-size: 23px; }
+    .surface-copy h3 { margin: 18px 0 10px; font-size: 27px; }
+    .surface-copy > p { color: var(--muted); }
+    .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 23px; }
+    .badge { padding: 5px 10px; border-radius: 999px; font-size: 10px; font-weight: 900; }
+    .badge.ready { background: #dff8ee; color: var(--green); }
+    .badge.web { background: #e8f0ff; color: #355ea6; }
+    .badge.roadmap { background: #fff1d6; color: #936009; }
+    .feature-list { display: grid; gap: 11px; margin: 0; padding: 0; list-style: none; }
+    .feature-list li { position: relative; padding-inline-start: 26px; font-size: 13px; }
+    .feature-list li::before { content: "✓"; position: absolute; inset-inline-start: 0; color: var(--teal-700); font-weight: 900; }
+
+    .screen-stage {
+      position: relative; min-height: 550px; display: grid; place-items: center;
+      overflow: hidden; padding: 30px; border-radius: 24px;
+      background: linear-gradient(145deg, #073e39, #086d63);
+    }
+    .screen-stage::before { content: ""; position: absolute; width: 330px; height: 330px; border: 70px solid rgba(185,246,233,.08); border-radius: 50%; inset-inline-end: -120px; top: -130px; }
+    .browser-frame { position: relative; width: min(100%, 640px); padding: 12px; border-radius: 22px; background: #f8faf9; box-shadow: 0 28px 80px rgba(0,0,0,.25); }
+    .browser-bar { display: flex; align-items: center; gap: 5px; height: 24px; }
+    .browser-bar i { width: 6px; height: 6px; border-radius: 50%; background: #fdcc66; }
+    .browser-bar i:nth-child(2) { background: #ee8b8b; }
+    .browser-bar i:nth-child(3) { background: #71d1b5; }
+    .mock-nav { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--teal-800); color: #fff; }
+    .mock-logo { font-weight: 900; font-size: 12px; }
+    .mock-links { display: flex; gap: 8px; color: #c6e7e2; font-size: 7px; }
+    .mock-main { padding: 17px 12px 12px; }
+    .mock-title { width: 110px; height: 9px; border-radius: 10px; background: var(--teal-900); }
+    .mock-sub { width: 160px; height: 5px; margin-top: 6px; border-radius: 10px; background: #cbd9d7; }
+    .mock-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 14px; }
+    .mock-card { min-height: 58px; padding: 9px; border: 1px solid #e2eae8; border-radius: 10px; background: #fff; }
+    .mock-card b { display: block; color: var(--teal-800); font-size: 16px; }
+    .mock-card span { display: block; color: var(--muted); font-size: 6px; }
+    .mock-table { margin-top: 11px; overflow: hidden; border: 1px solid #e2eae8; border-radius: 10px; }
+    .mock-tr { min-height: 30px; display: grid; grid-template-columns: .55fr 1.8fr 1fr .7fr; align-items: center; gap: 7px; padding: 5px 8px; border-bottom: 1px solid #edf2f1; font-size: 6px; }
+    .mock-tr:last-child { border-bottom: 0; }
+    .mock-tr.head { color: var(--teal-800); background: var(--mint-soft); font-weight: 900; }
+
+    .phone {
+      position: relative; z-index: 1; width: 250px; min-height: 500px; padding: 10px;
+      border: 3px solid rgba(255,255,255,.26); border-radius: 36px;
+      background: #13201f; box-shadow: 0 30px 80px rgba(0,0,0,.3);
+    }
+    .phone::before { content: ""; position: absolute; top: 11px; left: 50%; width: 68px; height: 18px; transform: translateX(-50%); border-radius: 0 0 12px 12px; background: #13201f; z-index: 4; }
+    .phone-screen { min-height: 474px; overflow: hidden; border-radius: 25px; background: #f6f9f8; }
+    .phone-head { padding: 32px 17px 16px; background: var(--teal-800); color: #fff; }
+    .phone-head small { display: block; color: #b8e0db; font-size: 8px; }
+    .phone-head strong { font-size: 18px; }
+    .phone-content { padding: 15px; }
+    .offline-note { padding: 9px; border-radius: 10px; background: #fff0cf; color: #885706; font-size: 8px; }
+    .job-card { margin-top: 10px; padding: 12px; border: 1px solid #dfe9e7; border-radius: 14px; background: #fff; }
+    .job-time { color: var(--teal-700); font-size: 9px; font-weight: 900; }
+    .job-card strong { display: block; margin-top: 4px; font-size: 11px; }
+    .job-card p { margin: 3px 0 8px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+    .job-actions { display: flex; gap: 5px; }
+    .job-actions span { flex: 1; padding: 6px; border-radius: 8px; background: var(--teal-800); color: #fff; text-align: center; font-size: 7px; }
+    .job-actions span:last-child { background: var(--mint-soft); color: var(--teal-800); }
+    .phone-nav { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 15px; padding-top: 10px; border-top: 1px solid #e2e9e7; color: var(--muted); text-align: center; font-size: 7px; }
+    .phone-nav b { display: block; color: var(--teal-700); font-size: 13px; }
+    .side-toast { position: absolute; z-index: 2; inset-inline-end: 28px; top: 60px; width: 155px; padding: 12px; border-radius: 15px; background: #fff; box-shadow: var(--shadow); font-size: 9px; }
+    .side-toast strong { display: block; color: var(--teal-800); font-size: 11px; }
+
+    .client-screen { width: min(100%, 590px); overflow: hidden; border-radius: 22px; background: #fff; box-shadow: 0 30px 80px rgba(0,0,0,.25); }
+    .client-head { display: flex; justify-content: space-between; align-items: center; padding: 18px; background: var(--sand); }
+    .client-head strong { color: var(--teal-900); }
+    .client-avatar { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--teal-800); color: #fff; font-size: 10px; }
+    .client-body { padding: 18px; }
+    .welcome { padding: 18px; border-radius: 15px; background: var(--teal-950); color: #fff; }
+    .welcome span { color: #acd8d2; font-size: 8px; }
+    .welcome strong { display: block; font-size: 16px; }
+    .client-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 10px; }
+    .client-tile { min-height: 72px; padding: 11px; border: 1px solid #e3ebe9; border-radius: 12px; }
+    .client-tile b { display: block; color: var(--teal-800); font-size: 15px; }
+    .client-tile span { color: var(--muted); font-size: 7px; }
+    .client-report { margin-top: 10px; padding: 12px; border-radius: 12px; background: var(--mint-soft); font-size: 8px; }
+
+    .capabilities { background: var(--teal-950); color: #fff; }
+    .capabilities .section-head p { color: #a9d0cb; }
+    .cap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .cap-card { min-height: 220px; padding: 25px; border: 1px solid rgba(255,255,255,.10); border-radius: 23px; background: rgba(255,255,255,.045); }
+    .cap-no { color: var(--mint); font-size: 11px; font-weight: 900; }
+    .cap-card h3 { margin: 20px 0 8px; font-size: 20px; }
+    .cap-card p { margin-bottom: 0; color: #a9c9c5; font-size: 13px; }
+
+    .workflow { position: relative; }
+    .flow-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+    .flow-step { position: relative; min-height: 180px; padding: 21px 16px; border: 1px solid var(--line); border-radius: 22px; background: #fff; }
+    .flow-step:not(:last-child)::after { content: "←"; position: absolute; z-index: 2; inset-inline-end: -18px; top: 46%; color: var(--teal-600); font-weight: 900; }
+    .step-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: var(--mint-soft); color: var(--teal-800); }
+    .flow-step b { display: block; margin: 14px 0 6px; font-size: 14px; }
+    .flow-step p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+
+    .architecture { background: var(--sand); }
+    .arch-map { display: grid; grid-template-columns: 1fr 80px 1.15fr 80px 1fr; align-items: center; gap: 12px; }
+    .arch-stack { display: grid; gap: 12px; }
+    .arch-node { padding: 18px; border: 1px solid rgba(7,94,86,.14); border-radius: 18px; background: rgba(255,255,255,.8); }
+    .arch-node strong { display: block; color: var(--teal-900); font-size: 14px; }
+    .arch-node span { color: var(--muted); font-size: 11px; }
+    .arch-node.central { padding: 30px; color: #fff; background: var(--teal-950); box-shadow: var(--shadow); }
+    .arch-node.central strong { color: #fff; font-size: 22px; }
+    .arch-node.central span { color: #add3ce; }
+    .connector { color: var(--teal-700); text-align: center; font-size: 25px; font-weight: 900; }
+
+    .security-grid { display: grid; grid-template-columns: .85fr 1.15fr; gap: 34px; align-items: start; }
+    .security-panel { padding: 32px; border-radius: var(--radius); background: var(--teal-950); color: #fff; box-shadow: var(--shadow); }
+    .shield { width: 70px; height: 78px; display: grid; place-items: center; margin-bottom: 24px; border-radius: 35px 35px 45px 45px; background: var(--mint); color: var(--teal-950); font-size: 28px; }
+    .security-panel h3 { font-size: 26px; }
+    .security-panel p { color: #add3ce; }
+    .audit-note { padding-top: 20px; margin-top: 22px; border-top: 1px solid rgba(255,255,255,.13); color: #d1e7e4; font-size: 12px; }
+    .security-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .security-item { min-height: 150px; padding: 21px; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
+    .security-item b { display: block; margin-bottom: 5px; color: var(--teal-900); font-size: 14px; }
+    .security-item p { margin: 0; color: var(--muted); font-size: 11px; }
+
+    .roadmap-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+    .roadmap-card { padding: 25px; border: 1px solid var(--line); border-radius: 23px; background: #fff; }
+    .roadmap-card.current { border-color: rgba(20,132,103,.3); background: var(--mint-soft); }
+    .roadmap-card h3 { margin: 15px 0 7px; font-size: 18px; }
+    .roadmap-card p { color: var(--muted); font-size: 12px; }
+    .roadmap-card ul { margin: 0; padding: 0 18px 0 0; font-size: 11px; color: var(--muted); }
+
+    .final-cta { padding-top: 30px; padding-bottom: 100px; }
+    .cta-card { position: relative; overflow: hidden; padding: 52px; border-radius: 34px; background: linear-gradient(135deg, var(--teal-950), var(--teal-800)); color: #fff; }
+    .cta-card::after { content: ""; position: absolute; width: 360px; height: 360px; inset-inline-end: -130px; bottom: -220px; border: 70px solid rgba(185,246,233,.10); border-radius: 50%; }
+    .cta-card h2 { max-width: 720px; margin-bottom: 12px; }
+    .cta-card p { max-width: 680px; color: #b4d8d3; }
+    .cta-actions { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .cta-card .button { background: var(--mint); color: var(--teal-950); }
+    .cta-card .button.secondary { border-color: rgba(255,255,255,.22); background: transparent; color: #fff; }
+
+    footer { padding: 26px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .footer-wrap { display: flex; justify-content: space-between; gap: 20px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; }
+
+    :focus-visible { outline: 3px solid rgba(234,165,45,.75); outline-offset: 3px; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    }
+
+    @media (max-width: 980px) {
+      .main-nav { position: absolute; display: none; inset: 76px 20px auto; padding: 12px; border-radius: 18px; background: var(--teal-950); box-shadow: var(--shadow); }
+      .main-nav.open { display: grid; }
+      .main-nav a { padding: 12px 14px; }
+      .nav-cta { display: none; }
+      .menu-button { display: inline-grid; place-items: center; }
+      .hero-grid, .security-grid { grid-template-columns: 1fr; }
+      .hero { padding-top: 54px; }
+      .ops-window { width: min(700px, 100%); margin-inline: auto; }
+      .floating-note { inset-inline-start: 16px; }
+      .proof-grid { grid-template-columns: repeat(2, 1fr); }
+      .proof-item:nth-child(3) { border-inline-start: 0; }
+      .surface-panel.active { grid-template-columns: 1fr; }
+      .surface-copy { padding-bottom: 18px; }
+      .cap-grid { grid-template-columns: repeat(2,1fr); }
+      .flow-grid { grid-template-columns: repeat(3,1fr); }
+      .flow-step:nth-child(3)::after { display: none; }
+      .arch-map { grid-template-columns: 1fr; }
+      .connector { transform: rotate(90deg); }
+    }
+
+    @media (max-width: 680px) {
+      .container { width: min(100% - 28px, 1180px); }
+      .brand-copy span { display: none; }
+      .nav-wrap { min-height: 68px; }
+      .main-nav { inset-block-start: 68px; }
+      h1 { font-size: clamp(38px, 13vw, 56px); letter-spacing: -1px; }
+      .hero { padding-block: 42px 48px; }
+      .hero-actions, .cta-actions { display: grid; grid-template-columns: 1fr; }
+      .button { width: 100%; }
+      .micro-proof { display: grid; gap: 8px; }
+      .ops-window { min-height: 440px; padding: 10px; border-radius: 27px; transform: none; }
+      .ops-body { grid-template-columns: 52px 1fr; min-height: 390px; }
+      .mini-rail { padding: 12px 7px; }
+      .rail-item { height: 38px; font-size: 13px; }
+      .dashboard { padding: 15px 11px; }
+      .dash-kpis { grid-template-columns: repeat(2,1fr); }
+      .dash-kpi:last-child { display: none; }
+      .visit-row { grid-template-columns: 38px 1fr; }
+      .visit-row .status { display: none; }
+      .floating-note { display: none; }
+      .proof-grid { grid-template-columns: 1fr 1fr; }
+      .proof-item { padding: 8px 9px; }
+      section { padding: 66px 0; }
+      .surface-switcher { padding: 9px; border-radius: 23px; }
+      .surface-tabs { display: flex; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; }
+      .surface-tabs::-webkit-scrollbar { display: none; }
+      .surface-tab { min-width: 150px; }
+      .surface-copy { padding: 26px 17px 14px; }
+      .screen-stage { min-height: 510px; padding: 18px 10px; }
+      .browser-frame { transform: scale(.96); }
+      .mock-links { display: none; }
+      .mock-cards { grid-template-columns: repeat(2,1fr); }
+      .side-toast { inset-inline-end: 8px; top: 35px; }
+      .client-grid { grid-template-columns: 1fr 1fr; }
+      .client-tile:last-child { grid-column: 1 / -1; }
+      .cap-grid, .security-list, .roadmap-grid { grid-template-columns: 1fr; }
+      .cap-card { min-height: auto; }
+      .flow-grid { display: grid; grid-template-columns: 1fr 1fr; }
+      .flow-step { min-height: 155px; }
+      .flow-step::after { display: none !important; }
+      .cta-card { padding: 34px 22px; border-radius: 25px; }
+      .footer-wrap { display: grid; }
+    }
+
+    @media (max-width: 420px) {
+      .proof-grid, .flow-grid { grid-template-columns: 1fr; }
+      .proof-item, .proof-item:nth-child(3) { border-inline-start: 0; border-bottom: 1px solid var(--line); }
+      .proof-item:last-child { border-bottom: 0; }
+      .phone { width: 236px; }
+      .side-toast { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
+
+  <header class="site-header">
+    <div class="container nav-wrap">
+      <a class="brand" href="#top" aria-label="دارك — العودة للبداية">
+        <span class="brand-mark">د</span>
+        <span class="brand-copy"><strong>دارك</strong><span>تشغيل الصيانة الميدانية</span></span>
+      </a>
+      <button class="menu-button" type="button" aria-expanded="false" aria-controls="main-nav" aria-label="فتح قائمة التنقل">☰</button>
+      <nav class="main-nav" id="main-nav" aria-label="التنقل الرئيسي">
+        <a href="#surfaces">واجهات النظام</a>
+        <a href="#capabilities">الإمكانات</a>
+        <a href="#workflow">دورة العمل</a>
+        <a href="#security">الأمان</a>
+        <a href="#roadmap">حالة التنفيذ</a>
+      </nav>
+      <a class="nav-cta" href="#surfaces">استكشف المنظومة</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="container hero-grid">
+        <div>
+          <div class="eyebrow"><span class="pulse"></span> الإصدار 0.2.0 — جاهز للقبول الميداني</div>
+          <h1>كل عملية صيانة، <span>في مسار واحد واضح.</span></h1>
+          <p class="lead">دارك منظومة عربية لإدارة الصيانة الميدانية، تربط غرفة العمليات بالفني في الموقع، وتحفظ كل زيارة ودليل وقطعة ومزامنة حتى عندما تنقطع الشبكة.</p>
+          <div class="hero-actions">
+            <a class="button" href="#surfaces">شاهد واجهات النظام <span aria-hidden="true">←</span></a>
+            <a class="button secondary" href="#workflow">كيف تعمل الزيارة؟</a>
+          </div>
+          <div class="micro-proof" aria-label="ملخص خصائص النظام">
+            <span>عربي ويدعم RTL</span>
+            <span>يعمل بلا إنترنت</span>
+            <span>مشفّر ومراقب</span>
+          </div>
+        </div>
+
+        <div class="ops-window" aria-label="معاينة لوحة عمليات دارك">
+          <div class="window-top"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="window-label">لوحة العمليات المباشرة</span></div>
+          <div class="ops-body">
+            <div class="mini-rail" aria-hidden="true">
+              <span class="rail-item active">⌂</span><span class="rail-item">◫</span><span class="rail-item">◉</span><span class="rail-item">▦</span><span class="rail-item">⚙</span>
+            </div>
+            <div class="dashboard">
+              <div class="dash-head"><div><strong>صباح الخير، فريق العمليات</strong><span>الثلاثاء، 12 أغسطس 2026</span></div><span class="live-badge">● متصل</span></div>
+              <div class="dash-kpis">
+                <div class="dash-kpi"><b>12</b><span>زيارات اليوم</span></div>
+                <div class="dash-kpi"><b>8</b><span>قيد التنفيذ</span></div>
+                <div class="dash-kpi"><b>92%</b><span>حل من أول زيارة</span></div>
+              </div>
+              <div class="visit-list">
+                <div class="visit-row"><span class="visit-time">08:30</span><span class="visit-copy"><strong>مطعم المرسى — فرع الروضة</strong><span>صيانة تكييف وقائية · أحمد</span></span><span class="status green">في الموقع</span></div>
+                <div class="visit-row"><span class="visit-time">10:00</span><span class="visit-copy"><strong>مقهى نواة — طريق الملك</strong><span>بلاغ تبريد عاجل · خالد</span></span><span class="status amber">في الطريق</span></div>
+                <div class="visit-row"><span class="visit-time">11:45</span><span class="visit-copy"><strong>مطابخ الذوق — الحمدانية</strong><span>فحص كهرباء · بلا إسناد</span></span><span class="status red">SLA قريب</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="floating-note"><small>آخر مزامنة للأسطول</small><strong>قبل 3 دقائق</strong><div class="sync-line"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="proof-strip" aria-label="نتائج التحقق من المشروع">
+      <div class="container proof-grid">
+        <div class="proof-item"><b>245/245</b><span>اختبار للخادم ناجح</span></div>
+        <div class="proof-item"><b>39/39</b><span>اختبار لتطبيق الفني</span></div>
+        <div class="proof-item"><b>16/16</b><span>سيناريو HTTP حي</span></div>
+        <div class="proof-item"><b>0</b><span>ثغرات Composer معروفة</span></div>
+      </div>
+    </div>
+
+    <section id="surfaces">
+      <div class="container">
+        <div class="section-head center">
+          <div class="kicker">أربع تجارب، قاعدة تشغيل واحدة</div>
+          <h2>كل مستخدم يرى ما يحتاجه فقط</h2>
+          <p>اختر الواجهة لتشاهد دورها، إمكاناتها، وحالة تنفيذها الفعلية داخل المشروع.</p>
+        </div>
+
+        <div class="surface-switcher">
+          <div class="surface-tabs" role="tablist" aria-label="واجهات منظومة دارك">
+            <button class="surface-tab" id="tab-control" role="tab" aria-selected="true" aria-controls="panel-control" data-surface="control"><strong>لوحة التحكم</strong><span>غرفة العمليات</span></button>
+            <button class="surface-tab" id="tab-supervisor" role="tab" aria-selected="false" aria-controls="panel-supervisor" data-surface="supervisor"><strong>واجهة المشرف</strong><span>إدارة من أي جهاز</span></button>
+            <button class="surface-tab" id="tab-tech" role="tab" aria-selected="false" aria-controls="panel-tech" data-surface="tech"><strong>تطبيق الفني</strong><span>العمل في الميدان</span></button>
+            <button class="surface-tab" id="tab-client" role="tab" aria-selected="false" aria-controls="panel-client" data-surface="client"><strong>صفحة العميل</strong><span>الشفافية والخدمة</span></button>
+          </div>
+
+          <article class="surface-panel active" id="panel-control" role="tabpanel" aria-labelledby="tab-control" data-panel="control">
+            <div class="surface-copy">
+              <div class="surface-icon" aria-hidden="true">▦</div>
+              <h3>لوحة التحكم المركزية</h3>
+              <p>صورة تشغيلية لحظية عن زيارات اليوم، الالتزام بالـSLA، الأجهزة، المخزون، العقود، والمشكلات التي تحتاج قرارًا.</p>
+              <div class="badge-row"><span class="badge ready">منفذة الآن</span><span class="badge web">واجهة ويب</span></div>
+              <ul class="feature-list">
+                <li>لوحة اليوم وحالات الزيارات والإسناد.</li>
+                <li>العملاء والمواقع والأصول والعقود.</li>
+                <li>المخزون وحركة القطع ومخزون السيارات.</li>
+                <li>المقاولون والإشعارات وتقارير الزيارة.</li>
+                <li>الفريق والأجهزة وإبطال الهاتف المفقود.</li>
+              </ul>
+            </div>
+            <div class="screen-stage">
+              <div class="browser-frame" aria-hidden="true">
+                <div class="browser-bar"><i></i><i></i><i></i></div>
+                <div class="mock-nav"><span class="mock-logo">دارك</span><span class="mock-links">لوحة اليوم　 العملاء　 المخزون　 الفريق　 الإشعارات</span></div>
+                <div class="mock-main"><div class="mock-title"></div><div class="mock-sub"></div><div class="mock-cards"><div class="mock-card"><b>12</b><span>زيارات اليوم</span></div><div class="mock-card"><b>8</b><span>مفتوحة</span></div><div class="mock-card"><b>3</b><span>مقفلة</span></div><div class="mock-card"><b>1</b><span>تحتاج قرارًا</span></div></div><div class="mock-table"><div class="mock-tr head"><span>الوقت</span><span>العميل والموقع</span><span>الفني</span><span>الحالة</span></div><div class="mock-tr"><span>08:30</span><span>مطعم المرسى — الروضة</span><span>أحمد</span><span class="status green">بدأ</span></div><div class="mock-tr"><span>10:00</span><span>مقهى نواة — التحلية</span><span>خالد</span><span class="status amber">طريق</span></div><div class="mock-tr"><span>11:45</span><span>مطابخ الذوق — الحمدانية</span><span>—</span><span class="status red">SLA</span></div></div></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="surface-panel" id="panel-supervisor" role="tabpanel" aria-labelledby="tab-supervisor" data-panel="supervisor" hidden>
+            <div class="surface-copy">
+              <div class="surface-icon" aria-hidden="true">◎</div>
+              <h3>واجهة المشرف المتجاوبة</h3>
+              <p>المشرف يستخدم لوحة الويب نفسها من الحاسب أو الجوال، مع صلاحيات الإدارة واتخاذ القرار. لا يوجد تطبيق مشرف منفصل حاليًا؛ وهذا يقلل سطح الصيانة والتكلفة.</p>
+              <div class="badge-row"><span class="badge ready">المنطق منفذ</span><span class="badge web">ويب متجاوب</span></div>
+              <ul class="feature-list">
+                <li>إسناد الزيارات ومتابعة الفنيين.</li>
+                <li>معالجة إعادة الزيارة مع سبب مدقق.</li>
+                <li>إبطال الأجهزة وإدارة الحسابات.</li>
+                <li>رمز TOTP إلزامي بعد كلمة المرور.</li>
+                <li>إدارة التنبيهات والمقاولين والمخزون.</li>
+              </ul>
+            </div>
+            <div class="screen-stage">
+              <div class="phone" aria-hidden="true"><div class="phone-screen"><div class="phone-head"><small>لوحة المشرف</small><strong>ملخص اليوم</strong></div><div class="phone-content"><div class="offline-note" style="background:#e1f7ef;color:#146b54">كل الأجهزة متصلة · آخر تحديث الآن</div><div class="job-card"><span class="job-time">تحتاج قرارًا</span><strong>بلاغ تبريد — مقهى نواة</strong><p>تبقى 42 دقيقة على SLA، والفني الحالي خارج نطاق الخدمة.</p><div class="job-actions"><span>إعادة إسناد</span><span>فتح الزيارة</span></div></div><div class="job-card"><span class="job-time">المخزون</span><strong>مكثف 35µF منخفض</strong><p>بقيت قطعتان في السيارة رقم 2.</p><div class="job-actions"><span>تحويل قطعة</span><span>التفاصيل</span></div></div><div class="phone-nav"><span><b>⌂</b>اليوم</span><span><b>◉</b>الفريق</span><span><b>⚑</b>تنبيهات</span></div></div></div></div>
+              <div class="side-toast"><strong>تسجيل دخول محمي</strong>كلمة المرور + رمز Authenticator قبل فتح اللوحة.</div>
+            </div>
+          </article>
+
+          <article class="surface-panel" id="panel-tech" role="tabpanel" aria-labelledby="tab-tech" data-panel="tech" hidden>
+            <div class="surface-copy">
+              <div class="surface-icon" aria-hidden="true">⌖</div>
+              <h3>تطبيق الفني الميداني</h3>
+              <p>تطبيق Android عربي مصمم للعمل بيد واحدة وفي ظروف الميدان. يسجل كل خطوة محليًا أولًا، ثم يزامن بأمان عندما تعود الشبكة.</p>
+              <div class="badge-row"><span class="badge ready">منفذ الآن</span><span class="badge ready">Offline-first</span></div>
+              <ul class="feature-list">
+                <li>زيارات اليوم وتفاصيل الموقع والأصل.</li>
+                <li>التدرج في حالات الزيارة دون قفزات خاطئة.</li>
+                <li>تصوير بالكاميرا، QR، توقيع وموقع.</li>
+                <li>بوابة إقفال تعرض كل النواقص دفعة واحدة.</li>
+                <li>قاعدة SQLCipher مشفرة ومزامنة مقاومة للتكرار.</li>
+                <li>جرد QR، عهدة وتحويلات السيارات من شاشة ميدانية واحدة.</li>
+                <li>اقتراح تشخيص وطلب اعتماد أعمال وقطع إضافية ببنود وأسعار.</li>
+              </ul>
+            </div>
+            <div class="screen-stage">
+              <div class="phone" aria-hidden="true"><div class="phone-screen"><div class="phone-head"><small>الثلاثاء، 12 أغسطس</small><strong>زياراتي اليوم</strong></div><div class="phone-content"><div class="offline-note">لا توجد شبكة — يمكنك متابعة العمل والمزامنة لاحقًا</div><div class="job-card"><span class="job-time">08:30 · قيد التنفيذ</span><strong>مطعم المرسى</strong><p>فرع الروضة · وحدة تكييف صالة الطعام</p><div class="job-actions"><span>متابعة الزيارة</span><span>الاتجاهات</span></div></div><div class="job-card"><span class="job-time">10:00 · مجدولة</span><strong>مقهى نواة</strong><p>طريق الملك · بلاغ تبريد عاجل</p><div class="job-actions"><span>بدء الطريق</span><span>التفاصيل</span></div></div><div class="phone-nav"><span><b>⌂</b>اليوم</span><span><b>↻</b>المزامنة</span><span><b>⌗</b>المسح</span></div></div></div></div>
+              <div class="side-toast"><strong>الطابور آمن</strong>20 حدثًا غير متصل يمكن إرسالها وإعادتها دون تكرار الأثر.</div>
+            </div>
+          </article>
+
+          <article class="surface-panel" id="panel-client" role="tabpanel" aria-labelledby="tab-client" data-panel="client" hidden>
+            <div class="surface-copy">
+              <div class="surface-icon" aria-hidden="true">◇</div>
+              <h3>صفحة العميل</h3>
+              <p>بوابة PWA قابلة للتثبيت يرى فيها العميل أصوله ومواعيده وتقارير الزيارات، مع بلاغ طارئ من QR الموقع يمكن لأي عامل إرساله دون حساب.</p>
+              <div class="badge-row"><span class="badge ready">منفذة الآن</span><span class="badge web">PWA متجاوبة</span></div>
+              <ul class="feature-list">
+                <li>متابعة موعد الفني وحالة الطلب.</li>
+                <li>عرض الأصول المغطاة بالعقد.</li>
+                <li>تنزيل تقرير الزيارة المعتمد.</li>
+                <li>عرض التوصيات والمواعيد القادمة.</li>
+                <li>طلب خدمة جديدة وفق صلاحيات محددة.</li>
+              </ul>
+            </div>
+            <div class="screen-stage">
+              <div class="client-screen" aria-hidden="true"><div class="client-head"><strong>دارك للعملاء</strong><span class="client-avatar">م</span></div><div class="client-body"><div class="welcome"><span>مرحبًا، مطعم المرسى</span><strong>كل أصولك وخدماتك في مكان واحد</strong></div><div class="client-grid"><div class="client-tile"><b>6</b><span>أصول مغطاة</span></div><div class="client-tile"><b>1</b><span>زيارة قادمة</span></div><div class="client-tile"><b>4</b><span>تقارير مكتملة</span></div></div><div class="client-report"><strong>آخر زيارة: صيانة وحدة الصالة</strong><br>أُغلقت بنجاح · التقرير والصور متاحة للتنزيل</div></div></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="capabilities" id="capabilities">
+      <div class="container">
+        <div class="section-head"><div class="kicker" style="color:var(--mint)">ما الذي يديره النظام؟</div><h2>من البلاغ إلى التقرير النهائي</h2><p>المنظومة لا تكتفي بتسجيل الطلب؛ بل تضبط التنفيذ والأدلة والمخزون والمحاسبة التشغيلية.</p></div>
+        <div class="cap-grid">
+          <article class="cap-card"><span class="cap-no">01 — التشغيل</span><h3>الزيارات وSLA</h3><p>جدولة وإسناد، نافذة خدمة فعلية، حالات صارمة، وتنبيه واضح قبل التأخر.</p></article>
+          <article class="cap-card"><span class="cap-no">02 — الميدان</span><h3>Offline-first</h3><p>كل إجراء يُحفظ على الهاتف أولًا، ثم يُرسل بترتيب موثوق دون فقد أو ازدواج.</p></article>
+          <article class="cap-card"><span class="cap-no">03 — الجودة</span><h3>الأدلة والإقفال</h3><p>صور أصلية ومختومة، توقيع، QR، قوائم فحص، وبوابة تمنع الإقفال الناقص.</p></article>
+          <article class="cap-card"><span class="cap-no">04 — الموارد</span><h3>المخزون والسيارات</h3><p>أرصدة المستودع والسيارات، تحميل وصرف وإرجاع وتسوية بأثر تدقيق كامل.</p></article>
+          <article class="cap-card"><span class="cap-no">05 — الشبكة</span><h3>المقاولون بالباطن</h3><p>إسناد خدمات متخصصة، توثيق المستندات، وحساب الهامش قبل التأكيد.</p></article>
+          <article class="cap-card"><span class="cap-no">06 — القرار</span><h3>التقارير والمؤشرات</h3><p>تقرير زيارة عربي، حل من أول زيارة، أعمار المزامنة، وتقارير CSV تشغيلية.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="workflow" id="workflow">
+      <div class="container">
+        <div class="section-head center"><div class="kicker">دورة زيارة كاملة</div><h2>خطوات قليلة، أثر كامل</h2><p>كل مرحلة لها مالك واضح وبيانات موثقة، من فتح الطلب حتى استلام العميل للتقرير.</p></div>
+        <div class="flow-grid">
+          <article class="flow-step"><span class="step-icon">1</span><b>إنشاء الطلب</b><p>العميل والموقع والأصل ونوع البلاغ وأولوية الخدمة.</p></article>
+          <article class="flow-step"><span class="step-icon">2</span><b>الجدولة والإسناد</b><p>الفني المناسب ضمن تخصصه وورديته ونافذة الخدمة.</p></article>
+          <article class="flow-step"><span class="step-icon">3</span><b>الوصول والتحقق</b><p>مسح QR، الموقع، بدء الزمن، وقراءة تفاصيل الأصل.</p></article>
+          <article class="flow-step"><span class="step-icon">4</span><b>التنفيذ والأدلة</b><p>قائمة الفحص والصور والقطع والملاحظات حتى بلا شبكة.</p></article>
+          <article class="flow-step"><span class="step-icon">5</span><b>الإقفال والتوقيع</b><p>التحقق من النواقص، توقيع المستلم، وإرسال الأحداث.</p></article>
+          <article class="flow-step"><span class="step-icon">6</span><b>التقرير والمتابعة</b><p>PDF عربي، أثر تدقيق، تحديث المخزون ومؤشرات الأداء.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="architecture" id="architecture">
+      <div class="container">
+        <div class="section-head"><div class="kicker">بنية المنظومة</div><h2>متصل عند توفر الشبكة، عملي عند غيابها</h2><p>التطبيق واللوحة يتشاركان قواعد العمل نفسها، بينما يحافظ الهاتف على طابور محلي مشفر.</p></div>
+        <div class="arch-map" aria-label="مخطط بنية النظام">
+          <div class="arch-stack"><div class="arch-node"><strong>تطبيق الفني</strong><span>Flutter · Android · SQLCipher</span></div><div class="arch-node"><strong>واجهة المشرف</strong><span>ويب عربي متجاوب + MFA</span></div></div>
+          <div class="connector" aria-hidden="true">⇄</div>
+          <div class="arch-node central"><strong>خادم دارك</strong><span>Laravel API + منطق المزامنة والحالات والصلاحيات والتقارير</span></div>
+          <div class="connector" aria-hidden="true">⇄</div>
+          <div class="arch-stack"><div class="arch-node"><strong>PostgreSQL</strong><span>البيانات التشغيلية وسجل التدقيق</span></div><div class="arch-node"><strong>التخزين الآمن</strong><span>الأدلة والنسخ الاحتياطية المشفرة</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="security">
+      <div class="container security-grid">
+        <div class="security-panel"><div class="shield" aria-hidden="true">✓</div><h3>الأمان جزء من التشغيل، لا إضافة لاحقة.</h3><p>الصلاحيات، تشفير الهاتف، التحقق الثنائي، وسجل التدقيق كلها داخل المسار اليومي للنظام.</p><div class="audit-note">آخر تدقيق للإصدار 0.2.0: لا توجد ثغرات حرجة أو عالية معروفة مفتوحة، مع بقاء اختبار الجهاز الحقيقي شرطًا قبل الإنتاج.</div></div>
+        <div class="security-list">
+          <article class="security-item"><b>دخول المشرف بـMFA</b><p>كلمة المرور وحدها لا تفتح اللوحة. يلزم TOTP أو رمز استرداد أحادي الاستخدام.</p></article>
+          <article class="security-item"><b>تشفير بيانات الهاتف</b><p>SQLCipher بمفتاح عشوائي 256-bit محفوظ في مخزن مفاتيح Android.</p></article>
+          <article class="security-item"><b>رموز مربوطة بالجهاز</b><p>يمكن إبطال الهاتف المفقود فورًا، وتنتهي الرموز ضمن مدة محددة.</p></article>
+          <article class="security-item"><b>رفع أدلة مضبوط</b><p>تحقق من النوع والحجم والبصمة والعلاقة بالزيارة مع تحديد معدل الطلبات.</p></article>
+          <article class="security-item"><b>حماية واجهة الويب</b><p>CSP nonce وHSTS ومنع framing وcache للصفحات الحساسة.</p></article>
+          <article class="security-item"><b>نسخ احتياطي مشفر</b><p>AES-256 مع manifest وبصمات وتحقق قبل الاستعادة أو حذف أي نسخة.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="roadmap" style="background:rgba(234,251,247,.62)">
+      <div class="container">
+        <div class="section-head center"><div class="kicker">حالة التنفيذ بصراحة</div><h2>ما هو جاهز، وما هو قادم؟</h2><p>الفصل الواضح بين المنتج العامل والتصور المستقبلي يمنع قرارات مبنية على وعود غير منفذة.</p></div>
+        <div class="roadmap-grid">
+          <article class="roadmap-card current"><span class="badge ready">جاهز الآن</span><h3>النواة التشغيلية</h3><p>الخادم، لوحة الإدارة، تطبيق الفني، بوابة العميل، الصيانة الوقائية، طلب المواعيد، اقتراح توزيع الفنيين، التقييم، المخزون، الأدلة والتقارير والأمان.</p><ul><li>اختبارات كاملة ناجحة</li><li>APK وAAB موقعة</li><li>إصدار 0.2.0 موثق</li></ul></article>
+          <article class="roadmap-card"><span class="badge roadmap">قبل الإنتاج</span><h3>القبول الميداني</h3><p>الخطوة التالية ليست شاشة جديدة؛ بل إثبات دورة العمل على أجهزة وبيئة حقيقية.</p><ul><li>ترحيل قاعدة 0.1.0 على هاتف</li><li>كاميرا وQR وموقع ووضع طيران</li><li>نجاح preflight في الإنتاج</li></ul></article>
+          <article class="roadmap-card current"><span class="badge ready">جاهز الآن</span><h3>تجربة العميل</h3><p>بوابة PWA مع عزل بيانات كل عميل وبلاغ QR عام يدخل فرز المشرف قبل التنفيذ.</p><ul><li>متابعة الزيارة</li><li>التقارير والأصول</li><li>بلاغ طارئ بالصورة</li></ul></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="growth" class="capabilities">
+      <div class="container">
+        <div class="section-head center"><div class="kicker" style="color:var(--mint)">حزمة التشغيل والنمو</div><h2>المال والمخزون والذكاء والإدارة في منظومة واحدة</h2><p>أصبحت هذه الوحدات منفذة داخل المشروع ومتصلة بسجل التدقيق والصلاحيات.</p></div>
+        <div class="cap-grid">
+          <article class="cap-card"><span class="cap-no">07 — العقود والتحصيل</span><h3>من العرض إلى الإيصال</h3><p>إصدارات عروض، اعتماد وتوقيع إلكتروني، مقدم ودفعات مرنة، تجديد تلقائي، متأخرات وإيصالات وربحية.</p></article>
+          <article class="cap-card"><span class="cap-no">08 — المشتريات</span><h3>RFQ ومخزون متتبع</h3><p>طلب عروض رسمي، عدة عروض وترسية لأمر شراء، جرد QR، دفعة وتسلسل وضمان، عهدة وتحويل ثنائي بين السيارات.</p></article>
+          <article class="cap-card"><span class="cap-no">09 — ذكاء الأعطال</span><h3>نموذج مقاس النتائج</h3><p>صحة الأصل وتشخيص من المعرفة، ونموذج لعودة العطل خلال 90 يومًا بتدريب وتحقق ومقاييس دقة محفوظة.</p></article>
+          <article class="cap-card"><span class="cap-no">10 — الجدولة</span><h3>مسارات ومرور حي</h3><p>سحب وإفلات، ETA وخريطة للعميل، Mapbox Traffic مع بديل محلي، تخصص ومخزون وفني احتياط وإعادة توزيع.</p></article>
+          <article class="cap-card"><span class="cap-no">11 — العميل</span><h3>بوابة قرار وخدمة</h3><p>العقود والدفعات والموافقات والوصول التقريبي والحجز والاعتراض ومفوضون بحسب الموقع وسجل معدة PDF.</p></article>
+          <article class="cap-card"><span class="cap-no">12 — الحوكمة</span><h3>عزل فروع واعتمادان</h3><p>CRM ومصروفات وعمولات، وعزل استعلامات كل فرع في الخادم، وصلاحيات واعتماد مالي ثنائي وسجل تدقيق غير قابل للتعديل.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="final-cta">
+      <div class="container">
+        <div class="cta-card"><div class="kicker" style="color:var(--mint)">الخلاصة</div><h2>منظومة تشغيل ميداني حقيقية، وليست مجرد شاشات.</h2><p>دارك يجمع القرار والتنفيذ والإثبات في مسار واحد، مع تجربة عربية واضحة تعمل من الحاسب والجوال وفي انقطاع الشبكة.</p><div class="cta-actions"><a class="button" href="./RELEASES/0.2.0.md">اقرأ بيان الإصدار</a><a class="button secondary" href="./SECURITY_AUDIT.md">راجع تقرير الأمان</a></div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="container footer-wrap"><span>دارك — نظام إدارة عمليات الصيانة الميدانية</span><span class="legend"><span><b style="color:var(--green)">●</b> منفذ</span><span><b style="color:var(--amber)">●</b> تطوير مستقبلي</span><span>آخر تحديث: أغسطس 2026</span></span></div></footer>
+
+  <script>
+    (() => {
+      const menuButton = document.querySelector('.menu-button');
+      const nav = document.querySelector('.main-nav');
+      menuButton.addEventListener('click', () => {
+        const isOpen = menuButton.getAttribute('aria-expanded') === 'true';
+        menuButton.setAttribute('aria-expanded', String(!isOpen));
+        menuButton.setAttribute('aria-label', isOpen ? 'فتح قائمة التنقل' : 'إغلاق قائمة التنقل');
+        nav.classList.toggle('open', !isOpen);
+      });
+      nav.querySelectorAll('a').forEach(link => link.addEventListener('click', () => {
+        nav.classList.remove('open');
+        menuButton.setAttribute('aria-expanded', 'false');
+        menuButton.setAttribute('aria-label', 'فتح قائمة التنقل');
+      }));
+
+      const tabs = [...document.querySelectorAll('[role="tab"]')];
+      const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+      function selectTab(tab, moveFocus = false) {
+        const target = tab.dataset.surface;
+        tabs.forEach(item => item.setAttribute('aria-selected', String(item === tab)));
+        panels.forEach(panel => {
+          const active = panel.dataset.panel === target;
+          panel.hidden = !active;
+          panel.classList.toggle('active', active);
+        });
+        if (moveFocus) tab.focus();
+      }
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => selectTab(tab));
+        tab.addEventListener('keydown', event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          let next = index;
+          if (event.key === 'ArrowLeft') next = (index + 1) % tabs.length;
+          if (event.key === 'ArrowRight') next = (index - 1 + tabs.length) % tabs.length;
+          if (event.key === 'Home') next = 0;
+          if (event.key === 'End') next = tabs.length - 1;
+          selectTab(tabs[next], true);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -31,4 +31,24 @@ class SecurityHeadersTest extends DarakTestCase
     {
         $this->get('/login')->assertHeaderMissing('Strict-Transport-Security');
     }
+
+    public function test_login_controls_have_accessible_names_and_password_autocomplete(): void
+    {
+        $this->get('/login')->assertOk()
+            ->assertSee('for="panel-email"', false)
+            ->assertSee('id="panel-email"', false)
+            ->assertSee('autocomplete="email"', false)
+            ->assertSee('for="panel-password"', false)
+            ->assertSee('autocomplete="current-password"', false);
+    }
+
+    public function test_performance_scripts_carry_the_nonce_declared_by_csp(): void
+    {
+        $response = $this->actingAs($this->owner, 'web')->get(route('panel.performance'))->assertOk();
+        $policy = (string) $response->headers->get('Content-Security-Policy');
+        preg_match("/nonce-([^']+)/", $policy, $matches);
+
+        $this->assertNotEmpty($matches[1] ?? null);
+        $this->assertStringContainsString('script nonce="'.$matches[1].'"', $response->getContent());
+    }
 }

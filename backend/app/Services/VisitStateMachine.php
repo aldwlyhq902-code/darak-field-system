@@ -75,6 +75,12 @@ class VisitStateMachine
                 'state_changed_at' => $now,
             ];
 
+            if (isset($context['lat'], $context['lng'])) {
+                $attributes['technician_lat'] = $context['lat'];
+                $attributes['technician_lng'] = $context['lng'];
+                $attributes['location_updated_at'] = $now;
+            }
+
             if ($target === Visit::STATE_STARTED && $visit->started_at === null) {
                 $attributes['started_at'] = $now;
             }
@@ -89,6 +95,16 @@ class VisitStateMachine
             if ($from === Visit::STATE_STARTED && $visit->state_changed_at) {
                 $attributes['on_site_seconds'] = $visit->on_site_seconds
                     + $this->elapsedSeconds($visit, $context, $now);
+            }
+
+            if ($from === Visit::STATE_EN_ROUTE && $target === Visit::STATE_STARTED && $visit->state_changed_at) {
+                $attributes['travel_seconds'] = $visit->travel_seconds
+                    + $this->elapsedSinceStateChange($visit, $context, $now, Visit::STATE_EN_ROUTE);
+            }
+
+            if ($from === Visit::STATE_PAUSED && in_array($target, [Visit::STATE_STARTED, Visit::STATE_AWAITING_CLOSE], true) && $visit->state_changed_at) {
+                $attributes['waiting_seconds'] = $visit->waiting_seconds
+                    + $this->elapsedSinceStateChange($visit, $context, $now, Visit::STATE_PAUSED);
             }
 
             if ($target === Visit::STATE_COMPLETED) {
@@ -182,5 +198,18 @@ class VisitStateMachine
         $cap = (int) config('darak.max_on_site_segment_hours', 16) * 3600;
 
         return min($elapsed, $cap);
+    }
+
+    private function elapsedSinceStateChange(Visit $visit, array $context, CarbonImmutable $now, string $state): int
+    {
+        $deviceNow = $context['device_timestamp'] ?? null;
+        if ($deviceNow === null) {
+            return max(0, (int) $visit->state_changed_at->diffInSeconds($now, false));
+        }
+        $deviceNow = $deviceNow instanceof CarbonImmutable ? $deviceNow : CarbonImmutable::parse($deviceNow);
+        $event = $visit->events()->where('event_type', 'like', 'state.%.to.'.$state)->whereNotNull('device_timestamp')->latest('id')->first();
+        $elapsed = $event ? (int) $event->device_timestamp->diffInSeconds($deviceNow, false) : (int) $visit->state_changed_at->diffInSeconds($now, false);
+
+        return min(max(0, $elapsed), (int) config('darak.max_on_site_segment_hours', 16) * 3600);
     }
 }

@@ -43,7 +43,7 @@ components:
         visit_id: { type: integer }
         event_type:
           type: string
-          enum: [visit.transition, checklist.upsert, part.issue, part.return, media.register, geofence.ping, note.added]
+          enum: [visit.transition, checklist.upsert, parts.declaration, part.issue, part.return, media.register, signature.captured, site.scanned, asset.scanned, geofence.ping, note.added]
         payload: { type: object }
         device_timestamp:
           type: string

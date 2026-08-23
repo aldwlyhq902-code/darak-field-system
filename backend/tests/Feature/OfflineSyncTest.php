@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Asset;
 use App\Models\StockMove;
 use App\Models\VisitEvent;
 use App\Services\SyncService;
@@ -157,5 +158,33 @@ class OfflineSyncTest extends DarakTestCase
 
         $this->assertSame('rejected', $result['results'][0]['status']);
         $this->assertSame('MISSING_CLIENT_EVENT_ID', $result['results'][0]['code']);
+    }
+
+    public function test_unknown_event_types_are_rejected_without_polluting_the_event_log(): void
+    {
+        $result = app(SyncService::class)->ingest($this->device, [
+            $this->event('arbitrary.admin.command', ['anything' => true]),
+        ]);
+
+        $this->assertSame('rejected', $result['results'][0]['status']);
+        $this->assertSame('INVALID_EVENT_PAYLOAD', $result['results'][0]['code']);
+        $this->assertDatabaseCount('visit_events', 0);
+    }
+
+    public function test_checklist_event_cannot_attach_an_asset_from_another_site(): void
+    {
+        $otherSite = $this->client->sites()->create(['name' => 'Other Site']);
+        $otherAsset = Asset::create([
+            'site_id' => $otherSite->id, 'type' => 'split_ac',
+            'name' => 'Other Asset', 'qr_code' => 'ASSET-OTHER-SITE',
+        ]);
+        $result = app(SyncService::class)->ingest($this->device, [
+            $this->event('checklist.upsert', ['asset_id' => $otherAsset->id, 'status' => 'ok']),
+        ]);
+
+        $this->assertSame('rejected', $result['results'][0]['status']);
+        $this->assertDatabaseMissing('checklist_instances', [
+            'visit_id' => $this->visit->id, 'asset_id' => $otherAsset->id,
+        ]);
     }
 }

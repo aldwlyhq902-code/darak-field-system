@@ -5,7 +5,7 @@
     $contract = $visit->workOrder?->contract;
 @endphp
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="{{ app()->getLocale() }}" dir="{{ app()->isLocale('ar') ? 'rtl' : 'ltr' }}">
 <head>
     <meta charset="utf-8">
     <style>
@@ -137,5 +137,5 @@
     نسخة القالب: {{ $templateVersion }} · وُلّد آلياً من نظام دارك · الصور مختومة بوقت الالتقاط والإحداثيات.
 </div>
 
-</body>
+@include('partials.runtime-localization')</body>
 </html>

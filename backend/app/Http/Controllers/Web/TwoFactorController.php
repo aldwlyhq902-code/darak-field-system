@@ -26,7 +26,7 @@ class TwoFactorController extends Controller
         abort_if($user->isTechnician(), 403);
 
         if ($user->hasConfirmedTwoFactor()) {
-            return redirect()->route('panel.board');
+            return redirect()->route($this->panelHomeRoute($user));
         }
 
         if ($user->two_factor_secret === null) {
@@ -59,7 +59,10 @@ class TwoFactorController extends Controller
         $this->audit->record('auth.two_factor_enabled', $user, null, ['recovery_codes' => count($codes['plain'])], $user->id);
         $this->audit->record('panel.login', $user, null, ['role' => $user->role, 'mfa' => true], $user->id);
 
-        return view('panel.two-factor-recovery', ['codes' => $codes['plain']]);
+        return view('panel.two-factor-recovery', [
+            'codes' => $codes['plain'],
+            'homeRoute' => $this->panelHomeRoute($user),
+        ]);
     }
 
     public function challenge(Request $request): View|RedirectResponse
@@ -99,7 +102,7 @@ class TwoFactorController extends Controller
 
         $this->audit->record('panel.login', $user, null, ['role' => $user->role, 'mfa' => true], $user->id);
 
-        return redirect()->intended(route('panel.board'));
+        return redirect()->intended(route($this->panelHomeRoute($user)));
     }
 
     public function regenerateRecoveryCodes(Request $request): View
@@ -109,7 +112,10 @@ class TwoFactorController extends Controller
 
         $this->audit->record('auth.recovery_codes_regenerated', $request->user(), null, [], $request->user()->id);
 
-        return view('panel.two-factor-recovery', ['codes' => $codes['plain']]);
+        return view('panel.two-factor-recovery', [
+            'codes' => $codes['plain'],
+            'homeRoute' => $this->panelHomeRoute($request->user()),
+        ]);
     }
 
     public function reset(Request $request, User $user): RedirectResponse
@@ -130,5 +136,23 @@ class TwoFactorController extends Controller
         $this->audit->record('auth.two_factor_reset', $user, null, [], $request->user()->id);
 
         return back()->with('ok', 'أُعيد ضبط التحقق بخطوتين. سيُطلب إعداده عند الدخول التالي.');
+    }
+
+    private function panelHomeRoute(User $user): string
+    {
+        foreach ([
+            'operations' => 'panel.board', 'clients' => 'panel.clients',
+            'commercial' => 'panel.commercial', 'finance' => 'panel.finance',
+            'inventory' => 'panel.inventory', 'intelligence' => 'panel.intelligence',
+            'team' => 'panel.team', 'hr' => 'panel.hr', 'fleet' => 'panel.fleet',
+            'performance' => 'panel.performance', 'sales' => 'sales.home',
+            'admin' => 'panel.admin-operations',
+        ] as $permission => $route) {
+            if ($user->canPanel($permission)) {
+                return $route;
+            }
+        }
+
+        abort(403, 'لا توجد مساحة عمل مصرح بها لهذا الحساب.');
     }
 }

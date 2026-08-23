@@ -5,17 +5,20 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\Asset;
 use App\Models\Client;
+use App\Models\ClientPortalUser;
 use App\Models\Contract;
 use App\Models\Site;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Services\SlaCalculator;
+use App\Support\BusinessReference;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\View\View;
 
 /**
@@ -55,6 +58,8 @@ class ClientPanelController extends Controller
             // Credit policy, applied by the system rather than remembered:
             // a restaurant under a year old pays quarterly in advance.
             'payment_term' => 'quarterly_advance',
+            'operating_company_id' => $request->user()->operating_company_id,
+            'operating_branch_id' => $request->user()->operating_branch_id,
         ]);
 
         $client->sites()->create([
@@ -72,7 +77,7 @@ class ClientPanelController extends Controller
 
     public function show(Client $client): View
     {
-        $client->load(['sites.assets', 'contracts.sites']);
+        $client->load(['sites.assets', 'contracts.sites', 'contracts.installments', 'portalUsers', 'quotations']);
 
         return view('panel.client', ['client' => $client]);
     }
@@ -125,7 +130,7 @@ class ClientPanelController extends Controller
         ]);
 
         $contract = $client->contracts()->create([
-            'contract_no' => 'DK-'.str_pad((string) (Contract::max('id') + 1), 4, '0', STR_PAD_LEFT),
+            'contract_no' => BusinessReference::make('DK', false),
             'package_code' => $data['package_code'],
             // Stored PRE-VAT, always. The gross figure is derived, never entered.
             'price_amount' => $data['price_amount'],
@@ -195,7 +200,7 @@ class ClientPanelController extends Controller
         $budget = $contract?->sla_minutes ?? 480;
 
         $workOrder = WorkOrder::create([
-            'wo_number' => 'WO-'.str_pad((string) (WorkOrder::max('id') + 1), 5, '0', STR_PAD_LEFT),
+            'wo_number' => BusinessReference::make('WO', false),
             'client_id' => $client->id,
             'site_id' => $data['site_id'],
             'contract_id' => $contract?->id,
@@ -233,5 +238,45 @@ class ClientPanelController extends Controller
         ]);
 
         return back()->with('ok', "أُنشئ أمر العمل {$workOrder->wo_number} وزيارته.");
+    }
+
+    public function storePortalUser(Request $request, Client $client): RedirectResponse
+    {
+        abort_unless($request->user()->isOwner(), 403);
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'email' => ['required', 'email', 'max:190', 'unique:client_portal_users,email'],
+            'phone' => ['nullable', 'string', 'max:32'],
+            'password' => ['required', 'confirmed', Password::min(12)->letters()->mixedCase()->numbers()->symbols()],
+            'permissions' => ['nullable', 'array'],
+            'permissions.*' => ['in:quotes.approve,contracts.sign,reports.dispute,assets.history,service.request,additional-work.approve'],
+            'site_ids' => ['nullable', 'array'], 'site_ids.*' => ['integer', 'exists:sites,id'],
+        ]);
+
+        $siteIds = collect($data['site_ids'] ?? [])->map(fn ($id) => (int) $id);
+        abort_if($siteIds->diff($client->sites()->pluck('id'))->isNotEmpty(), 422, 'أحد المواقع لا يتبع هذا العميل.');
+        unset($data['site_ids']);
+        $portalUser = $client->portalUsers()->create($data + ['is_active' => true]);
+        $portalUser->allowedSites()->sync($siteIds);
+
+        return back()->with('ok', 'أُنشئ حساب بوابة العميل.');
+    }
+
+    public function togglePortalUser(Request $request, ClientPortalUser $portalUser): RedirectResponse
+    {
+        abort_unless($request->user()->isOwner(), 403);
+        $portalUser->forceFill(['is_active' => ! $portalUser->is_active])->save();
+
+        return back()->with('ok', $portalUser->is_active ? 'فُعّل حساب العميل.' : 'عُطّل حساب العميل.');
+    }
+
+    public function rotateEmergencyQr(Request $request, Site $site): RedirectResponse
+    {
+        abort_unless($request->user()->isOwner(), 403);
+        $site->rotateEmergencyQr();
+        $site->save();
+
+        return back()->with('ok', 'أُلغي رابط QR القديم وأُنشئ رابط جديد. اطبع ملصقاً جديداً.');
     }
 }

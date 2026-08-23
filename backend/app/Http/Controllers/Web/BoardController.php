@@ -7,9 +7,11 @@ use App\Models\Device;
 use App\Models\User;
 use App\Models\Visit;
 use App\Services\CloseGate;
+use App\Services\DispatchSuggestionService;
 use App\Services\InventoryService;
 use App\Services\NotificationService;
 use App\Services\ReworkDetector;
+use App\Services\RoutePlanningService;
 use App\Services\SlaCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -20,9 +22,8 @@ use Illuminate\View\View;
 /**
  * The supervisor's day.
  *
- * Manual assignment only — the weighted dispatch engine is backlog. With four
- * technicians a person assigns faster than a scoring model, and the model cannot
- * be tuned before there is operating data to tune it against.
+ * Assignment remains a supervisor decision. Operations provides transparent
+ * suggestions, while this endpoint rechecks every hard scheduling constraint.
  */
 class BoardController extends Controller
 {
@@ -31,15 +32,17 @@ class BoardController extends Controller
         private readonly CloseGate $closeGate,
         private readonly ReworkDetector $rework,
         private readonly NotificationService $notifications,
+        private readonly DispatchSuggestionService $dispatch,
+        private readonly RoutePlanningService $routes,
     ) {}
 
     public function index(Request $request): View
     {
-        $date = $request->date('date') ?? CarbonImmutable::now();
+        $date = CarbonImmutable::instance($request->date('date') ?? CarbonImmutable::now());
         $now = CarbonImmutable::now();
 
         $visits = Visit::with(['workOrder.contract', 'workOrder.client', 'site', 'technician'])
-            ->whereDate('scheduled_start', $date)
+            ->whereBetween('scheduled_start', [$date->startOfDay(), $date->endOfDay()])
             ->orderBy('scheduled_start')
             ->get()
             ->map(function (Visit $visit) use ($now) {
@@ -82,6 +85,7 @@ class BoardController extends Controller
             'workOrder.contract', 'workOrder.client', 'site.assets',
             'checklistInstances.asset', 'mediaFiles', 'stockMoves.part',
             'technician', 'events' => fn ($q) => $q->latest('id')->limit(60),
+            'additionalWorkApprovals',
         ]);
 
         return view('panel.visit', [
@@ -97,7 +101,7 @@ class BoardController extends Controller
         $data = $request->validate(['user_id' => ['required', 'exists:users,id']]);
         $technician = User::findOrFail($data['user_id']);
 
-        $reasons = $this->assignmentConflicts($technician, $visit);
+        $reasons = $this->dispatch->conflicts($technician, $visit->loadMissing('workOrder.asset'));
 
         if ($reasons !== []) {
             return back()->with('err', 'تعذّر الإسناد: '.implode(' · ', $reasons));
@@ -105,6 +109,7 @@ class BoardController extends Controller
 
         $previous = $visit->assigned_user_id;
         $visit->forceFill(['assigned_user_id' => $technician->id])->save();
+        $this->routes->recalculateDay($technician, $visit->scheduled_start);
 
         // Recorded so the notification key can be scoped to this assignment.
         // Without it, a visit moved A -> B -> A never notifies A the second time.
@@ -136,42 +141,6 @@ class BoardController extends Controller
         $this->rework->override($visit, $request->user()->id, $data['reason'], $data['note']);
 
         return back()->with('ok', 'أُعيد تصنيف الزيارة، والسبب مسجل في سجل التدقيق.');
-    }
-
-    /** @return array<int, string> */
-    private function assignmentConflicts(User $technician, Visit $visit): array
-    {
-        $reasons = [];
-        $start = $visit->scheduled_start;
-        $end = $visit->scheduled_end ?? $start?->copy()->addHours(2);
-
-        if (! $technician->is_active) {
-            $reasons[] = 'الفني غير نشط';
-        }
-
-        if ($start && $end && ! $technician->isWithinShift($start, $end)) {
-            $reasons[] = 'الزيارة خارج ورديته';
-        }
-
-        $specialty = $visit->workOrder?->asset?->type;
-        if ($specialty && ($technician->specialties ?? []) !== [] && ! $technician->hasSpecialty($specialty)) {
-            $reasons[] = "غير مسجل لتخصص [{$specialty}] — وجّهها لمقاول باطن";
-        }
-
-        if ($start && $end) {
-            $overlap = Visit::where('assigned_user_id', $technician->id)
-                ->where('id', '!=', $visit->id)
-                ->where('state', '!=', Visit::STATE_COMPLETED)
-                ->where('scheduled_start', '<', $end)
-                ->where('scheduled_end', '>', $start)
-                ->exists();
-
-            if ($overlap) {
-                $reasons[] = 'لديه زيارة متداخلة في نفس الوقت';
-            }
-        }
-
-        return $reasons;
     }
 
     private function counts($rows): array

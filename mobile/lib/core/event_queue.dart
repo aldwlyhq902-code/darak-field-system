@@ -111,6 +111,31 @@ class EventQueue {
     double? lng,
     String source = 'offline',
     String? clientEventId,
+  }) => _db.raw.transaction(
+    (transaction) => enqueueInTransaction(
+      transaction,
+      visitId: visitId,
+      eventType: eventType,
+      payload: payload,
+      lat: lat,
+      lng: lng,
+      source: source,
+      clientEventId: clientEventId,
+    ),
+  );
+
+  /// Inserts an event and advances its causal sequence in the caller's SQLite
+  /// transaction. Evidence capture uses this to commit its media row and the
+  /// matching registration event as one indivisible unit.
+  Future<QueuedEvent> enqueueInTransaction(
+    DatabaseExecutor transaction, {
+    required int visitId,
+    required String eventType,
+    Map<String, dynamic> payload = const {},
+    double? lat,
+    double? lng,
+    String source = 'offline',
+    String? clientEventId,
   }) async {
     final event = QueuedEvent(
       clientEventId: clientEventId ?? _uuid.v4(),
@@ -118,7 +143,7 @@ class EventQueue {
       eventType: eventType,
       payload: payload,
       deviceTimestamp: _clock.deviceNow,
-      sequence: await _db.nextSequence(),
+      sequence: await _db.nextSequence(transaction),
       monotonicOffsetMs: _clock.monotonicOffsetMs,
       lastTrustedServerTime: _clock.lastTrustedServerTime,
       lat: lat,
@@ -126,7 +151,7 @@ class EventQueue {
       source: source,
     );
 
-    await _db.raw.insert('pending_events', {
+    await transaction.insert('pending_events', {
       'client_event_id': event.clientEventId,
       'visit_id': event.visitId,
       'event_type': event.eventType,
@@ -142,7 +167,7 @@ class EventQueue {
       'status': QueuedStatus.pending.name,
       'attempts': 0,
       'created_at': DateTime.now().toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }, conflictAlgorithm: ConflictAlgorithm.abort);
 
     return event;
   }

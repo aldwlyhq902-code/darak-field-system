@@ -127,25 +127,67 @@ class MediaController extends Controller
         }
 
         $absolute = $disk->path($partPath);
-        $handle = fopen($absolute, 'ab');
-        fwrite($handle, $bytes);
-        fclose($handle);
+        $handle = fopen($absolute, 'c+b');
+        if ($handle === false || ! flock($handle, LOCK_EX)) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
 
-        // Same conditional write as complete(): a discard landing mid-chunk must
-        // win, not be silently overwritten by the next byte range.
-        $claimed = MediaFile::whereKey($media->getKey())
-            ->whereNull('discarded_at')
-            ->update([
-                'uploaded_bytes' => $media->uploaded_bytes + $chunkBytes,
-                'upload_state' => 'uploading',
-                'attempts' => $media->attempts + 1,
-                'updated_at' => now(),
-            ]);
+            return response()->json(['code' => 'UPLOAD_BUSY', 'message' => 'Could not lock the upload. Retry this chunk.'], 409);
+        }
 
-        if ($claimed === 0) {
-            $disk->delete($partPath);
+        try {
+            // A second request may have passed the fast offset check while waiting
+            // for this file lock. Re-read only after exclusive ownership.
+            $media->refresh();
+            if ($media->discarded_at !== null) {
+                return $this->discardedResponse();
+            }
+            if ($media->upload_state === 'complete') {
+                return response()->json(['code' => 'ALREADY_COMPLETE', 'uploaded_bytes' => $media->uploaded_bytes]);
+            }
+            if ($offset !== (int) $media->uploaded_bytes) {
+                return response()->json([
+                    'code' => 'OFFSET_MISMATCH',
+                    'message' => 'Resume from the server offset.',
+                    'expected_offset' => (int) $media->uploaded_bytes,
+                ], 409);
+            }
 
-            return $this->discardedResponse();
+            if (fseek($handle, $offset) !== 0 || fwrite($handle, $bytes) !== $chunkBytes || ! fflush($handle)) {
+                ftruncate($handle, $offset);
+
+                return response()->json(['code' => 'WRITE_FAILED', 'message' => 'The chunk could not be stored. Retry it.'], 500);
+            }
+
+            // Compare-and-set prevents a stale request from advancing the counter.
+            // A discard landing mid-write still wins through the null predicate.
+            $claimed = MediaFile::whereKey($media->getKey())
+                ->whereNull('discarded_at')
+                ->where('uploaded_bytes', $offset)
+                ->where('upload_state', '!=', 'complete')
+                ->update([
+                    'uploaded_bytes' => $offset + $chunkBytes,
+                    'upload_state' => 'uploading',
+                    'attempts' => $media->attempts + 1,
+                    'updated_at' => now(),
+                ]);
+
+            if ($claimed === 0) {
+                ftruncate($handle, $offset);
+                $media->refresh();
+
+                return $media->discarded_at !== null
+                    ? $this->discardedResponse()
+                    : response()->json([
+                        'code' => 'OFFSET_MISMATCH',
+                        'message' => 'Resume from the server offset.',
+                        'expected_offset' => (int) $media->uploaded_bytes,
+                    ], 409);
+            }
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
         }
 
         $media->refresh();

@@ -43,6 +43,12 @@ return [
     'backup_path' => env('DARAK_BACKUP_PATH', ''),
 
     /*
+    | Optional absolute pg_dump path. Leaving it empty uses PATH and, on Windows,
+    | the newest standard PostgreSQL installation under Program Files.
+    */
+    'pg_dump_path' => env('DARAK_PG_DUMP_PATH'),
+
+    /*
     | Evidence uploads are authenticated but still untrusted input. A declared
     | size and a server-side ceiling prevent a compromised device from filling
     | the disk one valid 8MB chunk at a time.
@@ -54,6 +60,46 @@ return [
     | BackupService refuses to create an unencrypted production archive.
     */
     'backup_password' => env('DARAK_BACKUP_PASSWORD'),
+
+    /*
+    | Production is fail-closed until the owner and privacy adviser approve the
+    | policy inputs. No retention period has a developer-selected default.
+    */
+    'privacy' => [
+        'controller_name' => env('DARAK_PRIVACY_CONTROLLER_NAME'),
+        'request_channel' => env('DARAK_PRIVACY_REQUEST_CHANNEL'),
+        'providers_register' => env('DARAK_PRIVACY_PROVIDERS_REGISTER'),
+        'request_procedure' => env('DARAK_PRIVACY_REQUEST_PROCEDURE'),
+        'notice_version' => env('DARAK_PRIVACY_NOTICE_VERSION'),
+        'emergency_consent_version' => env('DARAK_PRIVACY_EMERGENCY_CONSENT_VERSION'),
+        'retention_days' => [
+            'visit_photos' => env('DARAK_RETENTION_VISIT_PHOTOS_DAYS'),
+            'emergency_reports' => env('DARAK_RETENTION_EMERGENCY_REPORTS_DAYS'),
+            'signatures_reports' => env('DARAK_RETENTION_SIGNATURES_REPORTS_DAYS'),
+            'capture_coordinates' => env('DARAK_RETENTION_CAPTURE_COORDINATES_DAYS'),
+            'audit_security_logs' => env('DARAK_RETENTION_AUDIT_LOGS_DAYS'),
+            'backups' => env('DARAK_RETENTION_BACKUPS_DAYS'),
+        ],
+    ],
+
+    // Vercel's writable filesystem is ephemeral. It is supported only as an
+    // explicitly opted-in demo surface and must never pass production preflight.
+    'ephemeral_serverless' => (bool) env('VERCEL', false),
+
+    'default_travel_minutes' => (int) env('DARAK_DEFAULT_TRAVEL_MINUTES', 30),
+    'routing' => [
+        // Set to mapbox to use the live driving-traffic API. A short timeout and
+        // deterministic local fallback keep dispatch usable during provider outages.
+        'provider' => env('DARAK_ROUTING_PROVIDER', 'local'),
+        'mapbox_token' => env('DARAK_MAPBOX_TOKEN'),
+    ],
+    'prediction' => ['minimum_samples' => (int) env('DARAK_PREDICTION_MINIMUM_SAMPLES', 500)],
+
+    /*
+    | Unvalidated analytics stay out of the production MVP unless the owner opts
+    | in explicitly. This gates both technician ranking and fault prediction.
+    */
+    'experimental_analytics' => (bool) env('DARAK_ENABLE_EXPERIMENTAL_ANALYTICS', false),
 
     /*
     | Deliberately ABSENT from the MVP, recorded here so nobody re-adds them by

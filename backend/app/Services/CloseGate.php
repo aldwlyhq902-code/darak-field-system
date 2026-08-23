@@ -23,7 +23,15 @@ class CloseGate
     {
         $blockers = [];
 
-        $visit->loadMissing(['checklistInstances.asset', 'mediaFiles', 'stockMoves', 'site.assets']);
+        $visit->loadMissing(['checklistInstances.asset', 'mediaFiles', 'stockMoves', 'site.assets', 'additionalWorkApprovals']);
+
+        if ($visit->additionalWorkApprovals->contains(fn ($approval) => $approval->status === 'pending')) {
+            $blockers[] = [
+                'code' => 'ADDITIONAL_WORK_PENDING',
+                'message_ar' => 'يوجد عمل إضافي بانتظار موافقة العميل.',
+                'message_en' => 'Additional work is still awaiting client approval.',
+            ];
+        }
 
         // Discarded evidence is out of the reckoning entirely: it is recorded for
         // audit, but a file the supervisor dropped must not go on blocking a

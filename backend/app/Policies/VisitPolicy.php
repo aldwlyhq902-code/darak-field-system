@@ -34,6 +34,15 @@ class VisitPolicy
         return $user->isTechnician() && $visit->assigned_user_id === $user->id;
     }
 
+    public function update(User $user, Visit $visit): bool
+    {
+        if ($user->isOwner() || $user->isAdmin()) {
+            return true;
+        }
+
+        return $user->isTechnician() && $visit->assigned_user_id === $user->id;
+    }
+
     public function assign(User $user): bool
     {
         return $user->isOwner();

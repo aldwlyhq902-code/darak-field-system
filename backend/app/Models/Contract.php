@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Contract extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, ScopedToOperatingBranch, SoftDeletes;
 
     protected $fillable = [
         'client_id', 'contract_no', 'package_code', 'price_amount', 'vat_rate',
@@ -19,6 +21,8 @@ class Contract extends Model
         'included_assets_cap', 'extra_asset_price', 'included_visits_per_cycle',
         'included_hours_per_cycle', 'exclusions', 'founding_inspection_fee',
         'founding_inspection_credited', 'is_trial', 'decision_due_on', 'status',
+        'source_quotation_id', 'signed_by_portal_user_id', 'signed_name',
+        'signature_hash', 'signed_at', 'auto_renewal_offer',
     ];
 
     protected function casts(): array
@@ -35,6 +39,8 @@ class Contract extends Model
             'exclusions' => 'array',
             'is_trial' => 'boolean',
             'founding_inspection_credited' => 'boolean',
+            'signed_at' => 'datetime',
+            'auto_renewal_offer' => 'boolean',
         ];
     }
 
@@ -46,6 +52,16 @@ class Contract extends Model
     public function sites(): BelongsToMany
     {
         return $this->belongsToMany(Site::class, 'contract_site')->withTimestamps();
+    }
+
+    public function installments(): HasMany
+    {
+        return $this->hasMany(ContractInstallment::class)->orderBy('installment_no');
+    }
+
+    public function sourceQuotation(): BelongsTo
+    {
+        return $this->belongsTo(Quotation::class, 'source_quotation_id');
     }
 
     /** Stored amounts are pre-VAT; this is the gross figure shown to the client. */

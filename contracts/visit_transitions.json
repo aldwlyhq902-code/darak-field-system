@@ -1,0 +1,9 @@
+{
+  "scheduled": ["en_route"],
+  "en_route": ["started", "scheduled"],
+  "started": ["paused", "awaiting_close"],
+  "paused": ["started", "awaiting_close"],
+  "awaiting_close": ["completed", "started"],
+  "completed": ["reopened"],
+  "reopened": ["started"]
+}

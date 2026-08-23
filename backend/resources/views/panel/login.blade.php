@@ -5,7 +5,7 @@
 <div style="max-width:400px;margin:60px auto">
     <div style="text-align:center;margin-bottom:22px">
         <div style="font-size:34px;font-weight:700;color:var(--teal)">دارك</div>
-        <div class="sub" style="margin:0">لوحة المشرف والإدارة</div>
+        <div class="sub" style="margin:0">دخول الإدارة والمشرفين وفريق المبيعات</div>
     </div>
 
     <div class="card">
@@ -13,12 +13,12 @@
             <form method="POST" action="{{ route('panel.login') }}">
                 @csrf
                 <div class="field">
-                    <label>البريد الإلكتروني</label>
-                    <input type="email" name="email" value="{{ old('email') }}" required autofocus>
+                    <label for="panel-email">البريد الإلكتروني</label>
+                    <input id="panel-email" type="email" name="email" value="{{ old('email') }}" autocomplete="email" required autofocus>
                 </div>
                 <div class="field">
-                    <label>كلمة المرور</label>
-                    <input type="password" name="password" required>
+                    <label for="panel-password">كلمة المرور</label>
+                    <input id="panel-password" type="password" name="password" autocomplete="current-password" required>
                 </div>
                 <button class="btn" style="width:100%">دخول</button>
             </form>
@@ -26,7 +26,7 @@
     </div>
 
     <div class="note">
-        الفنيون لا يدخلون من هنا — لهم تطبيق الجوال. هذه اللوحة للمشرف والإدارة فقط.
+        الفنيون لا يدخلون من هنا — لهم تطبيق الجوال. المسوق ينتقل تلقائيًا إلى تطبيق المبيعات بعد التحقق بخطوتين.
     </div>
 </div>
 @endsection

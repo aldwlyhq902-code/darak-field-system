@@ -144,6 +144,8 @@
             </div>
         </div>
 
+        <div class="card"><div class="hd">اعتماد عمل إضافي</div><div class="bd">@foreach($visit->additionalWorkApprovals as $approval)<div style="margin-bottom:8px"><strong>{{ $approval->title }}</strong> — {{ number_format($approval->total_amount,2) }} ر.س <span class="pill {{ $approval->status==='approved'?'green':($approval->status==='rejected'?'red':'amber') }}">{{ ['pending'=>'بانتظار العميل','approved'=>'معتمد','rejected'=>'مرفوض'][$approval->status] }}</span></div>@endforeach<form method="POST" action="{{ route('panel.visit.additional-work',$visit) }}">@csrf<div class="field"><label>العنوان</label><input name="title" required></div><div class="field"><label>الوصف</label><textarea name="description" required></textarea></div><div class="field"><label>القيمة قبل الضريبة</label><input name="amount" type="number" step="0.01" required></div><button class="btn">إرسال للعميل</button></form><div class="note" style="margin-top:10px">لا يبدأ العمل الإضافي قبل ظهور الحالة «معتمد».</div></div></div>
+
         @if ($visit->is_rework && $visit->rework_system_flagged)
             <div class="card">
                 <div class="hd">إعادة تصنيف</div>

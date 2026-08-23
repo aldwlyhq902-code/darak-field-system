@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,12 +11,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Asset extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, ScopedToOperatingBranch, SoftDeletes;
 
     protected $fillable = [
         'site_id', 'type', 'name', 'manufacturer', 'model', 'serial_number',
         'location_in_site', 'installed_on', 'warranty_provider', 'warranty_until',
         'status', 'qr_code', 'client_generated_uuid', 'notes',
+        'replacement_value', 'criticality',
     ];
 
     protected function casts(): array
@@ -23,6 +25,7 @@ class Asset extends Model
         return [
             'installed_on' => 'date',
             'warranty_until' => 'date',
+            'replacement_value' => 'decimal:2',
         ];
     }
 

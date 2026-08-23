@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use OTPHP\TOTP;
 
@@ -49,18 +50,26 @@ class TwoFactorService
     public function consumeRecoveryCode(User $user, string $candidate): bool
     {
         $candidate = $this->normaliseRecoveryCode($candidate);
-        $codes = $user->two_factor_recovery_codes ?? [];
 
-        foreach ($codes as $index => $hash) {
-            if (Hash::check($candidate, $hash)) {
-                unset($codes[$index]);
-                $user->forceFill(['two_factor_recovery_codes' => array_values($codes)])->save();
+        return DB::transaction(function () use ($user, $candidate): bool {
+            // Recovery codes are single-use credentials. Locking the account row
+            // makes verification and consumption one atomic operation.
+            $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $codes = $locked->two_factor_recovery_codes ?? [];
 
-                return true;
+            foreach ($codes as $index => $hash) {
+                if (Hash::check($candidate, $hash)) {
+                    unset($codes[$index]);
+                    $codes = array_values($codes);
+                    $locked->forceFill(['two_factor_recovery_codes' => $codes])->save();
+                    $user->forceFill(['two_factor_recovery_codes' => $codes]);
+
+                    return true;
+                }
             }
-        }
 
-        return false;
+            return false;
+        });
     }
 
     private function totp(User $user): TOTP

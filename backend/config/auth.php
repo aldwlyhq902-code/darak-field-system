@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\ClientPortalUser;
 use App\Models\User;
 
 return [
@@ -42,6 +43,10 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+        'client' => [
+            'driver' => 'session',
+            'provider' => 'client_portal_users',
+        ],
     ],
 
     /*
@@ -65,6 +70,10 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+        'client_portal_users' => [
+            'driver' => 'eloquent',
+            'model' => ClientPortalUser::class,
         ],
 
         // 'users' => [

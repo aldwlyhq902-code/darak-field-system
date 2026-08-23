@@ -12,11 +12,10 @@ import 'trusted_clock.dart';
 
 /// Where captured evidence lands before it is uploaded.
 ///
-/// Two things happen for every capture, in this order:
-///   1. The bytes are written to the app's own directory. Not the gallery — the
-///      photo is business evidence, not the technician's picture.
-///   2. A row goes into `pending_media` AND a `media.register` event goes into the
-///      outbound queue, both keyed by the same device-generated UUID.
+/// Bytes first land in a flushed `.pending` file. The media row, registration
+/// event, and event sequence then commit in one SQLite transaction, after which
+/// the file is atomically promoted to its final name. [reconcile] completes that
+/// last rename if the process stops between the commit and promotion.
 ///
 /// That ordering matters. If the app dies between capture and sync, the file and
 /// its queue row are already on disk and the uploader picks it up on next launch.
@@ -100,7 +99,8 @@ class EvidenceStore {
     }
 
     final file = File(p.join(directory.path, '$clientMediaId.$extension'));
-    await file.writeAsBytes(bytes, flush: true);
+    final stagingFile = File('${file.path}.pending');
+    await stagingFile.writeAsBytes(bytes, flush: true);
 
     // The hash is computed at capture time, not at upload time. If the file is
     // altered on disk afterwards the mismatch surfaces instead of being masked by
@@ -108,49 +108,115 @@ class EvidenceStore {
     final digest = sha256.convert(bytes).toString();
     final capturedAt = _clock.deviceNow;
 
-    await _db.raw.insert('pending_media', {
-      'client_media_id': clientMediaId,
-      'visit_id': visitId,
-      'checklist_instance_id': checklistInstanceId,
-      // Kept locally too, so the on-device close gate can ask the same
-      // per-asset question the server asks.
-      'asset_id': assetId,
-      'kind': kind,
-      'mime': mime,
-      'local_path': file.path,
-      'total_bytes': bytes.length,
-      'uploaded_bytes': 0,
-      'sha256': digest,
-      // UTC for the same reason as event timestamps: an offset-less local time
-      // is reinterpreted in the server's zone.
-      'captured_at': capturedAt.toUtc().toIso8601String(),
-      'lat': lat,
-      'lng': lng,
-      'state': 'pending',
-      'attempts': 0,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
-
-    await _queue.enqueue(
-      visitId: visitId,
-      eventType: 'media.register',
-      payload: {
-        'client_media_id': clientMediaId,
-        'kind': kind,
-        'mime': mime,
-        'total_bytes': bytes.length,
-        'captured_at': capturedAt.toUtc().toIso8601String(),
-        'declared_source': declaredSource,
-        if (assetId != null) 'asset_id': assetId,
-        if (checklistInstanceId != null)
+    try {
+      await _db.raw.transaction((transaction) async {
+        await transaction.insert('pending_media', {
+          'client_media_id': clientMediaId,
+          'visit_id': visitId,
           'checklist_instance_id': checklistInstanceId,
-        if (lat != null) 'lat': lat,
-        if (lng != null) 'lng': lng,
-      },
-      lat: lat,
-      lng: lng,
-    );
+          'asset_id': assetId,
+          'kind': kind,
+          'mime': mime,
+          'local_path': file.path,
+          'total_bytes': bytes.length,
+          'uploaded_bytes': 0,
+          'sha256': digest,
+          'captured_at': capturedAt.toUtc().toIso8601String(),
+          'lat': lat,
+          'lng': lng,
+          'state': 'pending',
+          'attempts': 0,
+        }, conflictAlgorithm: ConflictAlgorithm.abort);
+
+        await _queue.enqueueInTransaction(
+          transaction,
+          visitId: visitId,
+          eventType: 'media.register',
+          payload: {
+            'client_media_id': clientMediaId,
+            'kind': kind,
+            'mime': mime,
+            'total_bytes': bytes.length,
+            'captured_at': capturedAt.toUtc().toIso8601String(),
+            'declared_source': declaredSource,
+            if (assetId != null) 'asset_id': assetId,
+            if (checklistInstanceId != null)
+              'checklist_instance_id': checklistInstanceId,
+            if (lat != null) 'lat': lat,
+            if (lng != null) 'lng': lng,
+          },
+          lat: lat,
+          lng: lng,
+        );
+      });
+    } catch (_) {
+      if (await stagingFile.exists()) await stagingFile.delete();
+      rethrow;
+    }
+
+    await stagingFile.rename(file.path);
 
     return clientMediaId;
+  }
+
+  /// Repairs captures interrupted after their database commit and removes
+  /// staging files whose transaction never committed. Missing committed files
+  /// are marked failed so they cannot be mistaken for uploadable evidence.
+  Future<EvidenceReconciliation> reconcile() async {
+    final rows = await _db.raw.query('pending_media');
+    final expectedStagingPaths = <String>{};
+    var promoted = 0;
+    var missing = 0;
+
+    for (final row in rows) {
+      final path = row['local_path'] as String;
+      final file = File(path);
+      final staging = File('$path.pending');
+      expectedStagingPaths.add(staging.path);
+
+      if (await file.exists()) {
+        if (await staging.exists()) await staging.delete();
+        continue;
+      }
+      if (await staging.exists()) {
+        await staging.rename(path);
+        promoted++;
+        continue;
+      }
+
+      // Completed evidence may have been intentionally pruned, and discarded
+      // evidence is expected to have no bytes. Neither is corruption.
+      if (row['state'] == 'complete' || row['state'] == 'discarded') {
+        continue;
+      }
+
+      await _db.raw.update(
+        'pending_media',
+        {'state': 'failed', 'last_error': 'Local evidence file is missing'},
+        where: 'client_media_id = ? AND state NOT IN (?, ?)',
+        whereArgs: [row['client_media_id'], 'complete', 'discarded'],
+      );
+      missing++;
+    }
+
+    final evidenceRoot = Directory(p.join(_root, 'evidence'));
+    var orphanedStagingFiles = 0;
+    if (await evidenceRoot.exists()) {
+      await for (final entity in evidenceRoot.list(recursive: true)) {
+        if (entity is File &&
+            entity.path.endsWith('.pending') &&
+            !expectedStagingPaths.contains(entity.path)) {
+          await entity.delete();
+          orphanedStagingFiles++;
+        }
+      }
+    }
+
+    return EvidenceReconciliation(
+      promoted: promoted,
+      missing: missing,
+      orphanedStagingFiles: orphanedStagingFiles,
+    );
   }
 
   Future<List<Map<String, dynamic>>> forVisit(int visitId) => _db.raw.query(
@@ -226,4 +292,16 @@ class EvidenceStore {
 
     return removed;
   }
+}
+
+class EvidenceReconciliation {
+  const EvidenceReconciliation({
+    required this.promoted,
+    required this.missing,
+    required this.orphanedStagingFiles,
+  });
+
+  final int promoted;
+  final int missing;
+  final int orphanedStagingFiles;
 }

@@ -58,6 +58,24 @@ void main() {
       },
     );
 
+    test(
+      'concurrent enqueue allocates and inserts unique sequences atomically',
+      () async {
+        final events = await Future.wait(
+          List.generate(
+            40,
+            (index) => queue.enqueue(visitId: 1, eventType: 'parallel.$index'),
+          ),
+        );
+
+        final sequences = events.map((event) => event.sequence).toSet();
+        expect(sequences, hasLength(40));
+        expect(sequences.toList()..sort(), List.generate(40, (i) => i + 1));
+        expect(await queue.pending(limit: 50), hasLength(40));
+        expect(await db.getValue('event_sequence'), '40');
+      },
+    );
+
     test('pending returns rows in sequence order, oldest first', () async {
       for (var i = 0; i < 3; i++) {
         await queue.enqueue(visitId: 1, eventType: 'step.$i');

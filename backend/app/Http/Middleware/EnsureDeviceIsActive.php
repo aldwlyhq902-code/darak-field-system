@@ -37,14 +37,18 @@ class EnsureDeviceIsActive
             $uuid = substr((string) $token->name, strlen('device:'));
             $device = Device::where('device_uuid', $uuid)->first();
 
-            if ($device === null || $device->isRevoked()) {
+            if ($device === null || $device->isRevoked() || $device->user_id !== $user->id) {
                 return response()->json([
                     'code' => 'DEVICE_REVOKED',
                     'message' => 'This device is no longer authorised.',
                 ], 403);
             }
 
-            $device->forceFill(['last_seen_at' => now()])->saveQuietly();
+            // Presence precision below five minutes has no operational value and
+            // writing this row on every API request creates needless contention.
+            if ($device->last_seen_at === null || $device->last_seen_at->lt(now()->subMinutes(5))) {
+                $device->forceFill(['last_seen_at' => now()])->saveQuietly();
+            }
             $request->attributes->set('device', $device);
         }
 

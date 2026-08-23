@@ -191,4 +191,34 @@ class BackupRestoreTest extends DarakTestCase
         $this->artisan('darak:restore', ['archive' => $result['path'], '--verify-only' => true])
             ->assertSuccessful();
     }
+
+    public function test_pg_dump_is_returned_as_a_file_instead_of_loaded_into_php_memory(): void
+    {
+        config([
+            'database.connections.pgsql.driver' => 'pgsql',
+            'database.connections.pgsql.database' => 'test',
+        ]);
+
+        $bytes = 8 * 1024 * 1024;
+        $service = new BackupService(
+            $this->root,
+            dumpRunner: static function (array $command, array $environment, string $target) use ($bytes): int {
+                $handle = fopen($target, 'wb');
+                for ($written = 0; $written < $bytes; $written += 8192) {
+                    fwrite($handle, str_repeat('x', 8192));
+                }
+                fclose($handle);
+
+                return 0;
+            },
+        );
+
+        $method = new \ReflectionMethod($service, 'dumpDatabase');
+        $path = $method->invoke($service, 'pgsql');
+
+        $this->assertIsString($path);
+        $this->assertFileExists($path);
+        $this->assertSame($bytes, filesize($path));
+        @unlink($path);
+    }
 }

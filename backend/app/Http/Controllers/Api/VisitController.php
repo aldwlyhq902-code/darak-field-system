@@ -5,10 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Visit;
+use App\Services\AdditionalWorkService;
+use App\Services\AssetIntelligenceService;
+use App\Services\AuditLogger;
 use App\Services\CloseGate;
 use App\Services\NotificationService;
 use App\Services\ReworkDetector;
+use App\Services\RoutePlanningService;
 use App\Services\VisitStateMachine;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -20,7 +25,68 @@ class VisitController extends Controller
         private readonly CloseGate $closeGate,
         private readonly ReworkDetector $rework,
         private readonly NotificationService $notifications,
+        private readonly AssetIntelligenceService $intelligence,
+        private readonly AdditionalWorkService $additionalWork,
+        private readonly RoutePlanningService $routes,
+        private readonly AuditLogger $audit,
     ) {}
+
+    public function createAdditionalWork(Request $request, Visit $visit): JsonResponse
+    {
+        $this->authorize('update', $visit);
+        abort_unless(in_array($visit->state, [Visit::STATE_STARTED, Visit::STATE_PAUSED], true), 422, 'يُنشأ طلب العمل الإضافي أثناء تنفيذ الزيارة فقط.');
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:190'],
+            'description' => ['required', 'string', 'max:1500'],
+            'items' => ['required', 'array', 'min:1', 'max:30'],
+            'items.*.part_id' => ['nullable', 'integer', 'exists:parts,id'],
+            'items.*.description' => ['required', 'string', 'max:190'],
+            'items.*.qty' => ['required', 'numeric', 'gt:0', 'max:10000'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0', 'max:1000000'],
+        ]);
+        $approval = $this->additionalWork->create($visit, $data['title'], $data['description'], $data['items'], $request->user()->id, 'technician_app');
+
+        return response()->json(['data' => $approval], 201);
+    }
+
+    public function updateLocation(Request $request, Visit $visit): JsonResponse
+    {
+        $this->authorize('update', $visit);
+        abort_unless($visit->assigned_user_id === $request->user()->id, 403);
+        $data = $request->validate(['lat' => ['required', 'numeric', 'between:-90,90'], 'lng' => ['required', 'numeric', 'between:-180,180']]);
+        $visit->loadMissing('site');
+        $route = $this->routes->estimate((float) $data['lat'], (float) $data['lng'], $visit->site?->lat === null ? null : (float) $visit->site->lat, $visit->site?->lng === null ? null : (float) $visit->site->lng, now());
+        $visit->forceFill([
+            'technician_lat' => $data['lat'], 'technician_lng' => $data['lng'], 'location_updated_at' => now(),
+            'estimated_arrival_at' => now()->addMinutes($route['minutes']), 'route_provider' => $route['provider'], 'route_distance_km' => $route['distance_km'],
+        ])->save();
+
+        return response()->json(['data' => ['location_updated_at' => $visit->location_updated_at, 'estimated_arrival_at' => $visit->estimated_arrival_at, 'route_provider' => $visit->route_provider]]);
+    }
+
+    public function diagnosisSuggestions(Request $request, Visit $visit): JsonResponse
+    {
+        $this->authorize('view', $visit);
+        $visit->loadMissing('workOrder.asset');
+        abort_unless($visit->workOrder?->asset, 422, 'الزيارة غير مرتبطة بمعدة.');
+
+        return response()->json([
+            'data' => $this->intelligence->diagnosisSuggestions($visit->workOrder->asset, $request->string('fault_code')->toString() ?: $visit->workOrder->fault_code),
+            'prediction_readiness' => $this->intelligence->predictionReadiness(),
+        ]);
+    }
+
+    public function recordDiagnosis(Request $request, Visit $visit): JsonResponse
+    {
+        $this->authorize('update', $visit);
+        $data = $request->validate(['fault_code' => ['required', 'string', 'max:64'], 'diagnosis_code' => ['required', 'string', 'max:64'], 'resolution_summary' => ['nullable', 'string', 'max:4000']]);
+        $visit->loadMissing('workOrder');
+        $before = $visit->workOrder->getAttributes();
+        $visit->workOrder->forceFill($data)->save();
+        $this->audit->recordChange('work_order.diagnosis_recorded', $visit->workOrder, $before, $request->user()->id);
+
+        return response()->json(['data' => $visit->workOrder->refresh()]);
+    }
 
     public function index(Request $request): JsonResponse
     {
@@ -37,7 +103,8 @@ class VisitController extends Controller
         }
 
         if ($request->filled('date')) {
-            $query->whereDate('scheduled_start', $request->date('date'));
+            $date = CarbonImmutable::instance($request->date('date'));
+            $query->whereBetween('scheduled_start', [$date->startOfDay(), $date->endOfDay()]);
         }
 
         if ($request->filled('state')) {
@@ -51,7 +118,7 @@ class VisitController extends Controller
     {
         $this->authorize('view', $visit);
 
-        $visit->load(['workOrder.contract', 'site.client', 'site.assets', 'checklistInstances.asset', 'mediaFiles', 'stockMoves.part', 'technician']);
+        $visit->load(['workOrder.contract', 'site.client', 'site.assets', 'checklistInstances.asset', 'mediaFiles', 'stockMoves.part', 'stockReservations.part', 'additionalWorkApprovals', 'technician']);
 
         return response()->json([
             'data' => $visit,

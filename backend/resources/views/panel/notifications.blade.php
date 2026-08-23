@@ -3,7 +3,7 @@
 
 @section('content')
 <h1>الإشعارات</h1>
-<div class="sub">ثلاثة أنواع فقط: إسناد زيارة · خطر SLA · جاهزية التقرير.</div>
+<div class="sub">تنبيهات التشغيل والتحصيل والامتثال: الزيارات وSLA والتقارير والعقود والدفعات ووثائق الموظفين والسيارات والصيانة.</div>
 
 <div class="note" style="margin-bottom:18px">
     رسائل واتساب تظهر هنا كرابط جاهز يرسله المشرف بنفسه.
@@ -31,6 +31,9 @@
                         'visit.assigned' => 'إسناد زيارة',
                         'sla.at_risk' => 'خطر SLA',
                         'report.ready' => 'التقرير جاهز',
+                        'employee_document.expiring' => 'وثيقة موظف',
+                        'vehicle_document.expiring' => 'وثيقة سيارة',
+                        'vehicle.maintenance_due' => 'صيانة سيارة',
                     ];
                 @endphp
                 <tr>

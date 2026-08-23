@@ -48,7 +48,38 @@ jobs:
       - run: composer install --no-interaction --prefer-dist --no-progress
       - run: composer audit --locked --no-interaction
       - run: vendor/bin/pint --test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run build
       - run: php artisan test --no-ansi
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: darak_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+      - name: HTTP health smoke test
+        shell: bash
+        run: |
+          php artisan serve --host=127.0.0.1 --port=8080 > /tmp/darak-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8080/up >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/darak-server.log
+          exit 1
         env:
           APP_ENV: testing
           APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
@@ -78,3 +109,4 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze --no-pub
       - run: flutter test --no-pub
+      - run: flutter build apk --debug --no-pub --dart-define=DARAK_API=https://ci.invalid

@@ -1,0 +1,8 @@
+@extends('layouts.client')
+@section('title','العقد '.$contract->contract_no)
+@section('content')
+<a href="{{ route('client.home') }}">← العودة</a><div class="form-card" style="margin-top:16px"><span class="pill {{ $contract->signed_at?'green':'amber' }}">{{ $contract->signed_at?'موقع إلكترونيًا':'بانتظار التوقيع' }}</span><h1>العقد {{ $contract->contract_no }}</h1><p>{{ $contract->client->name }} · {{ $contract->package_code }}</p>
+<div class="grid"><div class="card"><span class="muted">البداية</span><b>{{ $contract->starts_on->format('Y-m-d') }}</b></div><div class="card"><span class="muted">النهاية</span><b>{{ $contract->ends_on?->format('Y-m-d') }}</b></div><div class="card"><span class="muted">قيمة الدورة</span><b>{{ number_format($contract->priceInclVat(),2) }}</b></div></div>
+<h2>المواقع</h2><p>{{ $contract->sites->pluck('name')->join('، ') }}</p><h2>الاستثناءات</h2><ul>@forelse($contract->exclusions ?? [] as $term)<li>{{ $term }}</li>@empty<li>لا توجد استثناءات إضافية مسجلة.</li>@endforelse</ul>
+@if($contract->signed_at)<div class="card"><strong>وقع بواسطة {{ $contract->signed_name }}</strong><div class="muted">{{ $contract->signed_at->format('Y-m-d H:i') }} · بصمة {{ substr($contract->signature_hash,0,16) }}…</div></div>@else<form method="POST" action="{{ route('client.contract.sign',$contract) }}">@csrf<div class="field"><label>الاسم الكامل للمفوض</label><input name="signed_name" required></div><label style="display:flex;gap:8px"><input type="checkbox" name="accept_terms" value="1" required style="width:auto"> قرأت العقد وأوافق على شروطه بصفتي مفوضًا.</label><button class="btn" style="margin-top:12px">توقيع العقد إلكترونيًا</button></form>@endif
+</div>@endsection

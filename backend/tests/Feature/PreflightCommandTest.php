@@ -33,6 +33,26 @@ class PreflightCommandTest extends DarakTestCase
         $this->artisan('darak:preflight')->assertFailed();
     }
 
+    public function test_missing_retention_approval_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        config(['darak.privacy.retention_days.visit_photos' => null]);
+
+        $this->artisan('darak:preflight')
+            ->expectsOutputToContain('Retention periods approved')
+            ->assertFailed();
+    }
+
+    public function test_ephemeral_serverless_runtime_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        config(['darak.ephemeral_serverless' => true]);
+
+        $this->artisan('darak:preflight')
+            ->expectsOutputToContain('Persistent production runtime')
+            ->assertFailed();
+    }
+
     private function safeProductionConfiguration(): void
     {
         config([
@@ -45,6 +65,23 @@ class PreflightCommandTest extends DarakTestCase
             'database.default' => 'pgsql',
             'darak.backup_password' => 'a-very-long-production-backup-password',
             'darak.backup_path' => sys_get_temp_dir().DIRECTORY_SEPARATOR.'darak-offsite-backups',
+            'darak.ephemeral_serverless' => false,
+            'darak.privacy' => [
+                'controller_name' => 'Approved controller',
+                'request_channel' => 'privacy@example.test',
+                'providers_register' => 'approved-register-v1',
+                'request_procedure' => 'approved-procedure-v1',
+                'notice_version' => 'approved-notice-v1',
+                'emergency_consent_version' => 'approved-consent-v1',
+                'retention_days' => [
+                    'visit_photos' => 1,
+                    'emergency_reports' => 1,
+                    'signatures_reports' => 1,
+                    'capture_coordinates' => 1,
+                    'audit_security_logs' => 1,
+                    'backups' => 1,
+                ],
+            ],
         ]);
     }
 }

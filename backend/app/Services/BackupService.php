@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
@@ -32,6 +33,7 @@ class BackupService
         private readonly string $backupRoot,
         private readonly ?string $password = null,
         private readonly bool $requireEncryption = false,
+        private readonly ?Closure $dumpRunner = null,
     ) {}
 
     /**
@@ -65,6 +67,7 @@ class BackupService
         ];
 
         $entries = [];
+        $temporaryFiles = [];
 
         $zip = new ZipArchive;
 
@@ -117,14 +120,21 @@ class BackupService
                 );
             }
 
-            $zip->addFromString('database/dump.sql', $dump);
+            if (! $zip->addFile($dump, 'database/dump.sql')) {
+                @unlink($dump);
+                $zip->close();
+                @unlink($target);
+
+                throw new RuntimeException('Could not stream the database dump into the backup archive.');
+            }
+            $temporaryFiles[] = $dump;
             $entries[] = 'database/dump.sql';
 
             $manifest['database'] = [
                 'driver' => $connection,
                 'entry' => 'database/dump.sql',
-                'sha256' => hash('sha256', $dump),
-                'bytes' => strlen($dump),
+                'sha256' => hash_file('sha256', $dump),
+                'bytes' => filesize($dump),
             ];
         }
 
@@ -147,6 +157,10 @@ class BackupService
         }
 
         $zip->close();
+
+        foreach ($temporaryFiles as $temporaryFile) {
+            @unlink($temporaryFile);
+        }
 
         // The VACUUM snapshot exists only to be archived.
         foreach (File::glob($this->backupRoot.DIRECTORY_SEPARATOR.'snapshot-*.sqlite') as $stale) {
@@ -189,12 +203,12 @@ class BackupService
         $declared = $manifest['database']['entry'] ?? null;
 
         if ($declared !== null) {
-            $contents = $zip->getFromName($declared);
+            $actualHash = $this->hashArchiveEntry($zip, $declared);
 
-            if ($contents === false) {
+            if ($actualHash === null) {
                 $missing[] = $declared;
             } elseif (isset($manifest['database']['sha256'])
-                && hash('sha256', $contents) !== $manifest['database']['sha256']) {
+                && $actualHash !== $manifest['database']['sha256']) {
                 $corrupt[] = $declared;
             }
         }
@@ -262,9 +276,9 @@ class BackupService
         $driver = $manifest['database']['driver'] ?? null;
 
         if ($entry !== null) {
-            $contents = $zip->getFromName($entry);
+            $stream = $zip->getStream($entry);
 
-            if ($contents === false) {
+            if ($stream === false) {
                 $zip->close();
 
                 throw new RuntimeException(
@@ -276,7 +290,7 @@ class BackupService
                 $target = config('database.connections.sqlite.database');
 
                 if ($target !== ':memory:') {
-                    File::put($target, $contents);
+                    $this->copyStreamToPath($stream, $target);
                     $databaseRestored = true;
                 }
             } else {
@@ -285,8 +299,10 @@ class BackupService
                 // than useless. DEPLOYMENT.md carries the one-line command.
                 $sqlPath = dirname($archivePath).DIRECTORY_SEPARATOR
                     .pathinfo($archivePath, PATHINFO_FILENAME).'.sql';
-                File::put($sqlPath, $contents);
+                $this->copyStreamToPath($stream, $sqlPath);
             }
+
+            fclose($stream);
         }
 
         $zip->close();
@@ -314,17 +330,35 @@ class BackupService
 
         $target = tempnam(sys_get_temp_dir(), 'darak-dump-');
 
-        $command = sprintf(
-            'pg_dump --no-owner --no-privileges --format=plain --host=%s --port=%s --username=%s --dbname=%s --file=%s',
-            escapeshellarg((string) ($config['host'] ?? '127.0.0.1')),
-            escapeshellarg((string) ($config['port'] ?? 5432)),
-            escapeshellarg((string) ($config['username'] ?? '')),
-            escapeshellarg((string) ($config['database'] ?? '')),
-            escapeshellarg($target),
-        );
+        $command = [
+            $this->pgDumpBinary(),
+            '--no-owner',
+            '--no-privileges',
+            '--format=plain',
+            '--host='.(string) ($config['host'] ?? '127.0.0.1'),
+            '--port='.(string) ($config['port'] ?? 5432),
+            '--username='.(string) ($config['username'] ?? ''),
+            '--dbname='.(string) ($config['database'] ?? ''),
+            '--file='.$target,
+        ];
 
         $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $env = ['PGPASSWORD' => (string) ($config['password'] ?? '')] + $_ENV;
+        $environment = getenv();
+        $env = array_replace(is_array($environment) ? $environment : [], [
+            'PGPASSWORD' => (string) ($config['password'] ?? ''),
+        ]);
+
+        if ($this->dumpRunner !== null) {
+            $exitCode = ($this->dumpRunner)($command, $env, $target);
+
+            if ($exitCode === 0 && is_file($target) && filesize($target) > 0) {
+                return $target;
+            }
+
+            @unlink($target);
+
+            return null;
+        }
 
         $process = @proc_open($command, $descriptors, $pipes, null, $env);
 
@@ -340,11 +374,72 @@ class BackupService
         }
 
         $exitCode = proc_close($process);
-        $dump = ($exitCode === 0 && is_file($target)) ? file_get_contents($target) : null;
 
-        @unlink($target);
+        if ($exitCode !== 0 || ! is_file($target) || filesize($target) === 0) {
+            @unlink($target);
 
-        return ($dump === false || $dump === '' || $dump === null) ? null : $dump;
+            return null;
+        }
+
+        return $target;
+    }
+
+    private function hashArchiveEntry(ZipArchive $zip, string $entry): ?string
+    {
+        $stream = $zip->getStream($entry);
+
+        if ($stream === false) {
+            return null;
+        }
+
+        $context = hash_init('sha256');
+        hash_update_stream($context, $stream);
+        fclose($stream);
+
+        return hash_final($context);
+    }
+
+    /** @param resource $source */
+    private function copyStreamToPath($source, string $target): void
+    {
+        File::ensureDirectoryExists(dirname($target));
+        $destination = fopen($target, 'wb');
+
+        if ($destination === false) {
+            throw new RuntimeException("Cannot open restore target [{$target}].");
+        }
+
+        try {
+            if (stream_copy_to_stream($source, $destination) === false) {
+                throw new RuntimeException("Cannot restore database to [{$target}].");
+            }
+        } finally {
+            fclose($destination);
+        }
+    }
+
+    private function pgDumpBinary(): string
+    {
+        $configured = config('darak.pg_dump_path');
+
+        if (is_string($configured) && trim($configured) !== '') {
+            return $configured;
+        }
+
+        if (PHP_OS_FAMILY === 'Windows') {
+            $programFiles = getenv('ProgramFiles');
+
+            if (is_string($programFiles) && $programFiles !== '') {
+                $candidates = glob($programFiles.DIRECTORY_SEPARATOR.'PostgreSQL'.DIRECTORY_SEPARATOR.'*'.DIRECTORY_SEPARATOR.'bin'.DIRECTORY_SEPARATOR.'pg_dump.exe') ?: [];
+                natsort($candidates);
+
+                if ($candidate = end($candidates)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return 'pg_dump';
     }
 
     /** @return array<string, int> */

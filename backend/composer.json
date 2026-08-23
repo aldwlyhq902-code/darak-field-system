@@ -7,9 +7,11 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "endroid/qr-code": "^5.1",
         "laravel/framework": "^13.8",
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^3.0",
+        "minishlink/web-push": "^11.0",
         "mpdf/mpdf": "^8.3",
         "spomky-labs/otphp": "^11.5"
     },
@@ -65,6 +67,10 @@
             "@php artisan key:generate --ansi",
             "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate --graceful --ansi"
+        ],
+        "vercel": [
+            "@php scripts/prune-vercel.php",
+            "@php artisan package:discover --ansi"
         ],
         "pre-package-uninstall": [
             "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"

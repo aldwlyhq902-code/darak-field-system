@@ -38,6 +38,14 @@ use Throwable;
  */
 class SyncService
 {
+    public const MAX_PAYLOAD_BYTES = 32768;
+
+    public const EVENT_TYPES = [
+        'visit.transition', 'checklist.upsert', 'parts.declaration',
+        'part.issue', 'part.return', 'media.register', 'signature.captured',
+        'site.scanned', 'asset.scanned', 'geofence.ping', 'note.added',
+    ];
+
     public function __construct(
         private readonly ClockGuard $clockGuard,
         private readonly VisitStateMachine $stateMachine,
@@ -169,12 +177,8 @@ class SyncService
         }
 
         $type = (string) $raw['event_type'];
-        $payload = $raw['payload'] ?? [];
-
-        if ($type === 'media.register') {
-            $payload = $this->validatedMediaPayload($visit, $payload);
-            $raw['payload'] = $payload;
-        }
+        $payload = $this->validatedPayload($visit, $type, $raw['payload'] ?? []);
+        $raw['payload'] = $payload;
 
         // Validation happens before the audit event is stored. Rejected data must
         // not look like a successfully synced business event in the immutable log.
@@ -315,12 +319,230 @@ class SyncService
                 break;
 
             default:
-                // Geofence crossings, notes, voice memos: recorded raw. They are the
-                // fuel for the batch-3 prediction layer, which needs ~500 real visits.
+                // Validated observational events have no synchronous side effect.
                 break;
         }
 
         return ['visit_id' => $visit->id, 'meta' => $meta];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validatedPayload(Visit $visit, string $type, mixed $payload): array
+    {
+        if (! in_array($type, self::EVENT_TYPES, true)) {
+            throw new InvalidSyncPayload('Unsupported event type.');
+        }
+
+        if (! is_array($payload)) {
+            throw new InvalidSyncPayload('Event payload must be an object.');
+        }
+
+        try {
+            $payloadBytes = strlen(json_encode($payload, JSON_THROW_ON_ERROR));
+        } catch (\JsonException) {
+            throw new InvalidSyncPayload('Event payload must be valid JSON.');
+        }
+
+        if ($payloadBytes > self::MAX_PAYLOAD_BYTES) {
+            throw new InvalidSyncPayload('Event payload is too large.');
+        }
+
+        return match ($type) {
+            'visit.transition' => $this->validatedTransitionPayload($payload),
+            'checklist.upsert' => $this->validatedChecklistPayload($visit, $payload),
+            'parts.declaration' => $this->validatedPartsDeclaration($payload),
+            'part.issue' => $this->validatedPartIssuePayload($payload),
+            'part.return' => $this->validatedPartReturnPayload($payload),
+            'media.register' => $this->validatedMediaPayload($visit, $payload),
+            'signature.captured' => $this->validatedSignaturePayload($visit, $payload),
+            'site.scanned' => $this->validatedSiteScanPayload($payload),
+            'asset.scanned' => $this->validatedAssetScanPayload($visit, $payload),
+            'note.added' => ['text' => $this->requiredString($payload, 'text', 4000)],
+            'geofence.ping' => isset($payload['index'])
+                ? ['index' => $this->requiredInteger($payload, 'index', 0)]
+                : [],
+        };
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function validatedTransitionPayload(array $payload): array
+    {
+        $target = $this->requiredString($payload, 'to', 24);
+        $states = array_values(array_unique(array_merge(array_keys(Visit::TRANSITIONS), ...array_values(Visit::TRANSITIONS))));
+        if (! in_array($target, $states, true)) {
+            throw new InvalidSyncPayload('Unsupported visit state.');
+        }
+
+        return ['to' => $target];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function validatedChecklistPayload(Visit $visit, array $payload): array
+    {
+        $assetId = $this->requiredInteger($payload, 'asset_id', 1);
+        if (! Asset::whereKey($assetId)->where('site_id', $visit->site_id)->exists()) {
+            throw new InvalidSyncPayload('The checklist asset does not belong to this visit site.');
+        }
+
+        $status = $this->requiredString($payload, 'status', 24);
+        if (! in_array($status, ['ok', 'needs_followup', 'fault'], true)) {
+            throw new InvalidSyncPayload('Unsupported checklist status.');
+        }
+
+        $items = $payload['items'] ?? null;
+        if ($items !== null && (! is_array($items) || count($items) > 100)) {
+            throw new InvalidSyncPayload('Checklist items must be an array of at most 100 items.');
+        }
+
+        $uuid = $payload['client_generated_uuid'] ?? null;
+        if ($uuid !== null && (! is_string($uuid) || ! Uuid::isValid($uuid))) {
+            throw new InvalidSyncPayload('client_generated_uuid must be a UUID.');
+        }
+
+        $note = $payload['note'] ?? null;
+        if ($note !== null && (! is_string($note) || mb_strlen($note) > 2000)) {
+            throw new InvalidSyncPayload('Checklist note is too long.');
+        }
+
+        return [
+            'asset_id' => $assetId,
+            'client_generated_uuid' => $uuid,
+            'status' => $status,
+            'items' => $items,
+            'note' => $note,
+            'no_parts_used' => $this->booleanValue($payload, 'no_parts_used', false),
+        ];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function validatedPartsDeclaration(array $payload): array
+    {
+        if (! array_key_exists('no_parts_used', $payload)) {
+            throw new InvalidSyncPayload('no_parts_used is required.');
+        }
+
+        return ['no_parts_used' => $this->booleanValue($payload, 'no_parts_used')];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function validatedPartIssuePayload(array $payload): array
+    {
+        return [
+            'part_id' => $this->requiredInteger($payload, 'part_id', 1),
+            'qty' => $this->requiredNumber($payload, 'qty', 0.001, 10000),
+            'from_location_id' => $this->requiredInteger($payload, 'from_location_id', 1),
+            'idempotency_key' => $this->requiredUuid($payload, 'idempotency_key'),
+        ];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function validatedPartReturnPayload(array $payload): array
+    {
+        return [
+            'original_move_id' => $this->requiredInteger($payload, 'original_move_id', 1),
+            'qty' => $this->requiredNumber($payload, 'qty', 0.001, 10000),
+            'to_location_id' => $this->requiredInteger($payload, 'to_location_id', 1),
+            'idempotency_key' => $this->requiredUuid($payload, 'idempotency_key'),
+        ];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function validatedSignaturePayload(Visit $visit, array $payload): array
+    {
+        $mediaId = $this->requiredUuid($payload, 'client_media_id');
+        if (! MediaFile::where('client_media_id', $mediaId)->where('visit_id', $visit->id)->where('kind', 'signature')->exists()) {
+            throw new InvalidSyncPayload('The signature media does not belong to this visit.');
+        }
+
+        return [
+            'client_media_id' => $mediaId,
+            'signer_name' => $this->requiredString($payload, 'signer_name', 190),
+            'signer_role' => $this->requiredString($payload, 'signer_role', 120),
+        ];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function validatedSiteScanPayload(array $payload): array
+    {
+        $qrCode = $this->requiredString($payload, 'qr_code', 190);
+        if (! str_starts_with($qrCode, 'SITE-')) {
+            throw new InvalidSyncPayload('Invalid site QR code.');
+        }
+
+        return ['qr_code' => $qrCode];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function validatedAssetScanPayload(Visit $visit, array $payload): array
+    {
+        $assetId = $this->requiredInteger($payload, 'asset_id', 1);
+        $qrCode = $this->requiredString($payload, 'qr_code', 190);
+        if (! Asset::whereKey($assetId)->where('site_id', $visit->site_id)->where('qr_code', $qrCode)->exists()) {
+            throw new InvalidSyncPayload('The scanned asset does not match this visit site.');
+        }
+
+        return ['asset_id' => $assetId, 'qr_code' => $qrCode];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function requiredString(array $payload, string $key, int $max): string
+    {
+        $value = $payload[$key] ?? null;
+        if (! is_string($value) || trim($value) === '' || mb_strlen($value) > $max) {
+            throw new InvalidSyncPayload("{$key} must be a non-empty string of at most {$max} characters.");
+        }
+
+        return trim($value);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function requiredInteger(array $payload, string $key, int $min): int
+    {
+        $value = filter_var($payload[$key] ?? null, FILTER_VALIDATE_INT);
+        if ($value === false || $value < $min) {
+            throw new InvalidSyncPayload("{$key} must be an integer of at least {$min}.");
+        }
+
+        return $value;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function requiredNumber(array $payload, string $key, float $min, float $max): float
+    {
+        $value = $payload[$key] ?? null;
+        if (! is_numeric($value) || (float) $value < $min || (float) $value > $max) {
+            throw new InvalidSyncPayload("{$key} is outside its permitted range.");
+        }
+
+        return (float) $value;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function requiredUuid(array $payload, string $key): string
+    {
+        $value = $payload[$key] ?? null;
+        if (! is_string($value) || ! Uuid::isValid($value)) {
+            throw new InvalidSyncPayload("{$key} must be a UUID.");
+        }
+
+        return $value;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function booleanValue(array $payload, string $key, bool $default = false): bool
+    {
+        if (! array_key_exists($key, $payload)) {
+            return $default;
+        }
+
+        $value = filter_var($payload[$key], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($value === null) {
+            throw new InvalidSyncPayload("{$key} must be a boolean.");
+        }
+
+        return $value;
     }
 
     /**
@@ -393,7 +615,10 @@ class SyncService
             }
         }
 
-        return $payload;
+        return array_intersect_key($payload, array_flip([
+            'client_media_id', 'kind', 'mime', 'total_bytes', 'captured_at',
+            'lat', 'lng', 'declared_source', 'asset_id', 'checklist_instance_id',
+        ]));
     }
 
     private function storeEvent(Device $device, Visit $visit, array $raw, array $clock): VisitEvent

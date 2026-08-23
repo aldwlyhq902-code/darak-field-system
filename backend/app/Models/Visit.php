@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Visit extends Model
 {
-    use HasFactory;
+    use HasFactory, ScopedToOperatingBranch;
 
     /** MVP state machine (PRD v1.2 §2). */
     public const STATE_SCHEDULED = 'scheduled';
@@ -47,6 +49,8 @@ class Visit extends Model
         'parent_visit_id', 'is_rework', 'rework_reason', 'rework_system_flagged',
         'rework_overridden_by', 'rework_override_note',
         'is_billable', 'close_blockers', 'closed_at', 'required_asset_ids',
+        'travel_seconds', 'waiting_seconds', 'estimated_arrival_at', 'route_sequence',
+        'technician_lat', 'technician_lng', 'location_updated_at', 'route_provider', 'route_distance_km',
     ];
 
     protected function casts(): array
@@ -63,6 +67,11 @@ class Visit extends Model
             'is_billable' => 'boolean',
             'close_blockers' => 'array',
             'required_asset_ids' => 'array',
+            'estimated_arrival_at' => 'datetime',
+            'technician_lat' => 'decimal:7',
+            'technician_lng' => 'decimal:7',
+            'location_updated_at' => 'datetime',
+            'route_distance_km' => 'decimal:2',
         ];
     }
 
@@ -109,6 +118,21 @@ class Visit extends Model
     public function stockMoves(): HasMany
     {
         return $this->hasMany(StockMove::class);
+    }
+
+    public function stockReservations(): HasMany
+    {
+        return $this->hasMany(StockReservation::class);
+    }
+
+    public function additionalWorkApprovals(): HasMany
+    {
+        return $this->hasMany(AdditionalWorkApproval::class);
+    }
+
+    public function feedback(): HasOne
+    {
+        return $this->hasOne(VisitFeedback::class);
     }
 
     public function canTransitionTo(string $target): bool

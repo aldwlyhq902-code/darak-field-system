@@ -19,6 +19,13 @@
                 <strong>{{ $site->name }}</strong>
                 <span style="color:var(--muted);font-size:13px">{{ $site->address }}</span>
                 <span class="pill grey">{{ $site->qr_code }}</span>
+                <a class="btn small ghost" href="{{ route('panel.site.emergency-sticker', $site) }}" target="_blank">طباعة QR البلاغ</a>
+                @if(auth()->user()->isOwner())
+                    <form method="POST" action="{{ route('panel.site.emergency-qr.rotate', $site) }}" style="display:inline">
+                        @csrf
+                        <button class="btn small ghost">تغيير رابط QR</button>
+                    </form>
+                @endif
             </div>
 
             @if ($site->assets->isNotEmpty())
@@ -96,6 +103,16 @@
     </div>
 </div>
 
+<div class="card">
+    <div class="hd">حسابات بوابة العميل</div>
+    @if($client->portalUsers->isNotEmpty())
+        <table><thead><tr><th>الاسم</th><th>البريد</th><th>الجوال</th><th>الحالة</th><th></th></tr></thead><tbody>
+        @foreach($client->portalUsers as $portalUser)<tr><td>{{ $portalUser->name }}</td><td>{{ $portalUser->email }}</td><td>{{ $portalUser->phone ?: '—' }}</td><td><span class="pill {{ $portalUser->is_active ? 'green' : 'grey' }}">{{ $portalUser->is_active ? 'نشط' : 'معطل' }}</span></td><td>@if(auth()->user()->isOwner())<form method="POST" action="{{ route('panel.client.portal-user.toggle',$portalUser) }}">@csrf<button class="btn small ghost">{{ $portalUser->is_active ? 'تعطيل' : 'تفعيل' }}</button></form>@endif</td></tr>@endforeach
+        </tbody></table>
+    @endif
+    @if(auth()->user()->isOwner())<div class="bd"><details><summary style="cursor:pointer;color:var(--teal)">إنشاء حساب بوابة وصلاحياته</summary><form method="POST" action="{{ route('panel.client.portal-user',$client) }}" style="margin-top:12px">@csrf<div class="grid3"><div class="field"><label>الاسم</label><input name="name" required></div><div class="field"><label>البريد</label><input type="email" name="email" required></div><div class="field"><label>الجوال</label><input name="phone"></div></div><div class="grid2"><div class="field"><label>كلمة مرور قوية</label><input type="password" name="password" required></div><div class="field"><label>تأكيد كلمة المرور</label><input type="password" name="password_confirmation" required></div></div><div class="field"><label>المواقع المسموح بها (اتركها فارغة لكل المواقع)</label><select name="site_ids[]" multiple>@foreach($client->sites as $site)<option value="{{ $site->id }}">{{ $site->name }}</option>@endforeach</select></div><div class="field"><label>الصلاحيات (اتركها فارغة لصلاحية كاملة)</label><select name="permissions[]" multiple><option value="quotes.approve">اعتماد عروض الأسعار</option><option value="contracts.sign">توقيع العقود</option><option value="additional-work.approve">اعتماد الأعمال الإضافية</option><option value="service.request">حجز زيارة</option><option value="reports.dispute">الاعتراض على التقارير</option><option value="assets.history">تنزيل سجل المعدات</option></select></div><button class="btn small">إنشاء الحساب</button></form></details></div>@endif
+</div>
+
 <div class="grid2">
     <div class="card">
         <div class="hd">العقود</div>
@@ -121,6 +138,9 @@
                         </td>
                         <td>
                             <span class="pill {{ $contract->isActive() ? 'green' : 'grey' }}">{{ $contract->status }}</span>
+                            @if($contract->installments->isNotEmpty())
+                                <div style="font-size:11px;color:var(--muted)">{{ $contract->installments->where('status','paid')->count() }}/{{ $contract->installments->count() }} دفعات مدفوعة</div>
+                            @endif
                             @if ($contract->is_trial)
                                 <div style="font-size:11px;color:var(--amber)">تجريبي — حسم {{ $contract->decision_due_on?->format('Y-m-d') }}</div>
                             @endif

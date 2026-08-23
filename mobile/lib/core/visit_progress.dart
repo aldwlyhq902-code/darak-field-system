@@ -18,7 +18,8 @@ class VisitProgress {
 
   final LocalDb _db;
 
-  /// Mirrors Visit::TRANSITIONS on the server. If one changes, both change.
+  /// Mirrors `contracts/visit_transitions.json`. PHP and Flutter tests both fail
+  /// if either implementation drifts from that shared contract.
   static const Map<String, List<String>> transitions = {
     'scheduled': ['en_route'],
     'en_route': ['started', 'scheduled'],

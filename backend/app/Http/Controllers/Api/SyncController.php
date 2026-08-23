@@ -37,7 +37,8 @@ class SyncController extends Controller
         // job disappear from the device along with its assets and close button.
         $visits = Visit::with([
             'workOrder.contract', 'workOrder.asset', 'site.client', 'site.assets',
-            'checklistInstances', 'mediaFiles',
+            'checklistInstances', 'mediaFiles', 'stockReservations.part', 'stockReservations.location',
+            'additionalWorkApprovals',
         ])
             ->where('assigned_user_id', $user->id)
             ->where(fn ($q) => $q
@@ -61,11 +62,23 @@ class SyncController extends Controller
         $data = $request->validate([
             'device_uuid' => ['required', 'uuid'],
             'last_trusted_server_time' => ['nullable', 'date'],
-            'events' => ['required', 'array', 'min:1', 'max:500'],
+            'events' => ['required', 'array', 'min:1', 'max:200'],
             'events.*.client_event_id' => ['required', 'uuid'],
             'events.*.visit_id' => ['required', 'integer'],
             'events.*.event_type' => ['required', 'string', 'max:48'],
-            'events.*.payload' => ['nullable', 'array'],
+            'events.*.payload' => ['nullable', 'array', function (string $attribute, mixed $value, \Closure $fail): void {
+                try {
+                    $bytes = strlen(json_encode($value, JSON_THROW_ON_ERROR));
+                } catch (\JsonException) {
+                    $fail("The {$attribute} field must be valid JSON.");
+
+                    return;
+                }
+
+                if ($bytes > SyncService::MAX_PAYLOAD_BYTES) {
+                    $fail("The {$attribute} field is too large.");
+                }
+            }],
             'events.*.device_timestamp' => ['nullable', 'date'],
             'events.*.monotonic_offset_ms' => ['nullable', 'integer'],
             'events.*.last_trusted_server_time' => ['nullable', 'date'],
@@ -150,6 +163,19 @@ class SyncController extends Controller
                 'asset_id' => $c->asset_id,
                 'status' => $c->status,
                 'no_parts_used' => $c->no_parts_used,
+            ])->all(),
+            'stock_reservations' => $visit->stockReservations->where('status', 'reserved')->map(fn ($reservation) => [
+                'part_id' => $reservation->part_id,
+                'part_name' => $reservation->part?->name,
+                'qty' => (float) $reservation->qty,
+                'stock_location_id' => $reservation->stock_location_id,
+                'location_name' => $reservation->location?->name,
+            ])->values()->all(),
+            'additional_work_approvals' => $visit->additionalWorkApprovals->map(fn ($approval) => [
+                'id' => $approval->id,
+                'title' => $approval->title,
+                'total_amount' => (float) $approval->total_amount,
+                'status' => $approval->status,
             ])->all(),
         ];
     }

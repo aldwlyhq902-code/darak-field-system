@@ -11,6 +11,7 @@
 /.nova
 /.phpunit.cache
 /.vscode
+/.vercel
 /.zed
 /auth.json
 /node_modules
@@ -25,3 +26,5 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+.vercel

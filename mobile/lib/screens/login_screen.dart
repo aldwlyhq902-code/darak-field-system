@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
+
 import '../app_state.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -55,7 +57,14 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: LanguageButton(
+                    isArabic: widget.state.isArabic,
+                    onPressed: widget.state.toggleLocale,
+                  ),
+                ),
+                LText(
                   'دارك',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
@@ -64,7 +73,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text('تطبيق الفني الميداني', textAlign: TextAlign.center),
+                const LText(
+                  'تطبيق الفني الميداني',
+                  textAlign: TextAlign.center,
+                ),
                 if (widget.notice != null) ...[
                   const SizedBox(height: 20),
                   Container(
@@ -74,15 +86,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.amber.shade200),
                     ),
-                    child: Text(widget.notice!, textAlign: TextAlign.center),
+                    child: LText(widget.notice!, textAlign: TextAlign.center),
                   ),
                 ],
                 const SizedBox(height: 32),
                 TextField(
                   controller: _email,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'البريد الإلكتروني',
+                  decoration: InputDecoration(
+                    labelText: context.tr('البريد الإلكتروني'),
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -90,8 +102,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: _password,
                   obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'كلمة المرور',
+                  decoration: InputDecoration(
+                    labelText: context.tr('كلمة المرور'),
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -104,7 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           width: 22,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('تسجيل الدخول'),
+                      : const LText('تسجيل الدخول'),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 16),
@@ -115,14 +127,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.red.shade200),
                     ),
-                    child: Text(
+                    child: LText(
                       _error!,
                       style: TextStyle(color: Colors.red.shade900),
                     ),
                   ),
                 ],
                 const SizedBox(height: 24),
-                const Text(
+                const LText(
                   'يلزم اتصال بالشبكة لأول تسجيل دخول فقط. بعده يعمل التطبيق بلا إنترنت.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.black54),

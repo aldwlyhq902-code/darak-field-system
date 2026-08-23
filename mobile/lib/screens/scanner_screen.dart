@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../l10n/app_localizations.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 /// QR scanning for site, asset and part labels.
@@ -60,10 +62,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
+        title: LText(widget.title),
         actions: [
           IconButton(
-            tooltip: 'الفلاش',
+            tooltip: context.tr('الفلاش'),
             onPressed: _controller.toggleTorch,
             icon: const Icon(Icons.flashlight_on),
           ),
@@ -96,7 +98,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                       color: Colors.orange.shade100,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Text(_warning!, textAlign: TextAlign.center),
+                    child: LText(_warning!, textAlign: TextAlign.center),
                   ),
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -107,7 +109,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(24),
                   ),
-                  child: const Text(
+                  child: const LText(
                     'وجّه الكاميرا نحو الملصق',
                     style: TextStyle(color: Colors.white),
                   ),

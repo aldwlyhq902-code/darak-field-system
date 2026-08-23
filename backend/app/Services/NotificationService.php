@@ -2,9 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Contract;
+use App\Models\ContractInstallment;
+use App\Models\EmergencyReport;
 use App\Models\NotificationMessage;
 use App\Models\User;
 use App\Models\Visit;
+use App\Models\VisitFeedback;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -89,6 +93,97 @@ class NotificationService
             body: $body,
             visitId: $visit->id,
             phone: $clientPhone,
+        );
+    }
+
+    public function emergencyReported(EmergencyReport $report): ?NotificationMessage
+    {
+        $site = $report->site?->name ?? '';
+        $client = $report->site?->client?->name ?? '';
+
+        return $this->queue(
+            type: NotificationMessage::TYPE_EMERGENCY_REPORTED,
+            channel: NotificationMessage::CHANNEL_IN_APP,
+            recipientKind: 'supervisor',
+            key: "emergency.reported:{$report->id}",
+            body: "بلاغ طارئ جديد: {$client} — {$site}. المبلّغ: {$report->reporter_name} ({$report->reporter_phone}).",
+            context: ['emergency_report_id' => $report->id, 'severity' => $report->severity],
+        );
+    }
+
+    public function installmentDue(ContractInstallment $installment): ?NotificationMessage
+    {
+        $installment->loadMissing('contract.client.portalUsers');
+        $client = $installment->contract->client;
+        $days = now()->startOfDay()->diffInDays($installment->due_on, false);
+        $timing = $days < 0 ? 'متأخرة '.abs($days).' يوم' : ($days === 0 ? 'مستحقة اليوم' : "تستحق بعد {$days} أيام");
+        $body = "دفعة {$installment->contract->contract_no} — {$client->name}: {$timing}. المتبقي ".number_format($installment->remaining(), 2).' ر.س.';
+
+        $message = $this->queue(
+            type: NotificationMessage::TYPE_INSTALLMENT_DUE,
+            channel: NotificationMessage::CHANNEL_IN_APP,
+            recipientKind: 'supervisor',
+            key: "installment.due:{$installment->id}:".now()->toDateString(),
+            body: $body,
+            context: ['installment_id' => $installment->id, 'days' => $days],
+        );
+
+        $phone = $client->portalUsers->firstWhere('is_active', true)?->phone;
+        if ($phone) {
+            $this->queue(
+                type: NotificationMessage::TYPE_INSTALLMENT_DUE,
+                channel: NotificationMessage::CHANNEL_WHATSAPP_MANUAL,
+                recipientKind: 'client',
+                key: "installment.client:{$installment->id}:".now()->toDateString(),
+                body: $body,
+                phone: $phone,
+                context: ['installment_id' => $installment->id],
+            );
+        }
+
+        return $message;
+    }
+
+    public function contractExpiring(Contract $contract): ?NotificationMessage
+    {
+        $contract->loadMissing('client');
+        $days = now()->startOfDay()->diffInDays($contract->ends_on, false);
+
+        return $this->queue(
+            type: NotificationMessage::TYPE_CONTRACT_EXPIRING,
+            channel: NotificationMessage::CHANNEL_IN_APP,
+            recipientKind: 'supervisor',
+            key: "contract.expiring:{$contract->id}:{$days}",
+            body: "العقد {$contract->contract_no} للعميل {$contract->client->name} ينتهي بعد {$days} أيام ({$contract->ends_on->format('Y-m-d')}).",
+            context: ['contract_id' => $contract->id, 'days' => $days],
+        );
+    }
+
+    public function feedbackAlert(VisitFeedback $feedback): ?NotificationMessage
+    {
+        $feedback->loadMissing('visit.site.client');
+        $visit = $feedback->visit;
+
+        return $this->queue(
+            type: NotificationMessage::TYPE_FEEDBACK_ALERT,
+            channel: NotificationMessage::CHANNEL_IN_APP,
+            recipientKind: 'supervisor',
+            key: "feedback.alert:{$feedback->id}",
+            body: "تقييم يحتاج متابعة: {$visit->site?->client?->name} — {$visit->site?->name}. التقييم {$feedback->rating}/5.",
+            visitId: $visit->id,
+            context: ['feedback_id' => $feedback->id, 'rating' => $feedback->rating],
+        );
+    }
+
+    public function complianceAlert(string $type, string $key, string $body, array $context = []): ?NotificationMessage
+    {
+        return $this->queue(
+            type: $type,
+            channel: NotificationMessage::CHANNEL_IN_APP,
+            recipientKind: 'supervisor',
+            key: $key,
+            body: $body,
+            context: $context,
         );
     }
 

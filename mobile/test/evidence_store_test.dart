@@ -176,8 +176,10 @@ void main() {
       );
 
       final removed = await evidence.pruneUploaded(3);
+      final reconciliation = await evidence.reconcile();
 
       expect(removed, 1);
+      expect(reconciliation.missing, 0);
       expect(await File(rows.first['local_path'] as String).exists(), isFalse);
       expect(
         await File(rows.last['local_path'] as String).exists(),
@@ -203,5 +205,69 @@ void main() {
 
     expect(first, isNot(second));
     expect(await evidence.forVisit(4), hasLength(2));
+  });
+
+  test(
+    'media row, registration event and sequence roll back together',
+    () async {
+      await db.raw.execute('''
+      CREATE TRIGGER reject_media_registration
+      BEFORE INSERT ON pending_events
+      WHEN NEW.event_type = 'media.register'
+      BEGIN SELECT RAISE(ABORT, 'injected failure'); END
+    ''');
+
+      await expectLater(
+        evidence.store(
+          visitId: 8,
+          kind: EvidenceStore.kindPhotoAfter,
+          bytes: bytes(100),
+        ),
+        throwsA(anything),
+      );
+
+      expect(await evidence.forVisit(8), isEmpty);
+      expect(await queue.pending(), isEmpty);
+      expect(await db.getValue('event_sequence'), isNull);
+      final staged = await root
+          .list(recursive: true)
+          .where((entity) => entity.path.endsWith('.pending'))
+          .toList();
+      expect(staged, isEmpty);
+    },
+  );
+
+  test('startup reconciliation promotes a committed staging file', () async {
+    await evidence.store(
+      visitId: 12,
+      kind: EvidenceStore.kindPhotoBefore,
+      bytes: bytes(150),
+    );
+    final row = (await evidence.forVisit(12)).single;
+    final finalFile = File(row['local_path'] as String);
+    await finalFile.rename('${finalFile.path}.pending');
+
+    final result = await evidence.reconcile();
+
+    expect(result.promoted, 1);
+    expect(result.missing, 0);
+    expect(await finalFile.exists(), isTrue);
+  });
+
+  test('startup reconciliation flags a committed row with no bytes', () async {
+    await evidence.store(
+      visitId: 13,
+      kind: EvidenceStore.kindPhotoAfter,
+      bytes: bytes(150),
+    );
+    final row = (await evidence.forVisit(13)).single;
+    await File(row['local_path'] as String).delete();
+
+    final result = await evidence.reconcile();
+    final repaired = (await evidence.forVisit(13)).single;
+
+    expect(result.missing, 1);
+    expect(repaired['state'], 'failed');
+    expect(repaired['last_error'], contains('missing'));
   });
 }

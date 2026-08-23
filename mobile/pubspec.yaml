@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   # Local-first storage. Every field action is written here before anything
   # touches the network — the device must be fully usable with no signal.
@@ -22,7 +24,7 @@ dependencies:
   crypto: ^3.0.5        # sha256 for upload verification
   connectivity_plus: ^6.0.5
   shared_preferences: ^2.3.2
-  intl: ^0.19.0
+  intl: ^0.20.2
 
   # Field evidence. image_picker with ImageSource.camera only — the gallery is
   # never offered, so a photo cannot be "found" instead of taken.

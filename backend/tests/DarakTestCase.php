@@ -6,6 +6,8 @@ use App\Models\Asset;
 use App\Models\Client;
 use App\Models\Contract;
 use App\Models\Device;
+use App\Models\OperatingBranch;
+use App\Models\OperatingCompany;
 use App\Models\Part;
 use App\Models\Site;
 use App\Models\StockLocation;
@@ -28,6 +30,10 @@ abstract class DarakTestCase extends TestCase
     use RefreshDatabase;
 
     protected User $owner;
+
+    protected OperatingCompany $operatingCompany;
+
+    protected OperatingBranch $operatingBranch;
 
     protected User $technician;
 
@@ -55,9 +61,18 @@ abstract class DarakTestCase extends TestCase
     {
         parent::setUp();
 
+        $this->operatingCompany = OperatingCompany::create([
+            'name' => 'Test Operating Company', 'is_active' => true,
+        ]);
+        $this->operatingBranch = OperatingBranch::create([
+            'operating_company_id' => $this->operatingCompany->id,
+            'name' => 'Test Branch', 'code' => 'TEST', 'is_active' => true,
+        ]);
+
         $this->owner = User::create([
             'name' => 'Owner', 'email' => 'owner@test.local',
             'password' => Hash::make('secret'), 'role' => User::ROLE_OWNER, 'is_active' => true,
+            'operating_company_id' => $this->operatingCompany->id,
         ]);
         $this->owner->forceFill([
             'two_factor_secret' => 'JBSWY3DPEHPK3PXP',
@@ -70,6 +85,8 @@ abstract class DarakTestCase extends TestCase
             'password' => Hash::make('secret'), 'role' => User::ROLE_TECHNICIAN,
             'specialties' => ['split_ac', 'electrical'],
             'shift_start' => '07:00', 'shift_end' => '15:00', 'is_active' => true,
+            'operating_company_id' => $this->operatingCompany->id,
+            'operating_branch_id' => $this->operatingBranch->id,
         ]);
 
         $this->otherTechnician = User::create([
@@ -77,6 +94,8 @@ abstract class DarakTestCase extends TestCase
             'password' => Hash::make('secret'), 'role' => User::ROLE_TECHNICIAN,
             'specialties' => ['split_ac'],
             'shift_start' => '15:00', 'shift_end' => '23:00', 'is_active' => true,
+            'operating_company_id' => $this->operatingCompany->id,
+            'operating_branch_id' => $this->operatingBranch->id,
         ]);
 
         $this->device = Device::create([
@@ -89,6 +108,8 @@ abstract class DarakTestCase extends TestCase
             'name' => 'Test Restaurant',
             'category' => 'restaurant',
             'established_on' => '2018-01-01',
+            'operating_company_id' => $this->operatingCompany->id,
+            'operating_branch_id' => $this->operatingBranch->id,
         ]);
 
         $this->site = Site::create([
@@ -159,12 +180,17 @@ abstract class DarakTestCase extends TestCase
             'plate' => 'TEST-1234',
             'internal_code' => 'V1',
             'assigned_user_id' => $this->technician->id,
+            'operating_branch_id' => $this->operatingBranch->id,
         ]);
-        $this->warehouse = StockLocation::create(['type' => StockLocation::TYPE_WAREHOUSE, 'name' => 'Central']);
+        $this->warehouse = StockLocation::create([
+            'type' => StockLocation::TYPE_WAREHOUSE, 'name' => 'Central',
+            'operating_branch_id' => $this->operatingBranch->id,
+        ]);
         $this->vehicleStock = StockLocation::create([
             'type' => StockLocation::TYPE_VEHICLE,
             'name' => 'Vehicle 1',
             'vehicle_id' => $vehicle->id,
+            'operating_branch_id' => $this->operatingBranch->id,
         ]);
     }
 

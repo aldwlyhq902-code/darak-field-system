@@ -41,9 +41,11 @@ class ApiClient {
 
   /// Bearer token for the current device session.
   String? token;
+  String locale = 'ar';
 
   Map<String, String> get _headers => {
     'Accept': 'application/json',
+    'Accept-Language': locale,
     'Content-Type': 'application/json',
     if (token != null) 'Authorization': 'Bearer $token',
   };
@@ -95,6 +97,7 @@ class ApiClient {
           Uri.parse('$baseUrl/api/v1/media/$clientMediaId/chunk'),
           headers: {
             'Accept': 'application/json',
+            'Accept-Language': locale,
             'Content-Type': 'application/octet-stream',
             'X-Upload-Offset': '$offset',
             if (token != null) 'Authorization': 'Bearer $token',
@@ -123,6 +126,117 @@ class ApiClient {
 
   Future<Map<String, dynamic>> closeBlockers(int visitId) =>
       _get('/api/v1/visits/$visitId/close-blockers');
+
+  Future<List<Map<String, dynamic>>> custodies() async =>
+      _dataList(await _get('/api/v1/custodies'));
+
+  Future<void> acceptCustody(int id, String name) async =>
+      _post('/api/v1/custodies/$id/accept', {'accepted_name': name});
+
+  Future<List<Map<String, dynamic>>> stocktakes() async =>
+      _dataList(await _get('/api/v1/inventory/stocktakes'));
+
+  Future<void> scanStocktake(int id, String code, double qty) async => _post(
+    '/api/v1/inventory/stocktakes/$id/scan',
+    {'code': code, 'qty': qty},
+  );
+
+  Future<void> completeStocktake(int id) async =>
+      _post('/api/v1/inventory/stocktakes/$id/complete', {});
+
+  Future<List<Map<String, dynamic>>> transferReleases() async =>
+      _dataList(await _get('/api/v1/inventory/vehicle-transfer-releases'));
+
+  Future<List<Map<String, dynamic>>> transferReceipts() async =>
+      _dataList(await _get('/api/v1/inventory/vehicle-transfers'));
+
+  Future<void> releaseTransfer(int id) async =>
+      _post('/api/v1/inventory/vehicle-transfers/$id/release', {});
+
+  Future<void> acceptTransfer(int id) async =>
+      _post('/api/v1/inventory/vehicle-transfers/$id/accept', {});
+
+  Future<Map<String, dynamic>> currentVehicle() =>
+      _get('/api/v1/fleet/vehicle');
+
+  Future<Map<String, dynamic>> submitVehicleInspection({
+    required double odometerKm,
+    required Map<String, bool> checklist,
+    String? defects,
+    Uint8List? photo,
+  }) async {
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/api/v1/fleet/vehicle/inspection'),
+      );
+      request.headers.addAll({
+        'Accept': 'application/json',
+        'Accept-Language': locale,
+        if (token != null) 'Authorization': 'Bearer $token',
+      });
+      request.fields['odometer_km'] = '$odometerKm';
+      for (final entry in checklist.entries) {
+        request.fields[entry.key] = entry.value ? '1' : '0';
+      }
+      if (defects != null && defects.trim().isNotEmpty) {
+        request.fields['defects'] = defects.trim();
+      }
+      if (photo != null) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'photo',
+            photo,
+            filename: 'vehicle-inspection.jpg',
+          ),
+        );
+      }
+      final streamed = await _client.send(request).timeout(uploadTimeout);
+      return _decode(await http.Response.fromStream(streamed));
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw ApiException(0, {'code': 'NETWORK', 'message': e.toString()});
+    }
+  }
+
+  Future<Map<String, dynamic>> diagnosisSuggestions(
+    int visitId,
+    String faultCode,
+  ) => _get(
+    '/api/v1/visits/$visitId/diagnosis-suggestions?fault_code=${Uri.encodeQueryComponent(faultCode)}',
+  );
+
+  Future<void> recordDiagnosis({
+    required int visitId,
+    required String faultCode,
+    required String diagnosisCode,
+    required String summary,
+  }) async => _post('/api/v1/visits/$visitId/diagnosis', {
+    'fault_code': faultCode,
+    'diagnosis_code': diagnosisCode,
+    'resolution_summary': summary,
+  });
+
+  Future<Map<String, dynamic>> createAdditionalWork({
+    required int visitId,
+    required String title,
+    required String description,
+    required List<Map<String, dynamic>> items,
+  }) => _post('/api/v1/visits/$visitId/additional-work', {
+    'title': title,
+    'description': description,
+    'items': items,
+  });
+
+  Future<void> updateVisitLocation(int visitId, double lat, double lng) async =>
+      _post('/api/v1/visits/$visitId/location', {'lat': lat, 'lng': lng});
+
+  List<Map<String, dynamic>> _dataList(Map<String, dynamic> response) =>
+      ((response['data'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
 
   Future<Map<String, dynamic>> _get(String path) async {
     try {

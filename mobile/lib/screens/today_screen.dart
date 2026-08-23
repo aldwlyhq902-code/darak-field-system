@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+
+import '../l10n/app_localizations.dart';
 import 'package:intl/intl.dart';
 
 import '../app_state.dart';
 import '../core/event_queue.dart';
 import 'sync_screen.dart';
+import 'field_tools_screen.dart';
 import 'visit_screen.dart';
 
 class TodayScreen extends StatefulWidget {
@@ -36,16 +39,30 @@ class _TodayScreenState extends State<TodayScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('زيارات اليوم'),
+            title: const LText('زيارات اليوم'),
             actions: [
+              LanguageButton(
+                isArabic: state.isArabic,
+                onPressed: state.toggleLocale,
+                compact: true,
+              ),
               IconButton(
-                tooltip: 'حالة المزامنة',
+                tooltip: context.tr('العهد والجرد والتحويلات'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => FieldToolsScreen(state: state),
+                  ),
+                ),
+                icon: const Icon(Icons.inventory_2_outlined),
+              ),
+              IconButton(
+                tooltip: context.tr('حالة المزامنة'),
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => SyncScreen(state: state)),
                 ),
                 icon: Badge(
                   isLabelVisible: pending + failed > 0,
-                  label: Text('${pending + failed}'),
+                  label: LText('${pending + failed}'),
                   backgroundColor: failed > 0 ? Colors.red : Colors.orange,
                   child: const Icon(Icons.sync),
                 ),
@@ -84,7 +101,7 @@ class _TodayScreenState extends State<TodayScreen> {
                     ),
                   )
                 : const Icon(Icons.cloud_upload_outlined),
-            label: Text(state.syncing ? 'جارٍ المزامنة' : 'مزامنة'),
+            label: LText(state.syncing ? 'جارٍ المزامنة' : 'مزامنة'),
           ),
         );
       },
@@ -103,8 +120,8 @@ class _ConnectionBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final synced = state.lastSyncedAt;
     final label = synced == null
-        ? 'لم تتم مزامنة بعد'
-        : 'آخر مزامنة ${DateFormat('HH:mm', 'ar').format(synced)}';
+        ? 'لم تتم المزامنة بعد'
+        : 'آخر مزامنة ${DateFormat('HH:mm', state.locale.languageCode).format(synced)}';
 
     return Container(
       width: double.infinity,
@@ -119,7 +136,7 @@ class _ConnectionBanner extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
+            child: LText(
               state.online
                   ? 'متصل · $label'
                   : 'بلا شبكة — العمل مستمر ويُحفظ محلياً · $label',
@@ -158,7 +175,7 @@ class _VisitCard extends StatelessWidget {
         ),
         leading: CircleAvatar(
           backgroundColor: _slaColor(slaStatus).withValues(alpha: 0.15),
-          child: Text(
+          child: LText(
             start == null ? '—' : DateFormat('HH:mm').format(start),
             style: TextStyle(
               fontSize: 12,
@@ -167,7 +184,7 @@ class _VisitCard extends StatelessWidget {
             ),
           ),
         ),
-        title: Text(
+        title: LText(
           '${visit['client_name'] ?? ''} — ${visit['site_name'] ?? ''}',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
@@ -175,7 +192,7 @@ class _VisitCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 4),
-            Text(visit['wo_title'] as String? ?? ''),
+            LText(visit['wo_title'] as String? ?? ''),
             const SizedBox(height: 6),
             Wrap(
               spacing: 6,
@@ -195,7 +212,9 @@ class _VisitCard extends StatelessWidget {
             ),
           ],
         ),
-        trailing: const Icon(Icons.chevron_left),
+        trailing: Icon(
+          state.isArabic ? Icons.chevron_left : Icons.chevron_right,
+        ),
       ),
     );
   }
@@ -232,7 +251,7 @@ class _Chip extends StatelessWidget {
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(
+      child: LText(
         label,
         style: TextStyle(
           fontSize: 11,
@@ -254,10 +273,10 @@ class _EmptyState extends StatelessWidget {
         SizedBox(height: 120),
         Icon(Icons.event_available_outlined, size: 64, color: Colors.black26),
         SizedBox(height: 12),
-        Center(child: Text('لا توجد زيارات محمّلة على الجهاز.')),
+        Center(child: LText('لا توجد زيارات محمّلة على الجهاز.')),
         SizedBox(height: 4),
         Center(
-          child: Text(
+          child: LText(
             'اسحب للأسفل للمزامنة عند توفر الشبكة.',
             style: TextStyle(fontSize: 12, color: Colors.black54),
           ),

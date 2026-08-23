@@ -124,6 +124,21 @@ class AuthorizationTest extends DarakTestCase
         ])->assertStatus(403)->assertJsonPath('code', 'DEVICE_REVOKED');
     }
 
+    public function test_device_uuid_cannot_be_reassigned_to_another_account(): void
+    {
+        $uuid = (string) Str::uuid();
+        $firstToken = $this->postJson('/api/v1/auth/login', [
+            'email' => 'tech1@test.local', 'password' => 'secret', 'device_uuid' => $uuid,
+        ])->assertOk()->json('token');
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'tech2@test.local', 'password' => 'secret', 'device_uuid' => $uuid,
+        ])->assertStatus(409)->assertJsonPath('code', 'DEVICE_BOUND_TO_ANOTHER_USER');
+
+        $this->assertSame($this->technician->id, Device::where('device_uuid', $uuid)->value('user_id'));
+        $this->asToken($firstToken)->getJson('/api/v1/auth/me')->assertOk();
+    }
+
     /**
      * Regression guard. This app has no `login` route, so the default guest
      * redirect turned every unauthenticated API call into a 500 and the mobile

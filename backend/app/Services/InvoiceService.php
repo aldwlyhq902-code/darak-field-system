@@ -7,6 +7,7 @@ use App\Models\ExternalDocument;
 use App\Models\StockMove;
 use App\Models\Visit;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
@@ -110,73 +111,73 @@ class InvoiceService
             throw new RuntimeException('Return movement is not linked to a visit.');
         }
 
-        $invoice = ExternalDocument::where('visit_id', $visit->id)
-            ->where('doc_type', ExternalDocument::TYPE_INVOICE)
-            ->where('status', 'issued')
-            ->latest('issued_at')
-            ->first();
-
-        if ($invoice === null) {
-            throw new RuntimeException('No issued invoice found for this visit.');
-        }
-
-        // A return the invoice already accounted for was netted out of its amount:
-        // the client was billed the NET quantity. Crediting it again refunds goods
-        // that were never charged — and since the mobile client is built to retry
-        // idempotently, this path is reached in ordinary operation, not by abuse.
-        $covered = $invoice->request_payload['covered_move_ids'] ?? [];
-
-        if (in_array($returnMove->id, $covered, true)) {
-            throw new RuntimeException(
-                'This return was already deducted from the invoice — no credit note is due.'
-            );
-        }
-
         $key = $idempotencyKey ?? ('cn:'.$returnMove->idempotency_key);
-
-        $existing = ExternalDocument::where('idempotency_key', $key)->first();
-        if ($existing !== null) {
-            return $existing;
-        }
-
         $part = $returnMove->part;
 
-        // The price the invoice actually charged, not today's list price. A
-        // catalogue edit between invoicing and return must not change the refund.
-        $unitPrice = $this->invoicedUnitPrice($invoice, $part->sku) ?? (float) $part->sale_price;
-        $amount = round($unitPrice * (float) $returnMove->qty, 2);
+        // Lock the invoice while reading prior credits and creating the next one.
+        // Without this, two simultaneous returns both observed the same VAT
+        // remainder and could over-credit it by a halala. The provider call stays
+        // outside the transaction so a slow external API never holds this lock.
+        [$creditNote, $invoice, $created] = DB::transaction(function () use ($visit, $returnMove, $key, $part): array {
+            $existing = ExternalDocument::where('idempotency_key', $key)->first();
+            if ($existing !== null) {
+                return [$existing, null, false];
+            }
 
-        // VAT as a proportional share of the INVOICE's stored figure, with the
-        // final credit taking whatever remains. Recomputing it independently
-        // drifts a cent or two per note, so a fully returned invoice never quite
-        // reverses to zero.
-        $vat = $this->proportionalVat($invoice, $amount);
+            $invoice = ExternalDocument::where('visit_id', $visit->id)
+                ->where('doc_type', ExternalDocument::TYPE_INVOICE)
+                ->where('status', 'issued')
+                ->latest('issued_at')
+                ->lockForUpdate()
+                ->first();
 
-        $creditNote = ExternalDocument::create([
-            'doc_type' => ExternalDocument::TYPE_CREDIT_NOTE,
-            'provider' => $this->provider->name(),
-            'parent_document_id' => $invoice->id,
-            'client_id' => $invoice->client_id,
-            'contract_id' => $invoice->contract_id,
-            'work_order_id' => $invoice->work_order_id,
-            'visit_id' => $visit->id,
-            'amount' => $amount,
-            'vat_amount' => $vat,
-            'status' => 'requested',
-            'idempotency_key' => $key,
-            'request_payload' => [
-                'reason' => 'part_returned',
-                'part_sku' => $part->sku,
-                'qty' => (float) $returnMove->qty,
-                'unit_price' => $unitPrice,
-                'stock_move_id' => $returnMove->id,
-            ],
-        ]);
+            if ($invoice === null) {
+                throw new RuntimeException('No issued invoice found for this visit.');
+            }
+
+            $covered = $invoice->request_payload['covered_move_ids'] ?? [];
+            if (in_array($returnMove->id, $covered, true)) {
+                throw new RuntimeException(
+                    'This return was already deducted from the invoice — no credit note is due.'
+                );
+            }
+
+            $unitPrice = $this->invoicedUnitPrice($invoice, $part->sku) ?? (float) $part->sale_price;
+            $amount = round($unitPrice * (float) $returnMove->qty, 2);
+            $vat = $this->proportionalVat($invoice, $amount);
+
+            $creditNote = ExternalDocument::create([
+                'doc_type' => ExternalDocument::TYPE_CREDIT_NOTE,
+                'provider' => $this->provider->name(),
+                'parent_document_id' => $invoice->id,
+                'client_id' => $invoice->client_id,
+                'contract_id' => $invoice->contract_id,
+                'work_order_id' => $invoice->work_order_id,
+                'visit_id' => $visit->id,
+                'amount' => $amount,
+                'vat_amount' => $vat,
+                'status' => 'requested',
+                'idempotency_key' => $key,
+                'request_payload' => [
+                    'reason' => 'part_returned',
+                    'part_sku' => $part->sku,
+                    'qty' => (float) $returnMove->qty,
+                    'unit_price' => $unitPrice,
+                    'stock_move_id' => $returnMove->id,
+                ],
+            ]);
+
+            return [$creditNote, $invoice, true];
+        });
+
+        if (! $created) {
+            return $creditNote;
+        }
 
         try {
             $response = $this->provider->createCreditNote(
                 (string) $invoice->external_id,
-                ['amount' => $amount, 'vat_amount' => $vat],
+                ['amount' => (float) $creditNote->amount, 'vat_amount' => (float) $creditNote->vat_amount],
                 $key,
             );
 
@@ -193,7 +194,7 @@ class InvoiceService
 
         $this->audit->record('invoice.credit_note', $creditNote, null, [
             'parent_document_id' => $invoice->id,
-            'amount' => $amount,
+            'amount' => (float) $creditNote->amount,
         ]);
 
         return $creditNote->refresh();

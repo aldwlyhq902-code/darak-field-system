@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,12 +10,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WorkOrder extends Model
 {
-    use HasFactory;
+    use HasFactory, ScopedToOperatingBranch;
 
     protected $fillable = [
         'wo_number', 'client_id', 'site_id', 'contract_id', 'asset_id',
         'type', 'priority', 'title', 'description', 'reported_at',
         'sla_due_at', 'sla_minutes_budget', 'status', 'created_by',
+        'fault_code', 'diagnosis_code', 'resolution_summary',
     ];
 
     protected function casts(): array

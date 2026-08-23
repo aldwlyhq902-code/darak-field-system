@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
+
 import '../app_state.dart';
 import '../core/evidence_store.dart';
 import 'scanner_screen.dart';
 import 'signature_screen.dart';
+import 'diagnosis_screen.dart';
+import 'additional_work_screen.dart';
 
 /// One visit, from "انطلاق" to "إقفال".
 ///
@@ -138,7 +142,7 @@ class _VisitScreenState extends State<VisitScreen> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
+          content: LText(
             applied
                 ? 'سُجّلت العملية محلياً وستُزامن تلقائياً.'
                 : 'هذه الخطوة غير متاحة من الحالة الحالية.',
@@ -161,7 +165,7 @@ class _VisitScreenState extends State<VisitScreen> {
               children: [
                 const Icon(Icons.lock_outline, color: Colors.orange),
                 const SizedBox(width: 8),
-                Text(
+                LText(
                   'لا يمكن الإقفال بعد',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
@@ -175,7 +179,7 @@ class _VisitScreenState extends State<VisitScreen> {
                   children: [
                     const Icon(Icons.circle, size: 7, color: Colors.orange),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(m)),
+                    Expanded(child: LText(m)),
                   ],
                 ),
               ),
@@ -183,7 +187,7 @@ class _VisitScreenState extends State<VisitScreen> {
             const SizedBox(height: 16),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('حسناً'),
+              child: const LText('حسناً'),
             ),
           ],
         ),
@@ -241,7 +245,7 @@ class _VisitScreenState extends State<VisitScreen> {
     if (mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('سُجّل الحضور بالملصق: $code')));
+      ).showSnackBar(SnackBar(content: LText('سُجّل الحضور بالملصق: $code')));
     }
   }
 
@@ -264,7 +268,7 @@ class _VisitScreenState extends State<VisitScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.orange.shade800,
-            content: Text(
+            content: LText(
               'الملصق الممسوح لا يطابق «${asset['name']}». تحقق من الجهاز.',
             ),
           ),
@@ -282,7 +286,7 @@ class _VisitScreenState extends State<VisitScreen> {
     if (mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('طوبق الأصل بالملصق.')));
+      ).showSnackBar(const SnackBar(content: LText('طوبق الأصل بالملصق.')));
     }
   }
 
@@ -312,16 +316,16 @@ class _VisitScreenState extends State<VisitScreen> {
     final visit = _visit;
     if (visit == null) {
       return const Scaffold(
-        body: Center(child: Text('الزيارة غير موجودة على الجهاز.')),
+        body: Center(child: LText('الزيارة غير موجودة على الجهاز.')),
       );
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('${visit['client_name'] ?? ''}'),
+        title: LText('${visit['client_name'] ?? ''}'),
         actions: [
           IconButton(
-            tooltip: 'مسح ملصق الموقع',
+            tooltip: context.tr('مسح ملصق الموقع'),
             onPressed: _scanSite,
             icon: const Icon(Icons.qr_code_scanner),
           ),
@@ -336,12 +340,12 @@ class _VisitScreenState extends State<VisitScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Text(
+                  LText(
                     'الأصول',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const Spacer(),
-                  Text(
+                  LText(
                     '${_media.where((m) => (m['kind'] as String).startsWith('photo')).length} صورة',
                     style: const TextStyle(fontSize: 12, color: Colors.black54),
                   ),
@@ -352,7 +356,7 @@ class _VisitScreenState extends State<VisitScreen> {
                 const Card(
                   child: Padding(
                     padding: EdgeInsets.all(16),
-                    child: Text('لا توجد أصول مسجلة لهذا الموقع بعد.'),
+                    child: LText('لا توجد أصول مسجلة لهذا الموقع بعد.'),
                   ),
                 ),
               ..._assets.map(
@@ -376,26 +380,75 @@ class _VisitScreenState extends State<VisitScreen> {
                         : Icons.build_outlined,
                     color: _noPartsDeclared ? Colors.teal : Colors.black45,
                   ),
-                  title: const Text('لم تُستخدم قطع غيار في هذه الزيارة'),
-                  subtitle: const Text(
+                  title: const LText('لم تُستخدم قطع غيار في هذه الزيارة'),
+                  subtitle: const LText(
                     'إن استُخدمت قطع فاصرفها من مخزون سيارتك بدل تفعيل هذا الخيار.',
                     style: TextStyle(fontSize: 12),
                   ),
                 ),
               ),
+              if (_state == 'started' || _state == 'paused') ...[
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.auto_awesome),
+                    title: const LText('اقتراح وتسجيل التشخيص'),
+                    trailing: const Icon(Icons.chevron_left),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DiagnosisScreen(
+                          state: widget.state,
+                          visitId: widget.visitId,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.request_quote_outlined),
+                    title: const LText('طلب اعتماد عمل أو قطع إضافية'),
+                    subtitle: const LText(
+                      'يرسل البنود والأسعار للعميل قبل التركيب',
+                    ),
+                    trailing: const Icon(Icons.chevron_left),
+                    onTap: () async {
+                      final sent = await Navigator.push<bool>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AdditionalWorkScreen(
+                            state: widget.state,
+                            visitId: widget.visitId,
+                          ),
+                        ),
+                      );
+                      if (!context.mounted) return;
+                      if (sent == true) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: LText(
+                              'أُرسل الطلب للعميل، وانتظر موافقته قبل التنفيذ.',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ],
               Card(
                 child: ListTile(
                   leading: Icon(
                     _hasSignature ? Icons.check_circle : Icons.draw_outlined,
                     color: _hasSignature ? Colors.teal : Colors.black45,
                   ),
-                  title: const Text('توقيع مسؤول الموقع'),
-                  subtitle: Text(
+                  title: const LText('توقيع مسؤول الموقع'),
+                  subtitle: LText(
                     _hasSignature ? 'تم التوقيع' : 'مطلوب قبل الإقفال',
                   ),
                   trailing: FilledButton.tonal(
                     onPressed: _sign,
-                    child: Text(_hasSignature ? 'إعادة' : 'توقيع'),
+                    child: LText(_hasSignature ? 'إعادة' : 'توقيع'),
                   ),
                 ),
               ),
@@ -406,7 +459,7 @@ class _VisitScreenState extends State<VisitScreen> {
                   child: FilledButton.icon(
                     onPressed: _busy ? null : () => _transition(action.to),
                     icon: Icon(action.icon),
-                    label: Text(action.label),
+                    label: LText(action.label),
                   ),
                 ),
               ),
@@ -418,13 +471,13 @@ class _VisitScreenState extends State<VisitScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        const LText(
                           'نواقص تمنع الإقفال:',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 6),
                         ..._missing.map(
-                          (m) => Text(
+                          (m) => LText(
                             '• $m',
                             style: const TextStyle(fontSize: 13),
                           ),
@@ -438,8 +491,10 @@ class _VisitScreenState extends State<VisitScreen> {
                   color: Color(0xFFECFDF5),
                   child: ListTile(
                     leading: Icon(Icons.verified, color: Colors.teal),
-                    title: Text('الزيارة مقفلة'),
-                    subtitle: Text('التقرير يُرسل للعميل بعد اكتمال المزامنة.'),
+                    title: LText('الزيارة مقفلة'),
+                    subtitle: LText(
+                      'التقرير يُرسل للعميل بعد اكتمال المزامنة.',
+                    ),
                   ),
                 ),
               const SizedBox(height: 40),
@@ -473,12 +528,12 @@ class _InfoCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            LText(
               visit['wo_title'] as String? ?? '',
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
-            Text(
+            LText(
               '${visit['site_name'] ?? ''} — ${visit['site_address'] ?? ''}',
             ),
             if ((visit['access_notes'] as String?)?.isNotEmpty ?? false) ...[
@@ -492,7 +547,7 @@ class _InfoCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(
+                    child: LText(
                       visit['access_notes'] as String,
                       style: const TextStyle(
                         fontSize: 13,
@@ -510,7 +565,7 @@ class _InfoCard extends StatelessWidget {
               children: [
                 const Icon(Icons.history, size: 15, color: Colors.black45),
                 const SizedBox(width: 6),
-                Text(
+                LText(
                   lastSynced == null
                       ? 'بيانات غير مزامنة'
                       : 'حُدّثت من الخادم: ${lastSynced.substring(0, 16).replaceFirst('T', ' ')}',
@@ -555,7 +610,7 @@ class _AssetTile extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(
+                  child: LText(
                     asset['name'] as String? ?? '',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
@@ -572,7 +627,7 @@ class _AssetTile extends StatelessWidget {
                     ),
                     // Billing a part on an in-warranty asset is a real and
                     // expensive mistake, so the warning sits on the tile itself.
-                    child: const Text(
+                    child: const LText(
                       'تحت الضمان',
                       style: TextStyle(
                         fontSize: 11,
@@ -583,16 +638,16 @@ class _AssetTile extends StatelessWidget {
               ],
             ),
             if ((asset['location'] as String?)?.isNotEmpty ?? false)
-              Text(
+              LText(
                 asset['location'] as String,
                 style: const TextStyle(fontSize: 12, color: Colors.black54),
               ),
             const SizedBox(height: 10),
             SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'ok', label: Text('سليم')),
-                ButtonSegment(value: 'needs_followup', label: Text('متابعة')),
-                ButtonSegment(value: 'fault', label: Text('عطل')),
+                ButtonSegment(value: 'ok', label: LText('سليم')),
+                ButtonSegment(value: 'needs_followup', label: LText('متابعة')),
+                ButtonSegment(value: 'fault', label: LText('عطل')),
               ],
               selected: status == null ? <String>{} : {status!},
               emptySelectionAllowed: true,
@@ -608,7 +663,7 @@ class _AssetTile extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onCapture,
                     icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                    label: const Text('تصوير'),
+                    label: const LText('تصوير'),
                   ),
                 ),
                 const SizedBox(width: 8),

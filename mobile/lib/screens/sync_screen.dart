@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
+
 import '../app_state.dart';
 import '../core/event_queue.dart';
 
@@ -47,20 +49,20 @@ class _SyncScreenState extends State<SyncScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('إسقاط الملف؟'),
-        content: const Text(
+        title: const LText('إسقاط الملف؟'),
+        content: const LText(
           'لن يُرفع هذا الملف ولن يمنع إقفال الزيارة بعد الآن. '
           'التقط بديلاً إن كان الدليل ما زال مطلوباً.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('تراجع'),
+            child: const LText('تراجع'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('إسقاط'),
+            child: const LText('إسقاط'),
           ),
         ],
       ),
@@ -85,7 +87,7 @@ class _SyncScreenState extends State<SyncScreen> {
         final counts = widget.state.queueCounts;
 
         return Scaffold(
-          appBar: AppBar(title: const Text('حالة المزامنة')),
+          appBar: AppBar(title: const LText('حالة المزامنة')),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -122,13 +124,13 @@ class _SyncScreenState extends State<SyncScreen> {
                         await _load();
                       },
                 icon: const Icon(Icons.cloud_upload_outlined),
-                label: Text(
+                label: LText(
                   widget.state.syncing ? 'جارٍ المزامنة…' : 'مزامنة الآن',
                 ),
               ),
               if (widget.state.lastSyncMessage != null) ...[
                 const SizedBox(height: 12),
-                Text(
+                LText(
                   widget.state.lastSyncMessage!,
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 13, color: Colors.black54),
@@ -136,12 +138,12 @@ class _SyncScreenState extends State<SyncScreen> {
               ],
               const SizedBox(height: 24),
               if (_failedUploads.isNotEmpty) ...[
-                Text(
+                LText(
                   'أدلة لم تُرفع',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                const LText(
                   'الزيارة لا تُقفل بدونها. أعد المحاولة، وإن تعذّر فأعد الالتقاط.',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
@@ -154,19 +156,19 @@ class _SyncScreenState extends State<SyncScreen> {
                         Icons.image_not_supported_outlined,
                         color: Colors.orange,
                       ),
-                      title: Text(
+                      title: LText(
                         upload['kind'] == 'signature' ? 'توقيع' : 'صورة',
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          LText(
                             'زيارة ${upload['visit_id']} · محاولات: ${upload['attempts']}',
                             style: const TextStyle(fontSize: 12),
                           ),
                           if (upload['last_error'] != null)
-                            Text(
+                            LText(
                               '${upload['last_error']}',
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -181,7 +183,7 @@ class _SyncScreenState extends State<SyncScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            tooltip: 'إعادة الرفع',
+                            tooltip: context.tr('إعادة الرفع'),
                             icon: const Icon(Icons.upload_file),
                             onPressed: () async {
                               await widget.state.sync.retryUpload(
@@ -195,7 +197,7 @@ class _SyncScreenState extends State<SyncScreen> {
                           // upload holds the visit open indefinitely and the
                           // technician has nothing to press.
                           IconButton(
-                            tooltip: 'إسقاط الملف',
+                            tooltip: context.tr('إسقاط الملف'),
                             icon: const Icon(
                               Icons.delete_outline,
                               color: Colors.red,
@@ -210,12 +212,12 @@ class _SyncScreenState extends State<SyncScreen> {
                 const SizedBox(height: 24),
               ],
               if (_failed.isNotEmpty) ...[
-                Text(
+                LText(
                   'عمليات مرفوضة',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                const LText(
                   'رفضها الخادم لسبب واضح. صحّح السبب ثم أعد المحاولة.',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
@@ -224,16 +226,16 @@ class _SyncScreenState extends State<SyncScreen> {
                   (event) => Card(
                     color: Colors.red.shade50,
                     child: ListTile(
-                      title: Text(event.eventType),
+                      title: LText(event.eventType),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          LText(
                             'زيارة ${event.visitId} · محاولات: ${event.attempts}',
                             style: const TextStyle(fontSize: 12),
                           ),
                           if (event.lastError != null)
-                            Text(
+                            LText(
                               event.lastError!,
                               style: TextStyle(
                                 fontSize: 12,
@@ -243,7 +245,7 @@ class _SyncScreenState extends State<SyncScreen> {
                         ],
                       ),
                       trailing: IconButton(
-                        tooltip: 'إعادة المحاولة',
+                        tooltip: context.tr('إعادة المحاولة'),
                         icon: const Icon(Icons.refresh),
                         onPressed: () async {
                           await widget.state.queue.requeue(event.clientEventId);
@@ -258,7 +260,7 @@ class _SyncScreenState extends State<SyncScreen> {
                 const Card(
                   child: ListTile(
                     leading: Icon(Icons.verified_outlined, color: Colors.teal),
-                    title: Text('لا توجد عمليات مرفوضة'),
+                    title: LText('لا توجد عمليات مرفوضة'),
                   ),
                 ),
             ],
@@ -296,7 +298,7 @@ class _CountTile extends StatelessWidget {
           children: [
             Icon(icon, color: color, size: 22),
             const SizedBox(height: 6),
-            Text(
+            LText(
               '$value',
               style: TextStyle(
                 fontSize: 22,
@@ -305,7 +307,7 @@ class _CountTile extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            Text(
+            LText(
               label,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 11, color: Colors.black54),

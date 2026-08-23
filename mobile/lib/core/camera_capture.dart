@@ -37,7 +37,7 @@ class CameraCapture {
 
     if (file == null) return null;
 
-    final position = await _bestEffortPosition();
+    final position = await bestEffortPosition();
 
     return Capture(
       bytes: await file.readAsBytes(),
@@ -47,7 +47,7 @@ class CameraCapture {
     );
   }
 
-  Future<Position?> _bestEffortPosition() async {
+  Future<Position?> bestEffortPosition() async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) return null;
 

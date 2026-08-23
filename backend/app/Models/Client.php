@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Client extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, ScopedToOperatingBranch, SoftDeletes;
 
     protected $fillable = [
         'name', 'commercial_name', 'cr_number', 'vat_number', 'category',
         'credit_limit', 'payment_term', 'established_on', 'notes', 'is_active',
+        'operating_company_id', 'operating_branch_id',
     ];
 
     protected function casts(): array
@@ -58,6 +60,36 @@ class Client extends Model
     public function contracts(): HasMany
     {
         return $this->hasMany(Contract::class);
+    }
+
+    public function portalUsers(): HasMany
+    {
+        return $this->hasMany(ClientPortalUser::class);
+    }
+
+    public function quotations(): HasMany
+    {
+        return $this->hasMany(Quotation::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    public function additionalWorkApprovals(): HasMany
+    {
+        return $this->hasMany(AdditionalWorkApproval::class);
+    }
+
+    public function maintenancePlans(): HasMany
+    {
+        return $this->hasMany(MaintenancePlan::class);
+    }
+
+    public function serviceRequests(): HasMany
+    {
+        return $this->hasMany(ClientServiceRequest::class);
     }
 
     /**

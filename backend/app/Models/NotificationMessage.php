@@ -16,6 +16,22 @@ class NotificationMessage extends Model
 
     public const TYPE_REPORT_READY = 'report.ready';
 
+    public const TYPE_EMERGENCY_REPORTED = 'emergency.reported';
+
+    public const TYPE_INSTALLMENT_DUE = 'installment.due';
+
+    public const TYPE_CONTRACT_EXPIRING = 'contract.expiring';
+
+    public const TYPE_FEEDBACK_ALERT = 'feedback.alert';
+
+    public const TYPE_EMPLOYEE_DOCUMENT_EXPIRING = 'employee_document.expiring';
+
+    public const TYPE_VEHICLE_DOCUMENT_EXPIRING = 'vehicle_document.expiring';
+
+    public const TYPE_VEHICLE_MAINTENANCE_DUE = 'vehicle.maintenance_due';
+
+    public const TYPE_SALES_ALERT = 'sales.alert';
+
     public const CHANNEL_IN_APP = 'in_app';
 
     public const CHANNEL_WHATSAPP_MANUAL = 'whatsapp_manual';

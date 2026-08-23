@@ -48,7 +48,8 @@ class PanelTest extends DarakTestCase
 
     public function test_board_shows_todays_visits_with_sla_state(): void
     {
-        $this->visit->forceFill(['scheduled_start' => now()->addHour()])->save();
+        // Keep the fixture inside today even when CI runs near midnight.
+        $this->visit->forceFill(['scheduled_start' => today()->addHours(12)])->save();
 
         $this->actingAs($this->owner, 'web')
             ->get(route('panel.board'))

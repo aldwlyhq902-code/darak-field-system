@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\InventoryLot;
 use App\Models\Part;
 use App\Models\StockLocation;
 use App\Models\StockMove;
+use App\Models\StockReservation;
 use App\Models\Visit;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -98,6 +100,7 @@ class InventoryService
                     (int) $attributes['from_location_id'],
                     $qty,
                     $moveType,
+                    isset($attributes['visit_id']) ? (int) $attributes['visit_id'] : null,
                 );
             }
 
@@ -107,6 +110,8 @@ class InventoryService
             if (isset($attributes['assert_within_issue'])) {
                 $this->assertReturnWithinIssue($attributes['assert_within_issue'], $qty);
             }
+
+            $lot = $this->applyLotMovement($part, $qty, $moveType, $attributes);
 
             $move = StockMove::create([
                 'move_type' => $moveType,
@@ -123,8 +128,23 @@ class InventoryService
                 'device_timestamp' => $attributes['device_timestamp'] ?? null,
                 'server_received_at' => CarbonImmutable::now(),
                 'note' => $attributes['note'] ?? null,
+                'inventory_lot_id' => $lot?->id ?? ($attributes['inventory_lot_id'] ?? null),
                 // 'assert_within_issue' is a guard directive, not a column.
             ]);
+
+            if ($moveType === StockMove::VISIT_ISSUE && ! empty($attributes['visit_id'])) {
+                $reservation = StockReservation::where('visit_id', $attributes['visit_id'])
+                    ->where('part_id', $part->id)->where('stock_location_id', $attributes['from_location_id'])
+                    ->where('status', 'reserved')->lockForUpdate()->first();
+
+                if ($reservation !== null) {
+                    $remaining = round((float) $reservation->qty - $qty, 3);
+                    $reservation->forceFill([
+                        'qty' => max(0, $remaining),
+                        'status' => $remaining <= 0.0005 ? 'consumed' : 'reserved',
+                    ])->save();
+                }
+            }
 
             $this->audit->record('inventory.move', $move, null, $move->only([
                 'move_type', 'part_id', 'qty', 'from_location_id', 'to_location_id', 'visit_id',
@@ -155,6 +175,30 @@ class InventoryService
             'from_location_id' => $fromLocationId,
             'to_location_id' => $toLocationId,
         ]));
+    }
+
+    /** Vehicle -> vehicle, executed only after the receiving side accepts. */
+    public function transferVehicleStock(string $key, int $partId, float $qty, int $fromLocationId, int $toLocationId, array $extra = []): StockMove
+    {
+        return $this->record($key, array_merge($extra, [
+            'move_type' => StockMove::VEHICLE_TRANSFER,
+            'part_id' => $partId,
+            'qty' => $qty,
+            'from_location_id' => $fromLocationId,
+            'to_location_id' => $toLocationId,
+        ]));
+    }
+
+    public function reservedBalance(int $partId, int $locationId, ?int $exceptVisitId = null): float
+    {
+        return (float) StockReservation::where('part_id', $partId)
+            ->where('stock_location_id', $locationId)->where('status', 'reserved')
+            ->when($exceptVisitId, fn ($q) => $q->where('visit_id', '!=', $exceptVisitId))->sum('qty');
+    }
+
+    public function availableBalance(int $partId, int $locationId, ?int $exceptVisitId = null): float
+    {
+        return round($this->balance($partId, $locationId) - $this->reservedBalance($partId, $locationId, $exceptVisitId), 3);
     }
 
     /** Vehicle -> visit (consumption). */
@@ -190,6 +234,7 @@ class InventoryService
             'visit_id' => $original->visit_id,
             'reversal_of_id' => $original->id,
             'unit_cost' => $original->unit_cost,
+            'inventory_lot_id' => $original->inventory_lot_id,
             // Checked inside the locked transaction, not before it.
             'assert_within_issue' => $original,
         ]));
@@ -316,6 +361,66 @@ class InventoryService
             || in_array($e->getCode(), ['23000', '23505'], true);
     }
 
+    /** @param array<string, mixed> $attributes */
+    private function applyLotMovement(Part $part, float $qty, string $moveType, array $attributes): ?InventoryLot
+    {
+        $explicit = isset($attributes['inventory_lot_id'])
+            ? InventoryLot::query()->lockForUpdate()->find($attributes['inventory_lot_id'])
+            : null;
+        $fromId = isset($attributes['from_location_id']) ? (int) $attributes['from_location_id'] : null;
+        $toId = isset($attributes['to_location_id']) ? (int) $attributes['to_location_id'] : null;
+
+        if ($fromId === null) {
+            if ($part->critical_tracking && $moveType === StockMove::RECEIPT && $explicit === null) {
+                throw new RuntimeException('استلام الصنف المهم يجب أن يمر عبر أمر شراء مع رقم دفعة أو رقم تسلسلي.');
+            }
+            if ($explicit !== null && $moveType === StockMove::VISIT_RETURN) {
+                $explicit->forceFill(['stock_location_id' => $toId ?? $explicit->stock_location_id])->save();
+                $explicit->increment('qty_remaining', $qty);
+            }
+
+            return $explicit;
+        }
+
+        $lot = $explicit ?? InventoryLot::query()->where('part_id', $part->id)
+            ->where('stock_location_id', $fromId)->where('qty_remaining', '>=', $qty)
+            ->orderByRaw('warranty_until IS NULL, warranty_until')->lockForUpdate()->first();
+
+        if ($lot === null) {
+            if ($part->critical_tracking && $moveType !== StockMove::ADJUSTMENT) {
+                throw new RuntimeException('لا توجد دفعة متتبعة كافية لهذا الصنف في موقع الصرف.');
+            }
+
+            return null;
+        }
+
+        if ($toId === null) {
+            $lot->decrement('qty_remaining', $qty);
+
+            return $lot;
+        }
+
+        if ($lot->serial_number !== null) {
+            if (abs((float) $lot->qty_remaining - $qty) > .0005) {
+                throw new RuntimeException('لا يمكن تجزئة قطعة لها رقم تسلسلي.');
+            }
+            $lot->forceFill(['stock_location_id' => $toId])->save();
+
+            return $lot;
+        }
+
+        $lot->decrement('qty_remaining', $qty);
+        InventoryLot::create([
+            'part_id' => $lot->part_id, 'supplier_id' => $lot->supplier_id,
+            'purchase_order_item_id' => $lot->purchase_order_item_id, 'stock_location_id' => $toId,
+            'lot_number' => $lot->lot_number, 'manufactured_on' => $lot->manufactured_on,
+            'warranty_until' => $lot->warranty_until, 'qty_received' => $qty,
+            'qty_remaining' => $qty, 'unit_cost' => $lot->unit_cost,
+        ]);
+
+        return $lot;
+    }
+
     /**
      * Transaction-scoped lock on one part at one location.
      *
@@ -367,13 +472,13 @@ class InventoryService
         }
     }
 
-    private function assertSufficientStock(int $partId, int $locationId, float $qty, string $moveType): void
+    private function assertSufficientStock(int $partId, int $locationId, float $qty, string $moveType, ?int $visitId = null): void
     {
         if ($moveType === StockMove::ADJUSTMENT) {
             return; // stocktake may legitimately write down to reality
         }
 
-        $available = $this->balance($partId, $locationId);
+        $available = $this->availableBalance($partId, $locationId, $visitId);
 
         if ($available + 0.0005 < $qty) {
             $location = StockLocation::find($locationId);

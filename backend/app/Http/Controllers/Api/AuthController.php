@@ -51,6 +51,13 @@ class AuthController extends Controller
             ], 403);
         }
 
+        if ($device->exists && $device->user_id !== $user->id) {
+            return response()->json([
+                'code' => 'DEVICE_BOUND_TO_ANOTHER_USER',
+                'message' => 'This device is registered to another account. Ask a supervisor to revoke it first.',
+            ], 409);
+        }
+
         $device->fill([
             'user_id' => $user->id,
             'platform' => $data['platform'] ?? 'android',

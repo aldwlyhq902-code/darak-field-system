@@ -1,34 +1,66 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'app_state.dart';
+import 'core/api_config.dart';
+import 'l10n/app_localizations.dart';
 import 'screens/login_screen.dart';
 import 'screens/today_screen.dart';
 
 /// Point this at the Laravel host. Overridden at build time:
 ///   flutter run --dart-define=DARAK_API=https://api.darak.sa
-const _apiBase = String.fromEnvironment(
-  'DARAK_API',
-  defaultValue: 'http://10.0.2.2:8000', // Android emulator -> host machine
-);
-
-void main() {
-  runApp(const DarakApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final apiBase = resolveApiBase();
+  await initializeDateFormatting('ar');
+  await initializeDateFormatting('en');
+  runApp(DarakApp(apiBase: apiBase));
 }
 
 class DarakApp extends StatefulWidget {
-  const DarakApp({super.key});
+  const DarakApp({required this.apiBase, super.key});
+
+  final String apiBase;
 
   @override
   State<DarakApp> createState() => _DarakAppState();
 }
 
 class _DarakAppState extends State<DarakApp> {
-  final AppState state = AppState(baseUrl: _apiBase);
+  late final AppState state = AppState(baseUrl: widget.apiBase);
+  Object? _initializationError;
+  bool _initializing = true;
 
   @override
   void initState() {
     super.initState();
-    state.init();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    if (mounted) {
+      setState(() {
+        _initializing = true;
+        _initializationError = null;
+      });
+    }
+
+    try {
+      await state.init();
+    } catch (error, stackTrace) {
+      debugPrint('App initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) setState(() => _initializationError = error);
+    } finally {
+      if (mounted) setState(() => _initializing = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    state.dispose();
+    super.dispose();
   }
 
   @override
@@ -39,7 +71,7 @@ class _DarakAppState extends State<DarakApp> {
     );
 
     return MaterialApp(
-      title: 'دارك — تطبيق الفني',
+      onGenerateTitle: (context) => context.tr('دارك — تطبيق الفني'),
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: scheme,
@@ -60,15 +92,61 @@ class _DarakAppState extends State<DarakApp> {
           margin: EdgeInsets.symmetric(vertical: 6),
         ),
       ),
-      // The whole product is Arabic-first.
-      locale: const Locale('ar'),
+      locale: state.locale,
+      supportedLocales: const [Locale('ar'), Locale('en')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       builder: (context, child) => Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: state.isArabic ? TextDirection.rtl : TextDirection.ltr,
         child: child ?? const SizedBox.shrink(),
       ),
       home: AnimatedBuilder(
         animation: state,
         builder: (context, _) {
+          if (_initializationError != null) {
+            return Scaffold(
+              body: SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 56,
+                            color: scheme.error,
+                          ),
+                          const SizedBox(height: 16),
+                          LText(
+                            'تعذّر تجهيز التطبيق',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          const LText(
+                            'لم نتمكن من فتح التخزين الآمن أو قاعدة البيانات المحلية. أعد المحاولة، وإن استمرت المشكلة تواصل مع الدعم قبل حذف التطبيق حتى لا تفقد الأعمال غير المرسلة.',
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                          FilledButton.icon(
+                            onPressed: _initializing ? null : _initialize,
+                            icon: const Icon(Icons.refresh),
+                            label: const LText('إعادة المحاولة'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+
           if (!state.ready) {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
@@ -43,6 +44,7 @@ class AppState extends ChangeNotifier {
   bool sessionExpired = false;
   String? lastSyncMessage;
   DateTime? lastSyncedAt;
+  Locale locale = const Locale('ar');
 
   List<Map<String, dynamic>> visits = const [];
   Map<QueuedStatus, int> queueCounts = const {};
@@ -56,7 +58,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> init() async {
+    await _connectivity?.cancel();
+    _connectivity = null;
+    ready = false;
+
     final prefs = await SharedPreferences.getInstance();
+    locale = Locale(prefs.getString('ui_locale') == 'en' ? 'en' : 'ar');
+    api.locale = locale.languageCode;
     final dir = await getApplicationDocumentsDirectory();
 
     deviceUuid = prefs.getString('device_uuid');
@@ -69,6 +77,13 @@ class AppState extends ChangeNotifier {
     db = await LocalDb.open(directory: dir.path, password: databaseKey);
     clock = await TrustedClock.load();
     queue = EventQueue(db, clock);
+    evidence = EvidenceStore(
+      db: db,
+      queue: queue,
+      clock: clock,
+      rootDirectory: dir.path,
+    );
+    await evidence.reconcile();
     sync = SyncEngine(
       api: api,
       queue: queue,
@@ -76,12 +91,6 @@ class AppState extends ChangeNotifier {
       clock: clock,
       deviceUuid: deviceUuid!,
       evidenceRoot: dir.path,
-    );
-    evidence = EvidenceStore(
-      db: db,
-      queue: queue,
-      clock: clock,
-      rootDirectory: dir.path,
     );
     progress = VisitProgress(db);
 
@@ -109,6 +118,16 @@ class AppState extends ChangeNotifier {
   }
 
   bool get isAuthenticated => api.token != null;
+
+  bool get isArabic => locale.languageCode == 'ar';
+
+  Future<void> toggleLocale() async {
+    locale = Locale(isArabic ? 'en' : 'ar');
+    api.locale = locale.languageCode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('ui_locale', locale.languageCode);
+    notifyListeners();
+  }
 
   Future<String?> login(String email, String password) async {
     try {
@@ -167,45 +186,44 @@ class AppState extends ChangeNotifier {
     syncing = true;
     notifyListeners();
 
-    final outcome = await sync.sync();
+    try {
+      final outcome = await sync.sync();
+      if (outcome == null) return;
 
-    if (outcome == null) {
-      syncing = false;
-      notifyListeners();
-      return;
-    }
+      // A dead token cannot be retried into life. Clear it and let the UI fall back
+      // to the login screen; the queue is untouched and syncs after signing in.
+      if (outcome.sessionExpired) {
+        await tokens.clear();
+        api.token = null;
+        sessionExpired = true;
+        lastSyncMessage =
+            'انتهت الجلسة — سجّل الدخول مرة أخرى. عملك محفوظ ولم يضع منه شيء.';
+        return;
+      }
 
-    // A dead token cannot be retried into life. Clear it and let the UI fall back
-    // to the login screen; the queue is untouched and syncs after signing in.
-    if (outcome.sessionExpired) {
-      await tokens.clear();
-      api.token = null;
-      sessionExpired = true;
-      syncing = false;
+      online = outcome.error == null;
+      lastSyncedAt = online ? DateTime.now() : lastSyncedAt;
+      lastSyncMessage = switch (outcome) {
+        _ when outcome.error != null => 'تعذّرت المزامنة: ${outcome.error}',
+        _ when outcome.rejected > 0 =>
+          'رُفضت ${outcome.rejected} عملية — راجع شاشة المزامنة',
+        _ when outcome.heldBack > 0 =>
+          'بانتظار اكتمال رفع الأدلة قبل إرسال الإقفال (${outcome.heldBack})',
+        _ when outcome.total == 0 => 'لا شيء بانتظار المزامنة',
+        _ => 'تمت مزامنة ${outcome.accepted + outcome.duplicate} عملية',
+      };
+
+      if (online) await pullWork();
+    } catch (error, stackTrace) {
+      online = false;
       lastSyncMessage =
-          'انتهت الجلسة — سجّل الدخول مرة أخرى. عملك محفوظ ولم يضع منه شيء.';
-      notifyListeners();
-      return;
+          'تعذّرت المزامنة بشكل غير متوقع. عملك محفوظ للمحاولة التالية.';
+      debugPrint('Unexpected sync failure: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    } finally {
+      syncing = false;
+      await refreshLocal();
     }
-
-    online = outcome.error == null;
-    lastSyncedAt = online ? DateTime.now() : lastSyncedAt;
-    lastSyncMessage = switch (outcome) {
-      _ when outcome.error != null => 'تعذّرت المزامنة: ${outcome.error}',
-      _ when outcome.rejected > 0 =>
-        'رُفضت ${outcome.rejected} عملية — راجع شاشة المزامنة',
-      _ when outcome.heldBack > 0 =>
-        'بانتظار اكتمال رفع الأدلة قبل إرسال الإقفال (${outcome.heldBack})',
-      _ when outcome.total == 0 => 'لا شيء بانتظار المزامنة',
-      _ => 'تمت مزامنة ${outcome.accepted + outcome.duplicate} عملية',
-    };
-
-    if (online) {
-      await pullWork();
-    }
-
-    syncing = false;
-    await refreshLocal();
   }
 
   /// Every field action goes through here: written locally first, sent later.
@@ -234,6 +252,21 @@ class AppState extends ChangeNotifier {
     }
 
     await record(visitId, 'visit.transition', payload: {'to': target});
+
+    if (target == 'en_route' || target == 'started') {
+      final position = await camera.bestEffortPosition();
+      if (position != null) {
+        unawaited(
+          api
+              .updateVisitLocation(
+                visitId,
+                position.latitude,
+                position.longitude,
+              )
+              .catchError((_) {}),
+        );
+      }
+    }
 
     return true;
   }
