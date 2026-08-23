@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ClientPortalUser;
 use App\Services\AssetIntelligenceService;
 use App\Services\PerformanceScoreService;
+use App\Services\ReworkDetector;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -39,7 +40,33 @@ class QueryPerformanceTest extends DarakTestCase
 
         $queries = $this->countQueries(fn () => $this->get(route('panel.finance'))->assertOk());
 
-        $this->assertLessThanOrEqual(40, $queries);
+        $this->assertLessThanOrEqual(20, $queries);
+    }
+
+    public function test_first_time_fix_summary_uses_one_aggregate_query(): void
+    {
+        $queries = $this->countQueries(fn () => app(ReworkDetector::class)
+            ->firstTimeFixRate(now()->subDays(90), now()));
+
+        $this->assertLessThanOrEqual(1, $queries);
+    }
+
+    public function test_board_page_query_count_is_bounded(): void
+    {
+        $this->actingAs($this->owner, 'web');
+
+        $queries = $this->countQueries(fn () => $this->get(route('panel.board'))->assertOk());
+
+        $this->assertLessThanOrEqual(12, $queries);
+    }
+
+    public function test_operations_page_query_count_is_bounded(): void
+    {
+        $this->actingAs($this->owner, 'web');
+
+        $queries = $this->countQueries(fn () => $this->get(route('panel.operations'))->assertOk());
+
+        $this->assertLessThanOrEqual(20, $queries);
     }
 
     public function test_performance_dashboard_query_count_does_not_scale_per_employee(): void
@@ -50,7 +77,7 @@ class QueryPerformanceTest extends DarakTestCase
 
         $queries = $this->countQueries(fn () => app(PerformanceScoreService::class)->dashboard($this->owner, $from, $to));
 
-        $this->assertLessThanOrEqual(65, $queries);
+        $this->assertLessThanOrEqual(40, $queries);
     }
 
     private function countQueries(callable $action): int

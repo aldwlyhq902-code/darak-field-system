@@ -26,11 +26,20 @@ class FinanceInsightsController extends Controller
         $contractModels = Contract::with(['client', 'installments'])->whereIn('status', ['active', 'ended'])->get();
         $contractProfits = $this->profitability->forContracts($contractModels);
         $contracts = $contractModels->map(fn ($contract) => ['contract' => $contract, 'profit' => $contractProfits[$contract->id]]);
-        $clientBalances = Client::with('contracts.installments')->get()->map(fn ($client) => [
+        $clientBalances = Client::query()
+            ->leftJoin('contracts', 'contracts.client_id', '=', 'clients.id')
+            ->leftJoin('contract_installments', 'contract_installments.contract_id', '=', 'contracts.id')
+            ->select('clients.*')
+            ->selectRaw('COALESCE(SUM(contract_installments.total_amount), 0) AS billed_total')
+            ->selectRaw('COALESCE(SUM(contract_installments.paid_amount), 0) AS paid_total')
+            ->selectRaw("COALESCE(SUM(CASE WHEN contract_installments.due_on < ? AND contract_installments.status != 'paid' THEN contract_installments.total_amount - contract_installments.paid_amount ELSE 0 END), 0) AS overdue_total", [today()->toDateString()])
+            ->groupBy('clients.id')
+            ->get()
+            ->map(fn ($client) => [
             'client' => $client,
-            'billed' => (float) $client->contracts->flatMap->installments->sum('total_amount'),
-            'paid' => (float) $client->contracts->flatMap->installments->sum('paid_amount'),
-            'overdue' => (float) $client->contracts->flatMap->installments->where('due_on', '<', today())->where('status', '!=', 'paid')->sum(fn ($i) => $i->remaining()),
+            'billed' => (float) $client->billed_total,
+            'paid' => (float) $client->paid_total,
+            'overdue' => (float) $client->overdue_total,
         ]);
 
         $visitModels = Visit::with(['site.client', 'technician'])->where('state', Visit::STATE_COMPLETED)->latest('closed_at')->limit(40)->get();

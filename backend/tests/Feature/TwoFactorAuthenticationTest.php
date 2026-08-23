@@ -38,6 +38,9 @@ class TwoFactorAuthenticationTest extends DarakTestCase
         $admin->refresh();
         $this->assertTrue($admin->hasConfirmedTwoFactor());
         $this->assertCount(8, $admin->two_factor_recovery_codes);
+        foreach ($admin->two_factor_recovery_codes as $digest) {
+            $this->assertStringStartsWith('hmac:', $digest);
+        }
 
         $stored = DB::table('users')->where('id', $admin->id)->first();
         $this->assertNotSame($secret, $stored->two_factor_secret);

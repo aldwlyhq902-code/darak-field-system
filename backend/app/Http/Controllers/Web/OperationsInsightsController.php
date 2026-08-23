@@ -119,10 +119,15 @@ class OperationsInsightsController extends Controller
 
     private function assetSignals()
     {
-        return Asset::query()->with('site.client')->withCount([
+        $faultsInYear = fn ($q) => $q->whereIn('type', ['reactive', 'out_of_contract'])
+            ->where('reported_at', '>=', now()->subYear());
+
+        return Asset::query()->with('site.client')
+            ->whereHas('workOrders', $faultsInYear, '>=', 2)
+            ->withCount([
             'workOrders as faults_90d' => fn ($q) => $q->whereIn('type', ['reactive', 'out_of_contract'])->where('reported_at', '>=', now()->subDays(90)),
-            'workOrders as faults_365d' => fn ($q) => $q->whereIn('type', ['reactive', 'out_of_contract'])->where('reported_at', '>=', now()->subYear()),
-        ])->orderByDesc('faults_90d')->get()->filter(fn ($asset) => $asset->faults_365d >= 2)->take(30)->map(function ($asset) {
+            'workOrders as faults_365d' => $faultsInYear,
+        ])->orderByDesc('faults_90d')->limit(30)->get()->map(function ($asset) {
             $asset->signal = $asset->faults_90d >= 3 ? 'critical' : ($asset->faults_365d >= 3 ? 'watch' : 'observe');
 
             return $asset;
@@ -132,8 +137,11 @@ class OperationsInsightsController extends Controller
     private function partSignals()
     {
         return Part::query()->select('parts.*')
+            ->whereHas('stockMoves', fn ($query) => $query
+                ->where('move_type', StockMove::VISIT_ISSUE)
+                ->where('created_at', '>=', now()->subDays(90)), '>=', 2)
             ->selectSub(StockMove::query()->selectRaw('COUNT(*)')->whereColumn('stock_moves.part_id', 'parts.id')->where('move_type', StockMove::VISIT_ISSUE)->where('created_at', '>=', now()->subDays(90)), 'issues_90d')
             ->selectSub(StockMove::query()->selectRaw('COUNT(DISTINCT visit_id)')->whereColumn('stock_moves.part_id', 'parts.id')->where('move_type', StockMove::VISIT_ISSUE)->where('created_at', '>=', now()->subDays(90)), 'visits_90d')
-            ->orderByDesc('issues_90d')->limit(20)->get()->filter(fn ($part) => (int) $part->issues_90d >= 2);
+            ->orderByDesc('issues_90d')->limit(20)->get();
     }
 }

@@ -19,6 +19,15 @@ use Illuminate\Support\Collection;
 
 class PerformanceScoreService
 {
+    /** @var array<string, Collection<int, User>> */
+    private array $supervisorsByScope = [];
+
+    /** @var array<string, Collection<int, OperatingBranch>> */
+    private array $branchesByScope = [];
+
+    /** @var array<string, Collection<int, User>> */
+    private array $marketersByScope = [];
+
     public const CATEGORY_LABELS = [
         'technicians' => 'الفنيون',
         'supervisors' => 'المشرفون',
@@ -52,8 +61,18 @@ class PerformanceScoreService
         $previousFrom = $previousTo->subDays($days)->addSecond();
         $settings = PerformanceMetricSetting::query()->where('is_active', true)->get()->groupBy('category');
 
-        $current = $this->calculateAll($actor, $from, $to, $settings);
-        $previous = $this->calculateAll($actor, $previousFrom, $previousTo, $settings);
+        // Fetch the two adjacent comparison periods together. Eager-loaded
+        // relations and profitability aggregates are then reused instead of
+        // issuing the same query family twice.
+        $allVisits = $this->visitQuery($previousFrom, $to)->get();
+        $allVisitCosts = $this->profitability->forVisitIds($allVisits->modelKeys());
+        $currentVisits = $allVisits->filter(fn (Visit $visit) => $visit->scheduled_start?->gte($from)
+            && $visit->scheduled_start?->lte($to))->values();
+        $previousVisits = $allVisits->filter(fn (Visit $visit) => $visit->scheduled_start?->gte($previousFrom)
+            && $visit->scheduled_start?->lte($previousTo))->values();
+
+        $current = $this->calculateAll($actor, $from, $to, $settings, $currentVisits, $allVisitCosts);
+        $previous = $this->calculateAll($actor, $previousFrom, $previousTo, $settings, $previousVisits, $allVisitCosts);
 
         foreach ($current as $category => &$rows) {
             $previousById = collect($previous[$category] ?? [])->keyBy('id');
@@ -83,11 +102,15 @@ class PerformanceScoreService
     /** @param Collection<string, Collection<int, PerformanceMetricSetting>> $settings
      * @return array<string, array<int, array<string, mixed>>>
      */
-    private function calculateAll(User $actor, CarbonImmutable $from, CarbonImmutable $to, Collection $settings): array
+    private function calculateAll(
+        User $actor,
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        Collection $settings,
+        Collection $visits,
+        array $visitCosts,
+    ): array
     {
-        $visits = $this->visitQuery($from, $to)->get();
-        $visitCosts = $this->profitability->forVisitIds($visits->modelKeys());
-
         return [
             'technicians' => $this->technicians($actor, $from, $to, $settings->get('technicians', collect()), $visits, $visitCosts),
             'supervisors' => $this->supervisors($actor, $from, $to, $settings->get('supervisors', collect()), $visits),
@@ -129,7 +152,9 @@ class PerformanceScoreService
     /** @return array<int, array<string, mixed>> */
     private function supervisors(User $actor, CarbonImmutable $from, CarbonImmutable $to, Collection $settings, Collection $periodVisits): array
     {
-        $users = User::query()->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])
+        $scope = (string) ($actor->operating_branch_id ?? 'all');
+        $users = $this->supervisorsByScope[$scope] ??= User::query()
+            ->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])
             ->when($actor->operating_branch_id, fn (Builder $q, int $id) => $q->where('operating_branch_id', $id))
             ->where('is_active', true)->with('operatingBranch')->orderBy('name')->get();
         $handledByUser = VisitFeedback::query()->whereIn('reviewed_by', $users->modelKeys())
@@ -170,7 +195,9 @@ class PerformanceScoreService
     /** @return array<int, array<string, mixed>> */
     private function branches(User $actor, CarbonImmutable $from, CarbonImmutable $to, Collection $settings, Collection $periodVisits, array $visitCosts): array
     {
-        $branches = OperatingBranch::query()->where('is_active', true)
+        $scope = (string) ($actor->operating_branch_id ?? 'all');
+        $branches = $this->branchesByScope[$scope] ??= OperatingBranch::query()
+            ->where('is_active', true)
             ->when($actor->operating_branch_id, fn (Builder $q, int $id) => $q->whereKey($id))
             ->with('company')->orderBy('name')->get();
         $branchIds = $branches->modelKeys();
@@ -219,11 +246,15 @@ class PerformanceScoreService
     /** @return array<int, array<string, mixed>> */
     private function marketers(User $actor, CarbonImmutable $from, CarbonImmutable $to, Collection $settings): array
     {
-        $ids = SalesLead::query()->whereNotNull('owner_user_id')->pluck('owner_user_id')
-            ->merge(Quotation::query()->whereNotNull('created_by')->pluck('created_by'))->unique();
-        $users = User::query()->whereIn('id', $ids)
-            ->when($actor->operating_branch_id, fn (Builder $q, int $id) => $q->where('operating_branch_id', $id))
-            ->with('operatingBranch')->get();
+        $scope = (string) ($actor->operating_branch_id ?? 'all');
+        $users = $this->marketersByScope[$scope] ??= (function () use ($actor): Collection {
+            $ids = SalesLead::query()->whereNotNull('owner_user_id')->pluck('owner_user_id')
+                ->merge(Quotation::query()->whereNotNull('created_by')->pluck('created_by'))->unique();
+
+            return User::query()->whereIn('id', $ids)
+                ->when($actor->operating_branch_id, fn (Builder $q, int $id) => $q->where('operating_branch_id', $id))
+                ->with('operatingBranch')->get();
+        })();
         $userIds = $users->modelKeys();
         $leadsByUser = SalesLead::query()->whereIn('owner_user_id', $userIds)
             ->whereBetween('created_at', [$from, $to])->get()->groupBy('owner_user_id');

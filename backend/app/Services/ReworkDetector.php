@@ -83,10 +83,16 @@ class ReworkDetector
             ->where('state', Visit::STATE_COMPLETED)
             ->whereBetween('closed_at', [$from, $to]);
 
-        $total = (clone $base)->count();
-        $systemFlagged = (clone $base)->where('rework_system_flagged', true)->count();
-        $overridden = (clone $base)->whereNotNull('rework_overridden_by')->count();
-        $stillRework = (clone $base)->where('is_rework', true)->count();
+        $summary = $base->selectRaw('COUNT(*) AS total')
+            ->selectRaw('SUM(CASE WHEN rework_system_flagged = ? THEN 1 ELSE 0 END) AS system_flagged', [true])
+            ->selectRaw('SUM(CASE WHEN rework_overridden_by IS NOT NULL THEN 1 ELSE 0 END) AS overridden')
+            ->selectRaw('SUM(CASE WHEN is_rework = ? THEN 1 ELSE 0 END) AS still_rework', [true])
+            ->first();
+
+        $total = (int) ($summary?->total ?? 0);
+        $systemFlagged = (int) ($summary?->system_flagged ?? 0);
+        $overridden = (int) ($summary?->overridden ?? 0);
+        $stillRework = (int) ($summary?->still_rework ?? 0);
 
         return [
             'strict' => $total > 0 ? round(($total - $systemFlagged) / $total * 100, 1) : 0.0,

@@ -97,6 +97,12 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Supabase transaction pooling (port 6543) is designed for
+            // serverless runtimes and does not support server-side prepared
+            // statements. Enable PDO emulation there via the environment.
+            'options' => extension_loaded('pdo_pgsql') ? array_filter([
+                \PDO::ATTR_EMULATE_PREPARES => env('DB_EMULATE_PREPARES'),
+            ], fn ($value) => $value !== null) : [],
         ],
 
         'sqlsrv' => [

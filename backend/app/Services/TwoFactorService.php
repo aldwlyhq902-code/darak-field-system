@@ -65,7 +65,10 @@ class TwoFactorService
 
         return [
             'plain' => $plain,
-            'hashed' => array_map(fn (string $code) => Hash::make($this->normaliseRecoveryCode($code)), $plain),
+            // The array is encrypted at rest by the User cast. A keyed digest
+            // also prevents recovery-code disclosure while avoiding eight
+            // sequential password hashes during MFA enrollment.
+            'hashed' => array_map(fn (string $code) => $this->recoveryDigest($code), $plain),
         ];
     }
 
@@ -80,7 +83,12 @@ class TwoFactorService
             $codes = $locked->two_factor_recovery_codes ?? [];
 
             foreach ($codes as $index => $hash) {
-                if (Hash::check($candidate, $hash)) {
+                $valid = str_starts_with($hash, 'hmac:')
+                    ? hash_equals($hash, $this->recoveryDigest($candidate))
+                    // Preserve codes generated before the keyed-digest format.
+                    : Hash::check($candidate, $hash);
+
+                if ($valid) {
                     unset($codes[$index]);
                     $codes = array_values($codes);
                     $locked->forceFill(['two_factor_recovery_codes' => $codes])->save();
@@ -112,5 +120,14 @@ class TwoFactorService
     private function normaliseRecoveryCode(string $code): string
     {
         return strtoupper(str_replace(['-', ' '], '', trim($code)));
+    }
+
+    private function recoveryDigest(string $code): string
+    {
+        return 'hmac:'.hash_hmac(
+            'sha256',
+            $this->normaliseRecoveryCode($code),
+            (string) config('app.key'),
+        );
     }
 }
