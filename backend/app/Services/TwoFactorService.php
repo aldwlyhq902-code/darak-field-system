@@ -3,6 +3,12 @@
 namespace App\Services;
 
 use App\Models\User;
+use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Color\Color;
+use Endroid\QrCode\Encoding\Encoding;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\RoundBlockSizeMode;
+use Endroid\QrCode\Writer\SvgWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use OTPHP\TOTP;
@@ -17,6 +23,22 @@ class TwoFactorService
     public function provisioningUri(User $user): string
     {
         return $this->totp($user)->getProvisioningUri();
+    }
+
+    public function provisioningQrDataUri(User $user): string
+    {
+        return Builder::create()
+            ->writer(new SvgWriter)
+            ->data($this->provisioningUri($user))
+            ->encoding(new Encoding('UTF-8'))
+            ->errorCorrectionLevel(ErrorCorrectionLevel::High)
+            ->size(320)
+            ->margin(16)
+            ->roundBlockSizeMode(RoundBlockSizeMode::Margin)
+            ->foregroundColor(new Color(5, 47, 44))
+            ->backgroundColor(new Color(255, 255, 255))
+            ->build()
+            ->getDataUri();
     }
 
     public function currentCode(User $user): string

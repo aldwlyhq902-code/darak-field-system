@@ -22,7 +22,10 @@ class TwoFactorAuthenticationTest extends DarakTestCase
         $this->assertAuthenticatedAs($admin, 'web');
         $this->get(route('panel.board'))->assertRedirect(route('panel.two-factor.setup'));
 
-        $this->get(route('panel.two-factor.setup'))->assertOk();
+        $this->get(route('panel.two-factor.setup'))
+            ->assertOk()
+            ->assertSee('رمز QR لإعداد التحقق بخطوتين')
+            ->assertSee('data:image/svg+xml;base64,', false);
         $admin->refresh();
         $secret = $admin->two_factor_secret;
 

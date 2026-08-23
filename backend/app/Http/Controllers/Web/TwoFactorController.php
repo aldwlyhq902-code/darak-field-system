@@ -36,6 +36,7 @@ class TwoFactorController extends Controller
         return view('panel.two-factor-setup', [
             'secret' => $user->two_factor_secret,
             'provisioningUri' => $this->twoFactor->provisioningUri($user),
+            'qrDataUri' => $this->twoFactor->provisioningQrDataUri($user),
         ]);
     }
 

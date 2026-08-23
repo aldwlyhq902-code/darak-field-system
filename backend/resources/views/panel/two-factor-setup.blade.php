@@ -8,7 +8,11 @@
 <div class="card">
     <div class="hd">1. أضف الحساب إلى تطبيق Authenticator</div>
     <div class="bd">
-        <p>اختر «إدخال مفتاح إعداد» في Google Authenticator أو Microsoft Authenticator أو 1Password.</p>
+        <p>امسح الرمز بتطبيق Google Authenticator أو Microsoft Authenticator أو 1Password.</p>
+        <div style="display:flex;justify-content:center;margin:16px 0 20px">
+            <img src="{{ $qrDataUri }}" alt="رمز QR لإعداد التحقق بخطوتين" width="260" height="260" style="width:min(260px,100%);height:auto;background:#fff;padding:10px;border:1px solid var(--line);border-radius:12px">
+        </div>
+        <p class="sub">إذا تعذّر المسح، أدخل المفتاح يدويًا:</p>
         <div class="note" style="direction:ltr;text-align:left;word-break:break-all">
             <strong>Account:</strong> {{ auth()->user()->email }}<br>
             <strong>Key:</strong> {{ $secret }}<br>
