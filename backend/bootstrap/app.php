@@ -27,6 +27,13 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: getenv('VERCEL') ? '' : 'api',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Vercel terminates TLS before forwarding the request to PHP. Trust its
+        // proxy headers so Laravel keeps generated form actions and redirects on
+        // HTTPS instead of producing mixed-content HTTP URLs in the browser.
+        if (getenv('VERCEL')) {
+            $middleware->trustProxies(at: '*');
+        }
+
         $middleware->append(SecurityHeaders::class);
         $middleware->web(append: [SetUserLocale::class]);
         $middleware->api(prepend: [SetUserLocale::class]);
