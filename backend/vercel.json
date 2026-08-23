@@ -11,7 +11,10 @@
     }
   },
   "routes": [
-    { "handle": "filesystem" },
+    { "src": "/build/(.*)", "dest": "/build/$1" },
+    { "src": "/favicon.ico", "dest": "/favicon.ico" },
+    { "src": "/robots.txt", "dest": "/robots.txt" },
+    { "src": "/client-icon.svg", "dest": "/client-icon.svg" },
     { "src": "/(.*)", "dest": "/api/index.php" }
   ]
 }
