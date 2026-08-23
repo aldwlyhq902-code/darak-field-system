@@ -101,6 +101,9 @@ return [
     */
     'experimental_analytics' => (bool) env('DARAK_ENABLE_EXPERIMENTAL_ANALYTICS', false),
 
+    // Required only when intentionally creating non-production demo accounts.
+    'demo_password' => env('DARAK_DEMO_PASSWORD'),
+
     /*
     | Deliberately ABSENT from the MVP, recorded here so nobody re-adds them by
     | accident. Each was removed for a documented reason (PRD v1.2 §3):

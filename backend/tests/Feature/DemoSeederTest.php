@@ -17,6 +17,7 @@ class DemoSeederTest extends TestCase
 
     public function test_demo_records_belong_to_an_operating_tenant(): void
     {
+        config()->set('darak.demo_password', 'test-demo-password-2026');
         $this->seed(DarakDemoSeeder::class);
 
         $this->assertSame(1, OperatingCompany::query()->count());

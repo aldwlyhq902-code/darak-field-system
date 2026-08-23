@@ -39,6 +39,11 @@ class DarakDemoSeeder extends Seeder
             throw new \RuntimeException('Demo credentials must never be seeded in production.');
         }
 
+        $demoPassword = (string) config('darak.demo_password');
+        if (strlen($demoPassword) < 16) {
+            throw new \RuntimeException('DARAK_DEMO_PASSWORD must contain at least 16 characters.');
+        }
+
         $sla = app(SlaCalculator::class);
 
         $company = OperatingCompany::create([
@@ -60,7 +65,7 @@ class DarakDemoSeeder extends Seeder
         $owner = User::create([
             'name' => 'مالك دارك',
             'email' => 'owner@darak.test',
-            'password' => Hash::make('password'),
+            'password' => Hash::make($demoPassword),
             'role' => User::ROLE_OWNER,
             'phone' => '0500000000',
             'is_active' => true,
@@ -70,7 +75,7 @@ class DarakDemoSeeder extends Seeder
         User::create([
             'name' => 'إداري / محاسبة',
             'email' => 'admin@darak.test',
-            'password' => Hash::make('password'),
+            'password' => Hash::make($demoPassword),
             'role' => User::ROLE_ADMIN,
             'is_active' => true,
             'operating_company_id' => $company->id,
@@ -87,7 +92,7 @@ class DarakDemoSeeder extends Seeder
         ])->map(fn ($t) => User::create([
             'name' => $t['name'],
             'email' => $t['email'],
-            'password' => Hash::make('password'),
+            'password' => Hash::make($demoPassword),
             'role' => User::ROLE_TECHNICIAN,
             'trade' => 'فني تكييف وتبريد',
             'specialties' => $t['spec'],
@@ -319,6 +324,6 @@ class DarakDemoSeeder extends Seeder
             }
         }
 
-        $this->command?->info('Darak demo data seeded. Login: owner@darak.test / tech1@darak.test — password: password');
+        $this->command?->info('Darak demo data seeded. Login: owner@darak.test / tech1@darak.test — password supplied through DARAK_DEMO_PASSWORD.');
     }
 }
