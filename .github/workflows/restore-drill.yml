@@ -42,7 +42,7 @@ jobs:
       PGPASSWORD: postgres
       DARAK_BACKUP_PASSWORD: ci-only-backup-password-32-characters
       DARAK_DEMO_PASSWORD: Darak-Restore-Drill-2026!
-      DARAK_BACKUP_PATH: ${{ runner.temp }}/darak-backups
+      DARAK_BACKUP_PATH: /tmp/darak-backups
 
     steps:
       - uses: actions/checkout@v4
