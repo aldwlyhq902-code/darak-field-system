@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ReportDispute extends Model
 {
+    use ScopedToOperatingBranch;
+
     protected $fillable = ['public_reference', 'visit_id', 'client_portal_user_id', 'category', 'description', 'attachment_path', 'status', 'resolution_note', 'resolved_by', 'resolved_at'];
 
     protected function casts(): array

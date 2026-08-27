@@ -18,6 +18,7 @@ use App\Services\AuditLogger;
 use App\Services\AutomaticReassignmentService;
 use App\Services\DispatchSuggestionService;
 use App\Services\RoutePlanningService;
+use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -30,6 +31,7 @@ class OperationsInsightsController extends Controller
         private readonly RoutePlanningService $routes,
         private readonly AutomaticReassignmentService $reassignment,
         private readonly AuditLogger $audit,
+        private readonly TenantAccess $tenantAccess,
     ) {}
 
     public function calendar(Request $request): View
@@ -52,11 +54,13 @@ class OperationsInsightsController extends Controller
 
         if ($tab === 'quality') {
             $data['feedbackItems'] = VisitFeedback::with(['visit.site.client', 'portalUser'])
+                ->whereHas('visit')
                 ->where('is_complaint', true)
                 ->latest('id')
                 ->limit(30)
                 ->get();
             $data['disputes'] = ReportDispute::with(['visit.site.client'])
+                ->whereHas('visit')
                 ->whereIn('status', ['new', 'reviewed'])
                 ->latest()
                 ->limit(30)
@@ -73,11 +77,14 @@ class OperationsInsightsController extends Controller
                 ->orderBy('name')
                 ->get();
             $data['absences'] = TechnicianAbsence::with('user')
+                ->whereHas('user', fn ($query) => $query
+                    ->when(! $request->user()->isPlatformAdmin(), fn ($user) => $user->where('operating_company_id', $request->user()->operating_company_id)))
                 ->where('ends_on', '>=', now()->toDateString())
                 ->latest()
                 ->limit(30)
                 ->get();
             $data['outages'] = VehicleOutage::with('vehicle.assignedUser')
+                ->whereHas('vehicle')
                 ->where('status', 'open')
                 ->latest()
                 ->get();
@@ -99,7 +106,7 @@ class OperationsInsightsController extends Controller
             default => $start->copy()->addDays(6)->endOfDay(),
         };
         $dayCount = $start->diffInDays($end->copy()->startOfDay()) + 1;
-        $technicians = User::where('role', User::ROLE_TECHNICIAN)->where('is_active', true)->orderBy('name')->get();
+        $technicians = $this->visibleTechnicians($request)->orderBy('name')->get();
         $visits = Visit::with(['site.client', 'workOrder.asset', 'technician'])
             ->whereBetween('scheduled_start', [$start, $end])->orderBy('scheduled_start')->get();
         $suggestions = $visits->whereNull('assigned_user_id')->mapWithKeys(fn (Visit $visit) => [$visit->id => $this->dispatch->suggest($visit)]);
@@ -113,7 +120,7 @@ class OperationsInsightsController extends Controller
     public function reschedule(Request $request, Visit $visit): RedirectResponse
     {
         $data = $request->validate(['assigned_user_id' => ['required', 'exists:users,id'], 'scheduled_start' => ['required', 'date'], 'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:720']]);
-        $technician = User::findOrFail($data['assigned_user_id']);
+        $technician = $this->visibleTechnicians($request)->findOrFail($data['assigned_user_id']);
         $oldTechnician = $visit->technician;
         $oldDay = $visit->scheduled_start;
         $start = CarbonImmutable::parse($data['scheduled_start']);
@@ -137,6 +144,7 @@ class OperationsInsightsController extends Controller
     public function absence(Request $request): RedirectResponse
     {
         $data = $request->validate(['user_id' => ['required', 'exists:users,id'], 'starts_on' => ['required', 'date'], 'ends_on' => ['required', 'date', 'after_or_equal:starts_on'], 'reason' => ['required', 'string', 'max:64']]);
+        $this->visibleTechnicians($request)->findOrFail($data['user_id']);
         TechnicianAbsence::create($data + ['status' => 'approved', 'approved_by' => $request->user()->id]);
         $count = $this->reassignment->run();
 
@@ -155,6 +163,7 @@ class OperationsInsightsController extends Controller
 
     public function resolveDispute(Request $request, ReportDispute $dispute): RedirectResponse
     {
+        $this->tenantAccess->assertDispute($request->user(), $dispute);
         $data = $request->validate(['status' => ['required', 'in:reviewed,resolved,rejected'], 'resolution_note' => ['required', 'string', 'max:3000']]);
         $dispute->forceFill(['status' => $data['status'], 'resolution_note' => $data['resolution_note'], 'resolved_by' => $request->user()->id, 'resolved_at' => $data['status'] === 'reviewed' ? null : now()])->save();
         $this->audit->record('report_dispute.'.$data['status'], $dispute, null, $data, $request->user()->id);
@@ -188,5 +197,17 @@ class OperationsInsightsController extends Controller
             ->selectSub(StockMove::query()->selectRaw('COUNT(*)')->whereColumn('stock_moves.part_id', 'parts.id')->where('move_type', StockMove::VISIT_ISSUE)->where('created_at', '>=', now()->subDays(90)), 'issues_90d')
             ->selectSub(StockMove::query()->selectRaw('COUNT(DISTINCT visit_id)')->whereColumn('stock_moves.part_id', 'parts.id')->where('move_type', StockMove::VISIT_ISSUE)->where('created_at', '>=', now()->subDays(90)), 'visits_90d')
             ->orderByDesc('issues_90d')->limit(20)->get();
+    }
+
+    private function visibleTechnicians(Request $request)
+    {
+        $actor = $request->user();
+
+        return User::query()
+            ->where('role', User::ROLE_TECHNICIAN)
+            ->where('is_active', true)
+            ->when(! $actor->isPlatformAdmin(), fn ($query) => $query
+                ->where('operating_company_id', $actor->operating_company_id)
+                ->when($actor->operating_branch_id, fn ($users, $branchId) => $users->where('operating_branch_id', $branchId)));
     }
 }

@@ -157,7 +157,7 @@ class HrFleetManagementTest extends DarakTestCase
         $branchB = OperatingBranch::create(['operating_company_id' => $company->id, 'name' => 'فرع ب', 'code' => 'HR-B', 'is_active' => true]);
         $admin = User::create([
             'name' => 'مسؤول الفرع', 'email' => 'branch-hr@test.local', 'password' => Hash::make('secret'),
-            'role' => User::ROLE_ADMIN, 'operating_branch_id' => $branchA->id,
+            'role' => User::ROLE_ADMIN, 'operating_company_id' => $company->id, 'operating_branch_id' => $branchA->id,
             'permissions' => ['operations', 'hr'], 'is_active' => true,
         ]);
         $admin->forceFill([
@@ -179,6 +179,6 @@ class HrFleetManagementTest extends DarakTestCase
 
         $this->actingAs($admin, 'web')->get(route('panel.notifications'))
             ->assertOk()->assertSee($own->body)->assertDontSee($other->body);
-        $this->post(route('panel.notifications.sent', $other))->assertForbidden();
+        $this->post(route('panel.notifications.sent', $other))->assertNotFound();
     }
 }

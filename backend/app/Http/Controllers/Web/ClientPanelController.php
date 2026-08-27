@@ -13,6 +13,7 @@ use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Services\SlaCalculator;
 use App\Support\BusinessReference;
+use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,7 +29,7 @@ use Illuminate\View\View;
  */
 class ClientPanelController extends Controller
 {
-    public function __construct(private readonly SlaCalculator $sla) {}
+    public function __construct(private readonly SlaCalculator $sla, private readonly TenantAccess $tenantAccess) {}
 
     public function index(): View
     {
@@ -266,6 +267,7 @@ class ClientPanelController extends Controller
     public function togglePortalUser(Request $request, ClientPortalUser $portalUser): RedirectResponse
     {
         abort_unless($request->user()->isOwner(), 403);
+        $this->tenantAccess->assertPortalUser($request->user(), $portalUser);
         $portalUser->forceFill(['is_active' => ! $portalUser->is_active])->save();
 
         return back()->with('ok', $portalUser->is_active ? 'فُعّل حساب العميل.' : 'عُطّل حساب العميل.');

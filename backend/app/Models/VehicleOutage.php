@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class VehicleOutage extends Model
 {
+    use ScopedToOperatingBranch;
+
     protected $fillable = ['vehicle_id', 'starts_at', 'ends_at', 'reason', 'status', 'reported_by'];
 
     protected function casts(): array

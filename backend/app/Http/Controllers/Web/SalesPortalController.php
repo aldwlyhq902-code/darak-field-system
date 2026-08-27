@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\PerformanceScoreService;
 use App\Services\SalesPushService;
+use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -40,6 +41,7 @@ class SalesPortalController extends Controller
         private readonly AuditLogger $audit,
         private readonly PerformanceScoreService $performance,
         private readonly SalesPushService $push,
+        private readonly TenantAccess $tenantAccess,
     ) {}
 
     public function index(Request $request): View
@@ -242,6 +244,8 @@ class SalesPortalController extends Controller
             'proposals_target' => ['required', 'integer', 'min:0', 'max:10000'], 'won_value_target' => ['required', 'numeric', 'min:0'],
             'collections_target' => ['required', 'numeric', 'min:0'],
         ]);
+        $targetUser = User::query()->findOrFail($data['user_id']);
+        $this->tenantAccess->assertUser($request->user(), $targetUser);
         $values = collect($data)->except(['user_id', 'month'])->all() + ['set_by' => $request->user()->id];
         $target = SalesTarget::query()->updateOrCreate(['user_id' => $data['user_id'], 'month' => $data['month'].'-01'], $values);
         $this->audit->record('sales.target_set', $target, null, $target->getAttributes(), $request->user()->id);

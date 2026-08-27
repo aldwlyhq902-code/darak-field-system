@@ -12,7 +12,7 @@
                 @csrf
                 <div class="field">
                     <label for="challenge-code">رمز التحقق أو الاسترداد</label>
-                    <input id="challenge-code" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus style="min-height:52px;font:700 22px ui-monospace,Consolas,monospace;letter-spacing:.18em;text-align:center;direction:ltr">
+                    <input id="challenge-code" name="code" inputmode="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="32" required autofocus style="min-height:52px;font:700 22px ui-monospace,Consolas,monospace;letter-spacing:.12em;text-align:center;direction:ltr">
                 </div>
                 <button class="btn" style="width:100%;font-weight:700">تحقق وأكمل الدخول</button>
             </form>

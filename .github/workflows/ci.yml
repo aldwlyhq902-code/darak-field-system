@@ -46,6 +46,8 @@ jobs:
 
       - run: composer validate --strict
       - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Prepare Laravel runtime directories
+        run: mkdir -p storage/framework/{cache/data,sessions,testing,views} storage/logs bootstrap/cache
       - run: composer audit --locked --no-interaction
       - run: vendor/bin/pint --test
       - uses: actions/setup-node@v4

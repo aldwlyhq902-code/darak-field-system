@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TechnicianAbsence extends Model
 {
+    use ScopedToOperatingBranch;
+
     protected $fillable = ['user_id', 'starts_on', 'ends_on', 'reason', 'status', 'approved_by', 'employee_leave_id'];
 
     protected function casts(): array

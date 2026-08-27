@@ -168,6 +168,43 @@ class TwoFactorAuthenticationTest extends DarakTestCase
             ->assertHeader('Cache-Control', 'no-store, private');
     }
 
+    public function test_password_only_enrollment_session_cannot_inherit_mfa_from_another_session(): void
+    {
+        $admin = $this->unconfirmedAdmin();
+        $this->post(route('panel.login'), [
+            'email' => $admin->email,
+            'password' => 'Strong-Test9!',
+        ])->assertRedirect(route('panel.two-factor.setup'));
+
+        // Simulate a second browser completing enrollment while this first
+        // password-only session remains open.
+        $admin->forceFill([
+            'two_factor_secret' => 'JBSWY3DPEHPK3PXP',
+            'two_factor_recovery_codes' => [],
+            'two_factor_confirmed_at' => now(),
+        ])->save();
+        app('auth')->forgetGuards();
+
+        $this->get(route('panel.board'))
+            ->assertRedirect(route('panel.login'));
+        $this->assertGuest('web');
+    }
+
+    public function test_old_session_does_not_return_after_disable_and_reenable(): void
+    {
+        $this->actingAs($this->owner, 'web')->get(route('panel.board'))->assertOk();
+        $oldVersion = $this->owner->auth_version;
+
+        $this->owner->forceFill([
+            'is_active' => true,
+            'auth_version' => $oldVersion + 1,
+        ])->save();
+
+        $this->get(route('panel.board'))
+            ->assertRedirect(route('panel.login'));
+        $this->assertGuest('web');
+    }
+
     private function unconfirmedAdmin(): User
     {
         return User::factory()->create([
@@ -175,6 +212,8 @@ class TwoFactorAuthenticationTest extends DarakTestCase
             'email' => 'unconfirmed-admin@test.local',
             'password' => Hash::make('Strong-Test9!'),
             'role' => User::ROLE_ADMIN,
+            'operating_company_id' => $this->operatingCompany->id,
+            'operating_branch_id' => $this->operatingBranch->id,
             'is_active' => true,
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,

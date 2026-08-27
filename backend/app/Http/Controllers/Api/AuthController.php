@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +20,7 @@ use Illuminate\Validation\ValidationException;
  */
 class AuthController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
     public function login(Request $request): JsonResponse
     {
@@ -101,6 +102,7 @@ class AuthController extends Controller
         if (! $request->user()->isOwner()) {
             return response()->json(['code' => 'FORBIDDEN', 'message' => 'Only the supervisor may revoke a device.'], 403);
         }
+        $this->tenantAccess->assertDevice($request->user(), $device);
 
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:190']]);
 

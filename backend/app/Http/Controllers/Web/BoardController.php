@@ -87,6 +87,9 @@ class BoardController extends Controller
         // phone has not synced for hours may be out of coverage, or may have the
         // app closed. Either way the board must not present stale data as live.
         $devices = Device::with('user')
+            ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->whereHas('user', fn ($user) => $user
+                ->where('operating_company_id', $request->user()->operating_company_id)
+                ->when($request->user()->operating_branch_id, fn ($users, $branchId) => $users->where('operating_branch_id', $branchId))))
             ->whereNull('revoked_at')
             ->get()
             ->map(fn (Device $d) => [
@@ -117,7 +120,7 @@ class BoardController extends Controller
         ]);
     }
 
-    public function show(Visit $visit, InventoryService $inventory): View
+    public function show(Request $request, Visit $visit, InventoryService $inventory): View
     {
         $visit->load([
             'workOrder.contract', 'workOrder.client', 'site.assets',
@@ -130,14 +133,14 @@ class BoardController extends Controller
             'visit' => $visit,
             'blockers' => $this->closeGate->blockers($visit),
             'consumption' => $inventory->visitConsumption($visit),
-            'technicians' => User::where('role', User::ROLE_TECHNICIAN)->where('is_active', true)->get(),
+            'technicians' => $this->visibleTechnicians($request)->get(),
         ]);
     }
 
     public function assign(Request $request, Visit $visit): RedirectResponse
     {
         $data = $request->validate(['user_id' => ['required', 'exists:users,id']]);
-        $technician = User::findOrFail($data['user_id']);
+        $technician = $this->visibleTechnicians($request)->findOrFail($data['user_id']);
 
         $reasons = $this->dispatch->conflicts($technician, $visit->loadMissing('workOrder.asset'));
 
@@ -167,6 +170,18 @@ class BoardController extends Controller
         $this->notifications->visitAssigned($visit->refresh(), $technician);
 
         return back()->with('ok', "أُسندت الزيارة إلى {$technician->name}.");
+    }
+
+    private function visibleTechnicians(Request $request)
+    {
+        $actor = $request->user();
+
+        return User::query()
+            ->where('role', User::ROLE_TECHNICIAN)
+            ->where('is_active', true)
+            ->when(! $actor->isPlatformAdmin(), fn ($query) => $query
+                ->where('operating_company_id', $actor->operating_company_id)
+                ->when($actor->operating_branch_id, fn ($users, $branchId) => $users->where('operating_branch_id', $branchId)));
     }
 
     public function overrideRework(Request $request, Visit $visit): RedirectResponse

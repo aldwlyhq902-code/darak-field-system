@@ -183,7 +183,7 @@ class RemainingFindingsTest extends DarakTestCase
 
         $this->actingAs($admin, 'web')
             ->post(route('panel.team.revoke', $this->device))
-            ->assertStatus(403);
+            ->assertNotFound();
 
         $this->actingAs($admin, 'web')
             ->post(route('panel.team.toggle', $this->technician))

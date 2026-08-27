@@ -13,6 +13,7 @@ use App\Services\NotificationService;
 use App\Services\ReworkDetector;
 use App\Services\RoutePlanningService;
 use App\Services\VisitStateMachine;
+use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,6 +30,7 @@ class VisitController extends Controller
         private readonly AdditionalWorkService $additionalWork,
         private readonly RoutePlanningService $routes,
         private readonly AuditLogger $audit,
+        private readonly TenantAccess $tenantAccess,
     ) {}
 
     public function createAdditionalWork(Request $request, Visit $visit): JsonResponse
@@ -171,6 +173,7 @@ class VisitController extends Controller
         ]);
 
         $technician = User::findOrFail($data['user_id']);
+        $this->tenantAccess->assertUser($request->user(), $technician);
 
         // Manual dispatch, with hard guards only. The weighted auto-dispatch engine
         // is backlog — with four technicians a supervisor assigns faster than a
@@ -225,6 +228,9 @@ class VisitController extends Controller
 
         if (! $technician->is_active) {
             $reasons[] = 'Technician is not active.';
+        }
+        if ($technician->role !== User::ROLE_TECHNICIAN) {
+            $reasons[] = 'Selected user is not a technician.';
         }
 
         $start = $visit->scheduled_start;

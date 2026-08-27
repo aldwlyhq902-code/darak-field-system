@@ -24,6 +24,7 @@ class SalesPwaTest extends DarakTestCase
         parent::setUp();
         $company = OperatingCompany::create(['name' => 'شركة المبيعات', 'currency' => 'SAR', 'is_active' => true]);
         $this->branch = OperatingBranch::create(['operating_company_id' => $company->id, 'name' => 'فرع المبيعات', 'code' => 'SALES', 'is_active' => true]);
+        $this->owner->forceFill(['operating_company_id' => $company->id, 'operating_branch_id' => $this->branch->id])->save();
         $this->client->forceFill(['operating_company_id' => $company->id, 'operating_branch_id' => $this->branch->id])->save();
         $this->marketer = $this->panelUser('marketer@test.local', ['sales'], $this->branch->id);
     }
@@ -169,6 +170,7 @@ class SalesPwaTest extends DarakTestCase
         $user = User::create([
             'name' => str($email)->before('@')->headline()->toString(), 'email' => $email,
             'password' => Hash::make('secret'), 'role' => User::ROLE_ADMIN,
+            'operating_company_id' => $this->branch->operating_company_id,
             'operating_branch_id' => $branchId, 'permissions' => $permissions, 'is_active' => true,
         ]);
         $user->forceFill([

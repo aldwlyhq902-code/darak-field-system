@@ -7,13 +7,14 @@ use App\Models\Visit;
 use App\Models\VisitFeedback;
 use App\Services\AuditLogger;
 use App\Services\NotificationService;
+use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class VisitFeedbackController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit, private readonly NotificationService $notifications) {}
+    public function __construct(private readonly AuditLogger $audit, private readonly NotificationService $notifications, private readonly TenantAccess $tenantAccess) {}
 
     public function store(Request $request, Visit $visit): RedirectResponse
     {
@@ -45,6 +46,7 @@ class VisitFeedbackController extends Controller
 
     public function review(Request $request, VisitFeedback $feedback): RedirectResponse
     {
+        $this->tenantAccess->assertFeedback($request->user(), $feedback);
         $data = $request->validate(['status' => ['required', 'in:reviewed,resolved'], 'supervisor_note' => ['required', 'string', 'max:1500']]);
         $feedback->forceFill($data + ['reviewed_by' => $request->user()->id, 'reviewed_at' => now()])->save();
         $this->audit->record('visit_feedback.'.$data['status'], $feedback, null, $data, $request->user()->id);

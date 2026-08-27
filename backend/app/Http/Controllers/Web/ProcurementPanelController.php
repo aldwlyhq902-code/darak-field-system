@@ -14,6 +14,7 @@ use App\Models\StockReservation;
 use App\Models\StocktakeSession;
 use App\Models\Supplier;
 use App\Models\SupplierQuotation;
+use App\Models\User;
 use App\Models\VehicleStockTransfer;
 use App\Models\Visit;
 use App\Services\AuditLogger;
@@ -23,6 +24,7 @@ use App\Services\RfqService;
 use App\Services\StocktakeService;
 use App\Services\VehicleLoadSuggestionService;
 use App\Support\BusinessReference;
+use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +40,7 @@ class ProcurementPanelController extends Controller
         private readonly StocktakeService $stocktakes,
         private readonly VehicleLoadSuggestionService $loadSuggestions,
         private readonly RfqService $rfqs,
+        private readonly TenantAccess $tenantAccess,
     ) {}
 
     public function index(): View
@@ -223,6 +226,10 @@ class ProcurementPanelController extends Controller
     public function createStocktake(Request $request): RedirectResponse
     {
         $data = $request->validate(['stock_location_id' => ['required', 'exists:stock_locations,id'], 'assigned_user_id' => ['nullable', 'exists:users,id']]);
+        StockLocation::query()->findOrFail($data['stock_location_id']);
+        if (isset($data['assigned_user_id'])) {
+            $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['assigned_user_id']));
+        }
         try {
             $this->stocktakes->create((int) $data['stock_location_id'], isset($data['assigned_user_id']) ? (int) $data['assigned_user_id'] : null, $request->user()->id);
         } catch (RuntimeException $e) {

@@ -59,6 +59,7 @@ class User extends Authenticatable
             'two_factor_secret' => 'encrypted',
             'two_factor_recovery_codes' => 'encrypted:array',
             'two_factor_confirmed_at' => 'datetime',
+            'auth_version' => 'integer',
         ];
     }
 
@@ -171,6 +172,6 @@ class User extends Authenticatable
             $permissions = self::DEFAULT_PANEL_PERMISSIONS[$this->role] ?? [];
         }
 
-        return $this->isOwner() || in_array('*', $permissions, true) || in_array($permission, $permissions, true);
+        return $this->isPlatformAdmin() || $this->isOwner() || in_array('*', $permissions, true) || in_array($permission, $permissions, true);
     }
 }

@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 
 class ClientPortalUser extends Authenticatable
 {
+    use ScopedToOperatingBranch;
+
     public const DEFAULT_PERMISSIONS = [
         'quotes.approve', 'contracts.sign', 'reports.dispute',
         'assets.history', 'service.request', 'additional-work.approve',

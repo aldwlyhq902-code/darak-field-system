@@ -15,6 +15,7 @@ class PreflightCommand extends Command
         $backupPath = (string) config('darak.backup_path');
         $backupPassword = (string) config('darak.backup_password');
         $expiration = (int) config('sanctum.expiration');
+        $databaseSslMode = (string) config('database.connections.pgsql.sslmode');
         $privacy = (array) config('darak.privacy', []);
         $retention = (array) ($privacy['retention_days'] ?? []);
         $requiredPrivacyText = [
@@ -37,8 +38,10 @@ class PreflightCommand extends Command
             ['HTTPS application URL', str_starts_with((string) config('app.url'), 'https://'), (string) config('app.url')],
             ['Application key present', strlen((string) config('app.key')) >= 32, 'configured'],
             ['Secure session cookie', config('session.secure') === true, config('session.secure') ? 'enabled' : 'disabled'],
+            ['Encrypted session payload', config('session.encrypt') === true, config('session.encrypt') ? 'enabled' : 'disabled'],
             ['Finite device-token lifetime', $expiration > 0 && $expiration <= 43200, $expiration.' minutes'],
             ['PostgreSQL selected', config('database.default') === 'pgsql', (string) config('database.default')],
+            ['Encrypted PostgreSQL transport', in_array($databaseSslMode, ['require', 'verify-ca', 'verify-full'], true), $databaseSslMode],
             ['Encrypted backups', strlen($backupPassword) >= 20, strlen($backupPassword) >= 20 ? 'configured' : 'missing'],
             ['External backup path', $this->isExternalBackupPath($backupPath), $backupPath === '' ? 'missing' : $backupPath],
             ['Persistent production runtime', ! (bool) config('darak.ephemeral_serverless'), config('darak.ephemeral_serverless') ? 'ephemeral/serverless' : 'persistent'],

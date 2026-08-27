@@ -9,22 +9,31 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\AuditLogger;
 use App\Support\BusinessReference;
+use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\View\View;
 
 class TeamController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
+        $actor = $request->user();
+        $users = User::query()
+            ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $actor->operating_company_id));
+
         return view('panel.team', [
-            'users' => User::orderBy('role')->orderBy('name')->get(),
-            'devices' => Device::with('user')->latest('last_seen_at')->get(),
+            'users' => (clone $users)->orderBy('role')->orderBy('name')->get(),
+            'devices' => Device::with('user')
+                ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('user', fn ($user) => $user->where('operating_company_id', $actor->operating_company_id)))
+                ->latest('last_seen_at')->get(),
             'custodies' => Custody::with(['user', 'vehicle', 'stockLocation'])->latest('id')->get(),
             'vehicles' => Vehicle::with('stockLocation')->where('is_active', true)->get(),
         ]);
@@ -39,6 +48,10 @@ class TeamController extends Controller
             'vehicle_id' => ['nullable', 'exists:vehicles,id'], 'stock_location_id' => ['nullable', 'exists:stock_locations,id'],
             'condition_out' => ['required', 'string', 'max:1000'],
         ]);
+        $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['user_id']));
+        if (isset($data['vehicle_id'])) {
+            Vehicle::query()->findOrFail($data['vehicle_id']);
+        }
         $custody = Custody::create($data + [
             'custody_no' => BusinessReference::make('CUS'),
             'issued_at' => now(), 'status' => 'issued', 'issued_by' => $request->user()->id,
@@ -136,14 +149,20 @@ class TeamController extends Controller
     public function toggleActive(Request $request, User $user): RedirectResponse
     {
         $this->requireOwner($request);
+        $this->tenantAccess->assertUser($request->user(), $user);
 
-        $user->forceFill(['is_active' => ! $user->is_active])->save();
+        $user->forceFill([
+            'is_active' => ! $user->is_active,
+            'auth_version' => (int) $user->auth_version + 1,
+            'remember_token' => Str::random(60),
+        ])->save();
 
         // Deactivating has to cut the sessions too. Leaving the tokens alive meant
         // a "disabled" technician kept syncing from a phone already in their hand
         // — the flag changed and nothing else did.
         if (! $user->is_active) {
             $user->tokens()->delete();
+            DB::table('sessions')->where('user_id', $user->id)->delete();
         }
 
         return back()->with('ok', $user->is_active ? 'أُعيد تفعيل الحساب.' : 'أُوقف الحساب.');
@@ -156,6 +175,7 @@ class TeamController extends Controller
     public function revokeDevice(Request $request, Device $device): RedirectResponse
     {
         $this->requireOwner($request);
+        $this->tenantAccess->assertDevice($request->user(), $device);
 
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:190']]);
 

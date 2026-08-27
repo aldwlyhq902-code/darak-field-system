@@ -41,6 +41,42 @@ class OperatingBranchScope implements Scope
         $table = $model->getTable();
         $column = fn (string $name): string => $model->qualifyColumn($name);
 
+        if ($table === 'devices' || $table === 'technician_absences') {
+            $builder->whereExists(fn ($query) => $query->selectRaw('1')->from('users as tenant_users')
+                ->whereColumn('tenant_users.id', $column('user_id'))
+                ->where('tenant_users.operating_company_id', $companyId)
+                ->when($branchId !== null, fn ($q) => $q->where('tenant_users.operating_branch_id', $branchId)));
+
+            return;
+        }
+        if ($table === 'client_portal_users') {
+            $this->throughClient($builder, $column('client_id'), $companyId, $branchId);
+
+            return;
+        }
+        if (in_array($table, ['visit_feedback', 'report_disputes'], true)) {
+            $builder->whereExists(function ($query) use ($column, $branchId, $companyId): void {
+                $query->selectRaw('1')->from('visits as tenant_visits')
+                    ->join('sites as tenant_sites', 'tenant_sites.id', '=', 'tenant_visits.site_id')
+                    ->join('clients as tenant_clients', 'tenant_clients.id', '=', 'tenant_sites.client_id')
+                    ->whereColumn('tenant_visits.id', $column('visit_id'))
+                    ->where('tenant_clients.operating_company_id', $companyId)
+                    ->when($branchId !== null, fn ($q) => $q->where('tenant_clients.operating_branch_id', $branchId));
+            });
+
+            return;
+        }
+        if ($table === 'vehicle_outages') {
+            $builder->whereExists(function ($query) use ($column, $branchId, $companyId): void {
+                $query->selectRaw('1')->from('vehicles as tenant_vehicles')
+                    ->join('operating_branches as tenant_branches', 'tenant_branches.id', '=', 'tenant_vehicles.operating_branch_id')
+                    ->whereColumn('tenant_vehicles.id', $column('vehicle_id'))
+                    ->where('tenant_branches.operating_company_id', $companyId)
+                    ->when($branchId !== null, fn ($q) => $q->where('tenant_vehicles.operating_branch_id', $branchId));
+            });
+
+            return;
+        }
         if ($table === 'clients') {
             $builder->where($column('operating_company_id'), $companyId)
                 ->when($branchId !== null, fn ($query) => $query->where($column('operating_branch_id'), $branchId));

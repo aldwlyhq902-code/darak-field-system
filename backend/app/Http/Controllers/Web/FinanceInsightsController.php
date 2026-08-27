@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Visit;
 use App\Services\AuditLogger;
 use App\Services\ProfitabilityService;
+use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -19,9 +20,9 @@ use Mpdf\Mpdf;
 
 class FinanceInsightsController extends Controller
 {
-    public function __construct(private readonly ProfitabilityService $profitability, private readonly AuditLogger $audit) {}
+    public function __construct(private readonly ProfitabilityService $profitability, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
         $contractModels = Contract::with(['client', 'installments'])->whereIn('status', ['active', 'ended'])->get();
         $contractProfits = $this->profitability->forContracts($contractModels);
@@ -44,7 +45,9 @@ class FinanceInsightsController extends Controller
 
         $visitModels = Visit::with(['site.client', 'technician'])->where('state', Visit::STATE_COMPLETED)->latest('closed_at')->limit(40)->get();
         $visitProfits = $this->profitability->forVisitModels($visitModels);
-        $technicianModels = User::where('role', User::ROLE_TECHNICIAN)->get();
+        $technicianModels = User::where('role', User::ROLE_TECHNICIAN)
+            ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
+            ->get();
         $technicianProfits = $this->profitability->forTechnicians($technicianModels, now()->startOfMonth(), now()->endOfMonth());
 
         return view('panel.finance', [
@@ -57,6 +60,18 @@ class FinanceInsightsController extends Controller
     public function cost(Request $request): RedirectResponse
     {
         $data = $request->validate(['client_id' => ['nullable', 'exists:clients,id'], 'contract_id' => ['nullable', 'exists:contracts,id'], 'visit_id' => ['nullable', 'exists:visits,id'], 'user_id' => ['nullable', 'exists:users,id'], 'category' => ['required', 'in:travel,vehicle,tool,administration,other'], 'description' => ['required', 'string', 'max:190'], 'amount' => ['required', 'numeric', 'gt:0'], 'incurred_on' => ['required', 'date']]);
+        if (isset($data['client_id'])) {
+            Client::query()->findOrFail($data['client_id']);
+        }
+        if (isset($data['contract_id'])) {
+            Contract::query()->findOrFail($data['contract_id']);
+        }
+        if (isset($data['visit_id'])) {
+            Visit::query()->findOrFail($data['visit_id']);
+        }
+        if (isset($data['user_id'])) {
+            $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['user_id']));
+        }
         $cost = OperationalCost::create($data + ['recorded_by' => $request->user()->id]);
         $this->audit->record('operational_cost.recorded', $cost, null, $data, $request->user()->id);
 

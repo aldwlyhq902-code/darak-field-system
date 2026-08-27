@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Device extends Model
 {
-    use HasFactory;
+    use HasFactory, ScopedToOperatingBranch;
 
     protected $fillable = [
         'user_id', 'device_uuid', 'platform', 'label', 'app_version',

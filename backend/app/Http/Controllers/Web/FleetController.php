@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\OperatingBranch;
 use App\Models\StockLocation;
+use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleDocument;
 use App\Models\VehicleExpense;
@@ -12,6 +13,7 @@ use App\Models\VehicleInspection;
 use App\Models\VehicleMaintenanceOrder;
 use App\Services\AuditLogger;
 use App\Services\FleetManagementService;
+use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +26,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FleetController extends Controller
 {
-    public function __construct(private readonly FleetManagementService $fleet, private readonly AuditLogger $audit) {}
+    public function __construct(private readonly FleetManagementService $fleet, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
     public function index(Request $request): View
     {
@@ -204,7 +206,7 @@ class FleetController extends Controller
             $vinRule->ignore($vehicle->id);
         }
 
-        return $request->validate([
+        $data = $request->validate([
             'plate' => ['required', 'string', 'max:32', $plateRule],
             'internal_code' => ['nullable', 'string', 'max:32'], 'make' => ['nullable', 'string', 'max:96'],
             'model' => ['nullable', 'string', 'max:96'], 'year' => ['nullable', 'integer', 'min:1980', 'max:'.(now()->year + 1)],
@@ -213,10 +215,23 @@ class FleetController extends Controller
             'current_odometer_km' => ['nullable', 'numeric', 'min:0'], 'last_service_on' => ['nullable', 'date'],
             'next_service_on' => ['nullable', 'date'], 'next_service_odometer_km' => ['nullable', 'numeric', 'min:0'],
         ]);
+        if (isset($data['assigned_user_id'])) {
+            $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['assigned_user_id']));
+        }
+
+        return $data;
     }
 
     private function resolvedBranch(Request $request, ?int $requested): ?int
     {
-        return $request->user()->isOwner() ? $requested : $request->user()->operating_branch_id;
+        if (! $request->user()->isOwner() && ! $request->user()->isPlatformAdmin()) {
+            return $request->user()->operating_branch_id;
+        }
+        if ($requested !== null) {
+            $branch = OperatingBranch::query()->findOrFail($requested);
+            $this->tenantAccess->assertCompany($request->user(), $branch->operating_company_id);
+        }
+
+        return $requested;
     }
 }

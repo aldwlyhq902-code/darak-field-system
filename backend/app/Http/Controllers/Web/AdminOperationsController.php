@@ -22,6 +22,7 @@ use App\Services\AuditLogger;
 use App\Services\CommissionService;
 use App\Services\FinancialApprovalService;
 use App\Support\BusinessReference;
+use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -32,17 +33,28 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminOperationsController extends Controller
 {
-    public function __construct(private readonly CommissionService $commissions, private readonly FinancialApprovalService $approvals, private readonly AuditLogger $audit) {}
+    public function __construct(private readonly CommissionService $commissions, private readonly FinancialApprovalService $approvals, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
+        $actor = $request->user();
+        abort_if(! $actor->isPlatformAdmin() && $actor->operating_company_id === null, 403);
+        $companyId = $actor->operating_company_id;
+
         return view('panel.admin-operations', [
-            'companies' => OperatingCompany::with('branches')->get(), 'branches' => OperatingBranch::with('company')->get(),
+            'companies' => OperatingCompany::with('branches')->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereKey($companyId))->get(),
+            'branches' => OperatingBranch::with('company')->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $companyId))->get(),
             'leads' => SalesLead::with(['owner', 'activities'])->latest()->limit(50)->get(),
             'vehicles' => Vehicle::with('assignedUser')->get(), 'expenses' => VehicleExpense::with('vehicle')->latest()->limit(50)->get(),
-            'rules' => CommissionRule::latest()->get(), 'entries' => CommissionEntry::with(['rule', 'user'])->latest()->limit(50)->get(),
-            'approvals' => FinancialApproval::with(['requester', 'firstApprover', 'secondApprover'])->latest()->limit(50)->get(),
-            'users' => User::orderBy('name')->get(), 'clients' => Client::orderBy('name')->get(),
+            'rules' => CommissionRule::latest()->get(),
+            'entries' => CommissionEntry::with(['rule', 'user'])
+                ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('user', fn ($user) => $user->where('operating_company_id', $companyId)))
+                ->latest()->limit(50)->get(),
+            'approvals' => FinancialApproval::with(['requester', 'firstApprover', 'secondApprover'])
+                ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('requester', fn ($user) => $user->where('operating_company_id', $companyId)))
+                ->latest()->limit(50)->get(),
+            'users' => User::query()->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $companyId))->orderBy('name')->get(),
+            'clients' => Client::orderBy('name')->get(),
             'contracts' => Contract::latest()->limit(100)->get(), 'visits' => Visit::latest()->limit(100)->get(),
             'payments' => Payment::latest()->limit(100)->get(), 'quotations' => Quotation::latest()->limit(100)->get(),
             'installments' => ContractInstallment::latest()->limit(100)->get(),
@@ -52,8 +64,8 @@ class AdminOperationsController extends Controller
     public function organization(Request $request): View
     {
         $query = OperatingCompany::query()->withCount('branches')->oldest('id');
-        if (! $request->user()->isOwner()) {
-            $companyId = $request->user()->operatingBranch?->operating_company_id;
+        if (! $request->user()->isPlatformAdmin()) {
+            $companyId = $request->user()->operating_company_id;
             abort_unless($companyId !== null, 403);
             $query->whereKey($companyId);
         }
@@ -129,15 +141,12 @@ class AdminOperationsController extends Controller
 
     private function authorizeCompanyProfile(Request $request, OperatingCompany $company): void
     {
-        abort_unless(
-            $request->user()->isOwner()
-            || $request->user()->operatingBranch?->operating_company_id === $company->id,
-            403,
-        );
+        $this->tenantAccess->assertCompany($request->user(), $company, 403);
     }
 
     public function company(Request $request): RedirectResponse
     {
+        abort_unless($request->user()->isPlatformAdmin(), 403);
         OperatingCompany::create($request->validate(['name' => ['required', 'string', 'max:190'], 'legal_name' => ['nullable', 'string', 'max:190'], 'cr_number' => ['nullable', 'string', 'max:32'], 'vat_number' => ['nullable', 'string', 'max:32'], 'currency' => ['required', 'string', 'size:3']]) + ['is_active' => true]);
 
         return back()->with('ok', 'أُضيفت الشركة التشغيلية.');
@@ -145,7 +154,9 @@ class AdminOperationsController extends Controller
 
     public function branch(Request $request): RedirectResponse
     {
-        OperatingBranch::create($request->validate(['operating_company_id' => ['required', 'exists:operating_companies,id'], 'name' => ['required', 'string', 'max:190'], 'code' => ['required', 'string', 'max:32'], 'address' => ['nullable', 'string', 'max:500']]) + ['is_active' => true]);
+        $data = $request->validate(['operating_company_id' => ['required', 'exists:operating_companies,id'], 'name' => ['required', 'string', 'max:190'], 'code' => ['required', 'string', 'max:32'], 'address' => ['nullable', 'string', 'max:500']]);
+        $this->tenantAccess->assertCompany($request->user(), (int) $data['operating_company_id'], 403);
+        OperatingBranch::create($data + ['is_active' => true]);
 
         return back()->with('ok', 'أُضيف الفرع التشغيلي.');
     }
@@ -184,6 +195,9 @@ class AdminOperationsController extends Controller
     public function lead(Request $request): RedirectResponse
     {
         $data = $request->validate(['company_name' => ['required', 'string', 'max:190'], 'contact_name' => ['nullable', 'string', 'max:190'], 'phone' => ['nullable', 'string', 'max:32'], 'email' => ['nullable', 'email'], 'stage' => ['required', 'in:new,qualified,proposal,negotiation,won,lost'], 'estimated_value' => ['required', 'numeric', 'min:0'], 'next_action_on' => ['nullable', 'date'], 'owner_user_id' => ['nullable', 'exists:users,id'], 'notes' => ['nullable', 'string', 'max:2000']]);
+        if (isset($data['owner_user_id'])) {
+            $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['owner_user_id']));
+        }
         $leadBranchId = isset($data['owner_user_id'])
             ? User::query()->whereKey($data['owner_user_id'])->value('operating_branch_id')
             : $request->user()->operating_branch_id;
@@ -210,6 +224,7 @@ class AdminOperationsController extends Controller
 
     public function commissionRule(Request $request): RedirectResponse
     {
+        abort_unless($request->user()->isPlatformAdmin(), 403);
         CommissionRule::create($request->validate(['name' => ['required', 'string', 'max:190'], 'applies_to_role' => ['required', 'in:owner_supervisor,admin,technician'], 'basis' => ['required', 'in:contract_value,collected_payment,completed_visit'], 'rate' => ['required', 'numeric', 'min:0', 'max:100'], 'fixed_amount' => ['required', 'numeric', 'min:0']]) + ['is_active' => true]);
 
         return back()->with('ok', 'أُضيفت سياسة العمولة.');
@@ -218,8 +233,10 @@ class AdminOperationsController extends Controller
     public function commissionEntry(Request $request): RedirectResponse
     {
         $data = $request->validate(['commission_rule_id' => ['required', 'exists:commission_rules,id'], 'user_id' => ['required', 'exists:users,id'], 'contract_id' => ['nullable', 'exists:contracts,id'], 'visit_id' => ['nullable', 'exists:visits,id'], 'payment_id' => ['nullable', 'exists:payments,id']]);
+        $targetUser = User::query()->findOrFail($data['user_id']);
+        $this->tenantAccess->assertUser($request->user(), $targetUser);
         try {
-            $this->commissions->create(CommissionRule::findOrFail($data['commission_rule_id']), User::findOrFail($data['user_id']), isset($data['contract_id']) ? Contract::find($data['contract_id']) : null, isset($data['visit_id']) ? Visit::find($data['visit_id']) : null, isset($data['payment_id']) ? Payment::find($data['payment_id']) : null);
+            $this->commissions->create(CommissionRule::findOrFail($data['commission_rule_id']), $targetUser, isset($data['contract_id']) ? Contract::find($data['contract_id']) : null, isset($data['visit_id']) ? Visit::find($data['visit_id']) : null, isset($data['payment_id']) ? Payment::find($data['payment_id']) : null);
         } catch (RuntimeException $e) {
             return back()->with('err', $e->getMessage());
         }
@@ -238,6 +255,9 @@ class AdminOperationsController extends Controller
 
     public function approve(Request $request, FinancialApproval $approval): RedirectResponse
     {
+        $requester = User::query()->find($approval->requested_by);
+        abort_unless($requester !== null, 404);
+        $this->tenantAccess->assertUser($request->user(), $requester);
         try {
             $this->approvals->approve($approval, $request->user()->id);
         } catch (RuntimeException $e) {
@@ -250,6 +270,7 @@ class AdminOperationsController extends Controller
     public function permissions(Request $request, User $user): RedirectResponse
     {
         abort_unless($request->user()->isOwner(), 403);
+        $this->tenantAccess->assertUser($request->user(), $user);
         $data = $request->validate(['permissions' => ['nullable', 'array'], 'permissions.*' => ['in:operations,clients,commercial,finance,inventory,intelligence,team,hr,fleet,performance,sales,admin']]);
         $user->forceFill(['permissions' => $data['permissions'] ?? ['*']])->save();
         $this->audit->record('user.permissions_changed', $user, null, ['permissions' => $user->permissions], $request->user()->id);

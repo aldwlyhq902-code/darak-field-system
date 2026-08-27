@@ -19,12 +19,22 @@ class TodayScreen extends StatefulWidget {
 }
 
 class _TodayScreenState extends State<TodayScreen> {
+  bool _initialLoad = true;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => widget.state.pullWork(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialWork());
+  }
+
+  Future<void> _loadInitialWork() async {
+    try {
+      await widget.state.pullWork();
+    } finally {
+      if (mounted) {
+        setState(() => _initialLoad = false);
+      }
+    }
   }
 
   @override
@@ -75,7 +85,9 @@ class _TodayScreenState extends State<TodayScreen> {
               children: [
                 _ConnectionBanner(state: state),
                 Expanded(
-                  child: state.visits.isEmpty
+                  child: _initialLoad && state.visits.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : state.visits.isEmpty
                       ? const _EmptyState()
                       : ListView.builder(
                           padding: const EdgeInsets.all(12),

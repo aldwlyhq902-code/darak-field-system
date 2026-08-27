@@ -9,6 +9,7 @@ use App\Models\EmployeeProfile;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\LeaveManagementService;
+use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -19,11 +20,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HumanResourcesController extends Controller
 {
-    public function __construct(private readonly LeaveManagementService $leaves, private readonly AuditLogger $audit) {}
+    public function __construct(private readonly LeaveManagementService $leaves, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
     public function index(Request $request): View
     {
         $users = User::query()->with(['employeeProfile', 'employeeDocuments' => fn ($query) => $query->where('status', 'active')->latest('expires_on'), 'employeeLeaves' => fn ($query) => $query->latest('starts_on')->limit(10)])
+            ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
             ->when($request->user()->operating_branch_id, fn ($query, $branchId) => $query->where('operating_branch_id', $branchId))
             ->orderBy('name')->get();
 
@@ -149,6 +151,8 @@ class HumanResourcesController extends Controller
 
     private function authorizeUser(Request $request, User $user): void
     {
-        abort_unless($request->user()->isOwner() || $request->user()->operating_branch_id === null || $request->user()->operating_branch_id === $user->operating_branch_id, 403);
+        $actor = $request->user();
+        $this->tenantAccess->assertUser($actor, $user);
+        abort_unless($actor->isPlatformAdmin() || $actor->isOwner() || $actor->operating_branch_id === null || $actor->operating_branch_id === $user->operating_branch_id, 403);
     }
 }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\TwoFactorService;
+use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,6 +19,7 @@ class TwoFactorController extends Controller
     public function __construct(
         private readonly TwoFactorService $twoFactor,
         private readonly AuditLogger $audit,
+        private readonly TenantAccess $tenantAccess,
     ) {}
 
     public function setup(Request $request): View|RedirectResponse
@@ -57,6 +59,10 @@ class TwoFactorController extends Controller
         ])->save();
 
         $request->session()->regenerate();
+        $request->session()->put([
+            'panel_mfa_user_id' => $user->getAuthIdentifier(),
+            'panel_auth_version' => (int) $user->auth_version,
+        ]);
         $this->audit->record('auth.two_factor_enabled', $user, null, ['recovery_codes' => count($codes['plain'])], $user->id);
         $this->audit->record('panel.login', $user, null, ['role' => $user->role, 'mfa' => true], $user->id);
 
@@ -100,6 +106,10 @@ class TwoFactorController extends Controller
         $request->session()->forget('two_factor_pending_user_id');
         Auth::guard('web')->login($user, $remember);
         $request->session()->regenerate();
+        $request->session()->put([
+            'panel_mfa_user_id' => $user->getAuthIdentifier(),
+            'panel_auth_version' => (int) $user->auth_version,
+        ]);
 
         $this->audit->record('panel.login', $user, null, ['role' => $user->role, 'mfa' => true], $user->id);
 
@@ -122,6 +132,7 @@ class TwoFactorController extends Controller
     public function reset(Request $request, User $user): RedirectResponse
     {
         abort_unless($request->user()->isOwner(), 403);
+        $this->tenantAccess->assertUser($request->user(), $user);
         abort_if($user->isTechnician(), 422, 'MFA applies to panel accounts only.');
 
         DB::transaction(function () use ($user): void {
@@ -129,6 +140,8 @@ class TwoFactorController extends Controller
                 'two_factor_secret' => null,
                 'two_factor_recovery_codes' => null,
                 'two_factor_confirmed_at' => null,
+                'auth_version' => (int) $user->auth_version + 1,
+                'remember_token' => null,
             ])->save();
 
             DB::table('sessions')->where('user_id', $user->id)->delete();

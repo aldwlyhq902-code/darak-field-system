@@ -4,10 +4,11 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\NotificationMessage;
+use App\Models\OperatingBranch;
 use App\Services\NotificationService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 class NotificationPanelController extends Controller
@@ -17,15 +18,16 @@ class NotificationPanelController extends Controller
     public function index(Request $request): View
     {
         return view('panel.notifications', [
-            'queued' => $this->visibleTo($request, NotificationMessage::with(['user', 'visit.site.client'])->where('status', 'queued')->orderBy('id')->get()),
-            'dead' => $this->visibleTo($request, NotificationMessage::with(['user', 'visit'])->where('status', 'dead')->latest('id')->get()),
-            'sent' => $this->visibleTo($request, NotificationMessage::with(['user', 'visit'])->where('status', 'sent')->latest('sent_at')->limit(100)->get())->take(25),
+            'queued' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit.site.client'])->where('status', 'queued'))->orderBy('id')->limit(100)->get(),
+            'dead' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit'])->where('status', 'dead'))->latest('id')->limit(100)->get(),
+            'sent' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit'])->where('status', 'sent'))->latest('sent_at')->limit(25)->get(),
         ]);
     }
 
     /** Runs the queued in-app messages. Manual WhatsApp ones stay for a human. */
-    public function run(): RedirectResponse
+    public function run(Request $request): RedirectResponse
     {
+        abort_unless($request->user()->isPlatformAdmin(), 403);
         $delivered = 0;
         $waiting = 0;
 
@@ -57,28 +59,29 @@ class NotificationPanelController extends Controller
         return back()->with('ok', 'أُعيدت الرسالة إلى الطابور.');
     }
 
-    /** @param Collection<int, NotificationMessage> $messages */
-    private function visibleTo(Request $request, Collection $messages): Collection
+    private function visibleQuery(Request $request, Builder $query): Builder
     {
-        if ($request->user()->isOwner() || $request->user()->operating_branch_id === null) {
-            return $messages;
+        $actor = $request->user();
+        if ($actor->isPlatformAdmin()) {
+            return $query;
         }
-        $branchId = $request->user()->operating_branch_id;
+        abort_if($actor->operating_company_id === null, 403);
+        $branchIds = OperatingBranch::query()
+            ->where('operating_company_id', $actor->operating_company_id)
+            ->when($actor->operating_branch_id, fn ($branches, $branchId) => $branches->whereKey($branchId))
+            ->pluck('id');
 
-        return $messages->filter(function (NotificationMessage $message) use ($branchId): bool {
-            $contextBranch = $message->context['operating_branch_id'] ?? null;
-
-            return $contextBranch === null || (int) $contextBranch === (int) $branchId;
-        })->values();
+        return $query->where(function (Builder $visible) use ($actor, $branchIds): void {
+            $visible->whereHas('user', fn ($user) => $user
+                ->where('operating_company_id', $actor->operating_company_id)
+                ->when($actor->operating_branch_id, fn ($users, $branchId) => $users->where('operating_branch_id', $branchId)))
+                ->orWhereHas('visit')
+                ->orWhereIn('context->operating_branch_id', $branchIds);
+        });
     }
 
     private function authorizeMessage(Request $request, NotificationMessage $message): void
     {
-        $contextBranch = $message->context['operating_branch_id'] ?? null;
-        abort_unless(
-            $request->user()->isOwner() || $request->user()->operating_branch_id === null
-            || $contextBranch === null || (int) $contextBranch === (int) $request->user()->operating_branch_id,
-            403,
-        );
+        abort_unless($this->visibleQuery($request, NotificationMessage::query())->whereKey($message->id)->exists(), 404);
     }
 }

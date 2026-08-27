@@ -8,6 +8,7 @@ use App\Models\MaintenancePlan;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\MaintenancePlanService;
+use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -15,14 +16,16 @@ use Illuminate\View\View;
 
 class MaintenancePlanController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
         return view('panel.maintenance', [
             'plans' => MaintenancePlan::with(['client', 'site', 'asset', 'contract', 'preferredTechnician'])->orderBy('next_due_on')->get(),
             'clients' => Client::with(['sites.assets', 'contracts'])->where('is_active', true)->orderBy('name')->get(),
-            'technicians' => User::where('role', User::ROLE_TECHNICIAN)->where('is_active', true)->orderBy('name')->get(),
+            'technicians' => User::where('role', User::ROLE_TECHNICIAN)->where('is_active', true)
+                ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
+                ->orderBy('name')->get(),
         ]);
     }
 
@@ -40,6 +43,9 @@ class MaintenancePlanController extends Controller
             'next_due_on' => ['required', 'date'],
             'preferred_user_id' => ['nullable', Rule::exists('users', 'id')->where('role', User::ROLE_TECHNICIAN)->where('is_active', true)],
         ]);
+        if (isset($data['preferred_user_id'])) {
+            $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['preferred_user_id']));
+        }
 
         $plan = MaintenancePlan::create($data + ['is_active' => true, 'created_by' => $request->user()->id]);
         $this->audit->record('maintenance_plan.created', $plan, null, $plan->only(['client_id', 'site_id', 'asset_id', 'frequency_days', 'next_due_on']), $request->user()->id);

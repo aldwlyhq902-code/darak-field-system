@@ -15,7 +15,8 @@ class OrganizationProfileTest extends DarakTestCase
     public function test_owner_can_update_organization_data_and_logo(): void
     {
         Storage::fake('public');
-        $company = OperatingCompany::create(['name' => 'مؤسسة قديمة', 'currency' => 'SAR', 'is_active' => true]);
+        $company = $this->operatingCompany;
+        $company->forceFill(['name' => 'مؤسسة قديمة', 'currency' => 'SAR'])->save();
 
         $this->actingAs($this->owner, 'web')
             ->get(route('panel.admin.organization'))
@@ -61,7 +62,8 @@ class OrganizationProfileTest extends DarakTestCase
     public function test_logo_upload_rejects_unsupported_files(): void
     {
         Storage::fake('public');
-        $company = OperatingCompany::create(['name' => 'مؤسسة', 'currency' => 'SAR', 'is_active' => true]);
+        $company = $this->operatingCompany;
+        $company->forceFill(['name' => 'مؤسسة', 'currency' => 'SAR'])->save();
 
         $this->actingAs($this->owner, 'web')->from(route('panel.admin.organization'))
             ->put(route('panel.admin.company.update', $company), [
@@ -90,6 +92,7 @@ class OrganizationProfileTest extends DarakTestCase
             'email' => 'branch-admin@test.local',
             'password' => Hash::make('secret'),
             'role' => User::ROLE_ADMIN,
+            'operating_company_id' => $ownCompany->id,
             'operating_branch_id' => $branch->id,
             'permissions' => ['admin'],
             'is_active' => true,

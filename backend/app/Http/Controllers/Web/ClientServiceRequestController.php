@@ -37,6 +37,7 @@ class ClientServiceRequestController extends Controller
         $rangeStart = CarbonImmutable::today()->addDay()->startOfDay();
         $rangeEnd = CarbonImmutable::today()->addDays(14)->endOfDay();
         $technicians = User::query()->where('role', User::ROLE_TECHNICIAN)->where('is_active', true)
+            ->where('operating_company_id', $client->operating_company_id)
             ->when($client->operating_branch_id, fn ($query, int $branchId) => $query->where('operating_branch_id', $branchId))
             ->get();
         $bookedVisits = Visit::query()->where('state', '!=', Visit::STATE_COMPLETED)

@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class VisitFeedback extends Model
 {
+    use ScopedToOperatingBranch;
+
     protected $table = 'visit_feedback';
 
     protected $fillable = [

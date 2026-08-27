@@ -12,10 +12,12 @@
     الإرسال لإنسان — وهذا مسار حقيقي لا التفاف.
 </div>
 
-<form method="POST" action="{{ route('panel.notifications.run') }}" style="margin-bottom:18px">
-    @csrf
-    <button class="btn">تشغيل الطابور</button>
-</form>
+@if (auth()->user()->isPlatformAdmin())
+    <form method="POST" action="{{ route('panel.notifications.run') }}" style="margin-bottom:18px">
+        @csrf
+        <button class="btn">تشغيل الطابور</button>
+    </form>
+@endif
 
 <div class="card">
     <div class="hd">في الطابور ({{ $queued->count() }})</div>
