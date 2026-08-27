@@ -251,10 +251,16 @@ class BackupService
 
         $storageTarget ??= storage_path('app/private');
         File::ensureDirectoryExists($storageTarget);
+        $storageRoot = realpath($storageTarget);
+
+        if ($storageRoot === false) {
+            throw new RuntimeException("Cannot resolve restore target [{$storageTarget}].");
+        }
 
         $restoredFiles = 0;
 
         foreach ($manifest['files'] ?? [] as $relative => $expectedHash) {
+            $storageRelative = $this->safeStorageRelativePath((string) $relative);
             $contents = $zip->getFromName($relative);
 
             if ($contents === false) {
@@ -265,8 +271,15 @@ class BackupService
                 throw new RuntimeException("Hash mismatch restoring {$relative} — archive is corrupt.");
             }
 
-            $destination = $storageTarget.DIRECTORY_SEPARATOR.substr($relative, strlen('storage/'));
+            $destination = $storageRoot.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $storageRelative);
             File::ensureDirectoryExists(dirname($destination));
+
+            $destinationParent = realpath(dirname($destination));
+
+            if ($destinationParent === false || ! $this->isWithinDirectory($destinationParent, $storageRoot)) {
+                throw new RuntimeException("Unsafe restore destination for [{$relative}].");
+            }
+
             File::put($destination, $contents);
             $restoredFiles++;
         }
@@ -501,6 +514,36 @@ class BackupService
     private function hasPassword(): bool
     {
         return is_string($this->password) && strlen($this->password) >= 20;
+    }
+
+    private function safeStorageRelativePath(string $entry): string
+    {
+        $entry = str_replace('\\', '/', $entry);
+
+        if (! str_starts_with($entry, 'storage/') || str_contains($entry, "\0")) {
+            throw new RuntimeException("Unsafe storage entry in backup manifest [{$entry}].");
+        }
+
+        $segments = explode('/', substr($entry, strlen('storage/')));
+
+        if ($segments === [] || collect($segments)->contains(fn (string $segment): bool => $segment === '' || $segment === '.' || $segment === '..')) {
+            throw new RuntimeException("Unsafe storage entry in backup manifest [{$entry}].");
+        }
+
+        return implode('/', $segments);
+    }
+
+    private function isWithinDirectory(string $candidate, string $root): bool
+    {
+        $normalise = static function (string $path): string {
+            $path = str_replace('\\', '/', rtrim($path, '/\\'));
+
+            return PHP_OS_FAMILY === 'Windows' ? strtolower($path) : $path;
+        };
+        $candidate = $normalise($candidate);
+        $root = $normalise($root);
+
+        return $candidate === $root || str_starts_with($candidate.'/', $root.'/');
     }
 
     /** @param array<int, string> $entries */

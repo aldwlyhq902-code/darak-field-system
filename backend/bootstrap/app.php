@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnforcePanelAreaPermission;
 use App\Http\Middleware\EnsureBackOfficeRole;
 use App\Http\Middleware\EnsureClientPortalUserIsActive;
@@ -34,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
             $middleware->trustProxies(at: '*');
         }
 
+        $middleware->prepend(AssignRequestId::class);
         $middleware->append(SecurityHeaders::class);
         $middleware->web(append: [SetUserLocale::class]);
         $middleware->api(prepend: [SetUserLocale::class]);
@@ -63,6 +65,9 @@ return Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->context(fn (): array => [
+            'request_id' => request()?->attributes->get('request_id'),
+        ]);
         // Serverless providers may truncate long stack traces from the front.
         // Emit one concise root-cause line for operations logs; it is never
         // included in the HTTP response shown to users.

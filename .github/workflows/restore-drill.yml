@@ -1,0 +1,87 @@
+name: Backup restore drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 1 1 * *'
+
+permissions:
+  contents: read
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: darak_source
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d darak_source"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      PGPASSWORD: postgres
+      DARAK_BACKUP_PASSWORD: ci-only-backup-password-32-characters
+      DARAK_DEMO_PASSWORD: Darak-Restore-Drill-2026!
+      DARAK_BACKUP_PATH: ${{ runner.temp }}/darak-backups
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_pgsql, gd, curl, zip, intl
+          coverage: none
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: mkdir -p storage/framework/{cache/data,sessions,testing,views} storage/logs bootstrap/cache "$DARAK_BACKUP_PATH"
+
+      - name: Build a representative source database
+        run: php artisan migrate:fresh --force && php artisan db:seed --class=DarakDemoSeeder --force
+        env:
+          DB_DATABASE: darak_source
+
+      - name: Create and self-verify encrypted backup
+        run: php artisan darak:backup --label=monthly-drill
+        env:
+          DB_DATABASE: darak_source
+
+      - name: Restore into a clean database and verify row counts
+        shell: bash
+        run: |
+          started_at=$(date +%s)
+          archive=$(find "$DARAK_BACKUP_PATH" -maxdepth 1 -name 'darak-backup-*-monthly-drill.zip' -print -quit)
+          test -n "$archive"
+
+          php artisan darak:restore "$archive" --force
+          createdb --host=127.0.0.1 --username=postgres darak_restore_drill
+          dump="${archive%.zip}.sql"
+          test -s "$dump"
+          psql --host=127.0.0.1 --username=postgres --dbname=darak_restore_drill --set=ON_ERROR_STOP=1 --file="$dump"
+          DB_DATABASE=darak_restore_drill php artisan darak:restore "$archive" --verify-only
+
+          elapsed=$(( $(date +%s) - started_at ))
+          test "$elapsed" -le 14400
+          printf 'Restore drill completed in %s seconds (RTO target: 14400 seconds).\n' "$elapsed"
+        env:
+          DB_DATABASE: darak_source

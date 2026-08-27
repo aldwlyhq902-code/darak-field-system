@@ -192,6 +192,32 @@ class BackupRestoreTest extends DarakTestCase
             ->assertSuccessful();
     }
 
+    public function test_restore_rejects_manifest_path_traversal(): void
+    {
+        $archive = $this->root.'/malicious.zip';
+        $zip = new ZipArchive;
+        $zip->open($archive, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        $payload = 'must-not-escape';
+        $entry = 'storage/../../escaped.txt';
+        $zip->addFromString($entry, $payload);
+        $zip->addFromString('manifest.json', json_encode([
+            'files' => [$entry => hash('sha256', $payload)],
+            'database' => ['entry' => null],
+        ], JSON_THROW_ON_ERROR));
+        $zip->close();
+
+        $target = $this->root.'/restore-target';
+
+        try {
+            $this->service()->restore($archive, $target);
+            $this->fail('A traversal entry must be rejected.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('Unsafe storage entry', $exception->getMessage());
+        }
+
+        $this->assertFileDoesNotExist($this->root.'/escaped.txt');
+    }
+
     public function test_pg_dump_is_returned_as_a_file_instead_of_loaded_into_php_memory(): void
     {
         config([

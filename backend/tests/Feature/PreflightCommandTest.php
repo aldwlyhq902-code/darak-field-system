@@ -6,6 +6,24 @@ use Tests\DarakTestCase;
 
 class PreflightCommandTest extends DarakTestCase
 {
+    /** @var array<string, mixed> */
+    private array $originalConfig = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        foreach ($this->mutatedConfigKeys() as $key) {
+            $this->originalConfig[$key] = config($key);
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        config($this->originalConfig);
+        parent::tearDown();
+    }
+
     public function test_safe_production_configuration_passes_preflight(): void
     {
         $this->safeProductionConfiguration();
@@ -65,6 +83,8 @@ class PreflightCommandTest extends DarakTestCase
             'sanctum.expiration' => 43200,
             'database.default' => 'pgsql',
             'database.connections.pgsql.sslmode' => 'require',
+            'logging.default' => 'daily',
+            'logging.channels.daily.level' => 'warning',
             'darak.backup_password' => 'a-very-long-production-backup-password',
             'darak.backup_path' => sys_get_temp_dir().DIRECTORY_SEPARATOR.'darak-offsite-backups',
             'darak.ephemeral_serverless' => false,
@@ -85,5 +105,28 @@ class PreflightCommandTest extends DarakTestCase
                 ],
             ],
         ]);
+    }
+
+    public function test_debug_logging_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        config(['logging.channels.daily.level' => 'debug']);
+
+        $this->artisan('darak:preflight')
+            ->expectsOutputToContain('Production log level')
+            ->assertFailed();
+    }
+
+    /** @return array<int, string> */
+    private function mutatedConfigKeys(): array
+    {
+        return [
+            'app.env', 'app.debug', 'app.url', 'app.key',
+            'session.secure', 'session.encrypt', 'sanctum.expiration',
+            'database.default', 'database.connections.pgsql.sslmode',
+            'logging.default', 'logging.channels.daily.level',
+            'darak.backup_password', 'darak.backup_path',
+            'darak.ephemeral_serverless', 'darak.privacy',
+        ];
     }
 }

@@ -2,6 +2,10 @@
 
 use Illuminate\Support\Facades\Schedule;
 
+Schedule::command('darak:heartbeat')
+    ->everyMinute()
+    ->withoutOverlapping();
+
 /*
 |--------------------------------------------------------------------------
 | Scheduled work

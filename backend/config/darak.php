@@ -36,6 +36,12 @@ return [
     'rpo_hours' => 24,
     'rto_hours' => 4,
 
+    'monitoring' => [
+        'scheduler_max_age_seconds' => (int) env('DARAK_SCHEDULER_MAX_AGE_SECONDS', 300),
+        'backup_grace_hours' => (int) env('DARAK_BACKUP_GRACE_HOURS', 2),
+        'minimum_free_disk_bytes' => (int) env('DARAK_MINIMUM_FREE_DISK_BYTES', 1073741824),
+    ],
+
     /*
     | Backups belong outside the deploy directory in production, so a bad release
     | cannot remove them with the code. Empty falls back to storage/app/backups.

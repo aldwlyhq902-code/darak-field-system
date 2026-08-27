@@ -18,10 +18,11 @@ class ReplenishmentService
         $created = collect();
         $parts = Part::with('suppliers')->where('is_active', true)->where('reorder_level', '>', 0)->get();
         $warehouses = StockLocation::where('type', StockLocation::TYPE_WAREHOUSE)->where('is_active', true)->get();
+        $balances = $this->inventory->availableBalances($parts->modelKeys(), $warehouses->modelKeys());
 
         foreach ($warehouses as $location) {
             foreach ($parts as $part) {
-                $current = $this->inventory->availableBalance($part->id, $location->id);
+                $current = $balances[$location->id][$part->id] ?? 0.0;
                 if ($current >= (float) $part->reorder_level) {
                     continue;
                 }

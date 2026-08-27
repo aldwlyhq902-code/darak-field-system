@@ -58,6 +58,8 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm run build
+      - name: Prepare Supabase API roles for isolation tests
+        run: PGPASSWORD=postgres psql --host=127.0.0.1 --username=postgres --dbname=darak_test --set=ON_ERROR_STOP=1 --command="CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;"
       - run: php artisan test --no-ansi
         env:
           APP_ENV: testing
@@ -68,15 +70,57 @@ jobs:
           DB_DATABASE: darak_test
           DB_USERNAME: postgres
           DB_PASSWORD: postgres
+      - name: Verify PostgreSQL RLS and Supabase API isolation
+        run: php artisan test --no-ansi --filter=SupabaseIsolationTest
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: darak_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+      - name: Install Chromium for browser tests
+        run: npx playwright install --with-deps chromium
+      - name: Prepare browser-test database
+        run: |
+          php artisan migrate:fresh --force
+          php artisan db:seed --class=DarakDemoSeeder --force
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          APP_URL: http://127.0.0.1:8080
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: darak_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+          DARAK_DEMO_PASSWORD: Darak-E2E-Password-2026!
+      - name: Browser E2E
+        run: npm run test:e2e
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          APP_URL: http://127.0.0.1:8080
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: darak_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+          DARAK_DEMO_PASSWORD: Darak-E2E-Password-2026!
       - name: HTTP health smoke test
         shell: bash
         run: |
-          php artisan serve --host=127.0.0.1 --port=8080 > /tmp/darak-server.log 2>&1 &
+          PHP_CLI_SERVER_WORKERS=8 php artisan serve --host=127.0.0.1 --port=8080 > /tmp/darak-server.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in {1..20}; do
             if curl --fail --silent --show-error http://127.0.0.1:8080/up >/dev/null; then
-              exit 0
+              npm run test:load -- http://127.0.0.1:8080/up 60 6 500
+              exit $?
             fi
             sleep 1
           done

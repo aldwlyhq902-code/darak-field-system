@@ -100,16 +100,39 @@ class FaultPredictionTrainer
     {
         $weights = $model->coefficients;
         Asset::with('site')->where('status', '!=', 'retired')->chunkById(100, function ($assets) use ($model, $weights): void {
+            $histories = Visit::with('workOrder')
+                ->whereHas('workOrder', fn ($query) => $query
+                    ->whereIn('asset_id', $assets->modelKeys())
+                    ->whereNotNull('fault_code'))
+                ->where('state', Visit::STATE_COMPLETED)
+                ->orderBy('scheduled_start')
+                ->get()
+                ->groupBy(fn (Visit $visit) => $visit->workOrder->asset_id);
+            $generatedAt = now();
+            $horizon = today()->addDays(90)->toDateString();
+            $rows = [];
+
             foreach ($assets as $asset) {
-                $history = Visit::with('workOrder')->whereHas('workOrder', fn ($query) => $query->where('asset_id', $asset->id)->whereNotNull('fault_code'))
-                    ->where('state', Visit::STATE_COMPLETED)->orderBy('scheduled_start')->get();
+                $history = $histories->get($asset->id, collect());
                 $features = $this->features($asset, $history, now());
                 $risk = $this->sigmoid($weights[0] + $this->dot(array_slice($weights, 1), $features));
-                AssetFaultPrediction::updateOrCreate(
-                    ['fault_prediction_model_id' => $model->id, 'asset_id' => $asset->id],
-                    ['risk_score' => round($risk, 4), 'feature_snapshot' => $features, 'horizon_ends_on' => today()->addDays(90), 'generated_at' => now()],
-                );
+                $rows[] = [
+                    'fault_prediction_model_id' => $model->id,
+                    'asset_id' => $asset->id,
+                    'risk_score' => round($risk, 4),
+                    'feature_snapshot' => json_encode($features, JSON_THROW_ON_ERROR),
+                    'horizon_ends_on' => $horizon,
+                    'generated_at' => $generatedAt,
+                    'created_at' => $generatedAt,
+                    'updated_at' => $generatedAt,
+                ];
             }
+
+            AssetFaultPrediction::query()->upsert(
+                $rows,
+                ['fault_prediction_model_id', 'asset_id'],
+                ['risk_score', 'feature_snapshot', 'horizon_ends_on', 'generated_at', 'updated_at'],
+            );
         });
     }
 

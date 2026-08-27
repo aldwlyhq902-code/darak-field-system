@@ -201,6 +201,57 @@ class InventoryService
         return round($this->balance($partId, $locationId) - $this->reservedBalance($partId, $locationId, $exceptVisitId), 3);
     }
 
+    /**
+     * Resolve a balance matrix in three aggregate queries, regardless of how many
+     * part/location pairs the caller needs.
+     *
+     * @param  array<int, int>  $partIds
+     * @param  array<int, int>  $locationIds
+     * @return array<int, array<int, float>> location id => [part id => quantity]
+     */
+    public function availableBalances(array $partIds, array $locationIds): array
+    {
+        $partIds = array_values(array_unique(array_map('intval', $partIds)));
+        $locationIds = array_values(array_unique(array_map('intval', $locationIds)));
+        if ($partIds === [] || $locationIds === []) {
+            return [];
+        }
+
+        $incoming = StockMove::query()
+            ->whereIn('part_id', $partIds)->whereIn('to_location_id', $locationIds)
+            ->select(['part_id', 'to_location_id'])->selectRaw('SUM(qty) AS total')
+            ->groupBy('part_id', 'to_location_id')->get();
+        $outgoing = StockMove::query()
+            ->whereIn('part_id', $partIds)->whereIn('from_location_id', $locationIds)
+            ->select(['part_id', 'from_location_id'])->selectRaw('SUM(qty) AS total')
+            ->groupBy('part_id', 'from_location_id')->get();
+        $reserved = StockReservation::query()
+            ->whereIn('part_id', $partIds)->whereIn('stock_location_id', $locationIds)
+            ->where('status', 'reserved')
+            ->select(['part_id', 'stock_location_id'])->selectRaw('SUM(qty) AS total')
+            ->groupBy('part_id', 'stock_location_id')->get();
+
+        $balances = [];
+        foreach ($incoming as $row) {
+            $balances[(int) $row->to_location_id][(int) $row->part_id] = (float) $row->total;
+        }
+        foreach ($outgoing as $row) {
+            $locationId = (int) $row->from_location_id;
+            $partId = (int) $row->part_id;
+            $balances[$locationId][$partId] = ($balances[$locationId][$partId] ?? 0.0) - (float) $row->total;
+        }
+        foreach ($reserved as $row) {
+            $locationId = (int) $row->stock_location_id;
+            $partId = (int) $row->part_id;
+            $balances[$locationId][$partId] = ($balances[$locationId][$partId] ?? 0.0) - (float) $row->total;
+        }
+
+        return array_map(
+            fn (array $location): array => array_map(fn (float $qty): float => round($qty, 3), $location),
+            $balances,
+        );
+    }
+
     /** Vehicle -> visit (consumption). */
     public function issueToVisit(string $key, int $partId, float $qty, int $fromLocationId, Visit $visit, array $extra = []): StockMove
     {

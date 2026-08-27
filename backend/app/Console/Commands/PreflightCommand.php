@@ -16,6 +16,8 @@ class PreflightCommand extends Command
         $backupPassword = (string) config('darak.backup_password');
         $expiration = (int) config('sanctum.expiration');
         $databaseSslMode = (string) config('database.connections.pgsql.sslmode');
+        $logChannel = (string) config('logging.default');
+        $logLevel = $this->effectiveLogLevel($logChannel);
         $privacy = (array) config('darak.privacy', []);
         $retention = (array) ($privacy['retention_days'] ?? []);
         $requiredPrivacyText = [
@@ -42,6 +44,8 @@ class PreflightCommand extends Command
             ['Finite device-token lifetime', $expiration > 0 && $expiration <= 43200, $expiration.' minutes'],
             ['PostgreSQL selected', config('database.default') === 'pgsql', (string) config('database.default')],
             ['Encrypted PostgreSQL transport', in_array($databaseSslMode, ['require', 'verify-ca', 'verify-full'], true), $databaseSslMode],
+            ['Operational logging enabled', ! in_array($logChannel, ['', 'null'], true), $logChannel ?: 'missing'],
+            ['Production log level', ! in_array($logLevel, ['', 'debug'], true), $logLevel ?: 'missing'],
             ['Encrypted backups', strlen($backupPassword) >= 20, strlen($backupPassword) >= 20 ? 'configured' : 'missing'],
             ['External backup path', $this->isExternalBackupPath($backupPath), $backupPath === '' ? 'missing' : $backupPath],
             ['Persistent production runtime', ! (bool) config('darak.ephemeral_serverless'), config('darak.ephemeral_serverless') ? 'ephemeral/serverless' : 'persistent'],
@@ -81,5 +85,18 @@ class PreflightCommand extends Command
         $project = $normalise(base_path());
 
         return $candidate !== $project && ! str_starts_with($candidate.'/', $project.'/');
+    }
+
+    private function effectiveLogLevel(string $channel): string
+    {
+        if ($channel !== 'stack') {
+            return strtolower((string) config("logging.channels.{$channel}.level", ''));
+        }
+
+        $levels = collect(config('logging.channels.stack.channels', []))
+            ->map(fn (string $member): string => strtolower((string) config("logging.channels.{$member}.level", '')))
+            ->filter();
+
+        return $levels->contains('debug') ? 'debug' : (string) $levels->first();
     }
 }
