@@ -1,0 +1,28 @@
+# Darak — installed to /etc/logrotate.d/darak by deploy/provision-ubuntu.sh.
+# Pair with LOG_CHANNEL=stack and LOG_STACK=single (one laravel.log); with the
+# "daily" channel Laravel rotates by itself and this block is a no-op.
+__APP_ROOT__/backend/storage/logs/laravel.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su __APP_USER__ __APP_USER__
+}
+
+/var/log/php__PHP_VERSION__-fpm-darak-slow.log /var/log/php__PHP_VERSION__-fpm-darak-error.log {
+    weekly
+    rotate 8
+    missingok
+    notifempty
+    compress
+    delaycompress
+    postrotate
+        /usr/lib/php/php__PHP_VERSION__-fpm-reopenlogs >/dev/null 2>&1 || true
+    endscript
+}
+
+# /var/log/nginx/darak-*.log is already covered by Ubuntu's /etc/logrotate.d/nginx
+# (/var/log/nginx/*.log); listing it here again would make logrotate fail.
