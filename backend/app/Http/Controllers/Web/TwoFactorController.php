@@ -147,14 +147,18 @@ class TwoFactorController extends Controller
                 'two_factor_secret' => null,
                 'two_factor_recovery_codes' => null,
                 'two_factor_confirmed_at' => null,
+                'two_factor_last_used_step' => null,
                 'auth_version' => (int) $user->auth_version + 1,
                 'remember_token' => null,
             ])->save();
 
             DB::table('sessions')->where('user_id', $user->id)->delete();
+            // An MFA reset answers "this account may be compromised". Bearer
+            // tokens minted with the old factor must die with the sessions.
+            $user->tokens()->delete();
         });
 
-        $this->audit->record('auth.two_factor_reset', $user, null, [], $request->user()->id);
+        $this->audit->record('auth.two_factor_reset', $user, null, ['api_tokens_revoked' => true], $request->user()->id);
 
         return back()->with('ok', 'أُعيد ضبط التحقق بخطوتين. سيُطلب إعداده عند الدخول التالي.');
     }
