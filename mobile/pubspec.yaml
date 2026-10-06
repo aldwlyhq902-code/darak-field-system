@@ -1,7 +1,7 @@
 name: darak_field
 description: "تطبيق فني دارك الميداني — يعمل بلا شبكة ويزامن لاحقاً."
 publish_to: 'none'
-version: 0.2.0+2
+version: 0.3.0+3
 
 environment:
   sdk: ^3.10.0
