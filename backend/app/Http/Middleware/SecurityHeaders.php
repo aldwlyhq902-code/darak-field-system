@@ -38,8 +38,13 @@ class SecurityHeaders
             $response->headers->set('Pragma', 'no-cache');
         }
 
-        if ($request->is('client*') || $request->is('report*') || $request->is('sales*')) {
-            $response->headers->set('Service-Worker-Allowed', '/');
+        // Only the worker scripts need this header, and only for their own app.
+        // `/` let a worker served under /client or /sales claim the panel too.
+        // The client worker registers scope "/client" (one level above its
+        // script's directory), which is exactly what this header must allow.
+        $workerScopes = ['client/service-worker.js' => '/client', 'sales/service-worker.js' => '/sales/'];
+        if (isset($workerScopes[$request->path()])) {
+            $response->headers->set('Service-Worker-Allowed', $workerScopes[$request->path()]);
         }
 
         if ($request->isSecure()) {

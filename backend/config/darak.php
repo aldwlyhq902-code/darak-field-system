@@ -149,6 +149,11 @@ return [
         // Idempotency-Key responses are replayable for this long, then pruned.
         'idempotency_ttl_hours' => (int) env('DARAK_IDEMPOTENCY_TTL_HOURS', 48),
     ],
+    // Public QR emergency form: per-site caps on top of the per-IP throttle.
+    'emergency_reports' => [
+        'per_site_hourly' => (int) env('DARAK_EMERGENCY_REPORTS_PER_SITE_HOURLY', 10),
+        'per_site_daily' => (int) env('DARAK_EMERGENCY_REPORTS_PER_SITE_DAILY', 30),
+    ],
     // Evidence images are inspected (header only) before GD decodes them.
     'media' => [
         'max_image_pixels' => (int) env('DARAK_MAX_IMAGE_PIXELS', 40_000_000),
