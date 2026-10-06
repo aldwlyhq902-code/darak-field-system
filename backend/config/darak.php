@@ -142,6 +142,11 @@ return [
         // Showing a new MFA secret requires a password proven this recently.
         'password_confirm_seconds' => (int) env('DARAK_PASSWORD_CONFIRM_SECONDS', 600),
     ],
+    'api' => [
+        // Per device token. Generous: a phone back from a dead zone flushes its
+        // queue in batches of up to 200 events.
+        'sync_events_per_minute' => (int) env('DARAK_SYNC_EVENTS_PER_MINUTE', 120),
+    ],
     // Evidence images are inspected (header only) before GD decodes them.
     'media' => [
         'max_image_pixels' => (int) env('DARAK_MAX_IMAGE_PIXELS', 40_000_000),

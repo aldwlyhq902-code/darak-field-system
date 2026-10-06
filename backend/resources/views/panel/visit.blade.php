@@ -180,7 +180,16 @@
                             @if ($event->clock_suspect)
                                 <span class="pill red">ساعة مشبوهة</span>
                             @endif
+                            @if ($event->is_mocked)
+                                <span class="pill red">موقع وهمي</span>
+                            @endif
+                            @if ($event->outside_geofence)
+                                <span class="pill amber">خارج نطاق الموقع</span>
+                            @endif
                         </span>
+                        @if (filled($event->payload['geofence_override_reason'] ?? null))
+                            <div style="color:var(--muted);font-size:12px;margin-top:2px">مبرر الفني: {{ $event->payload['geofence_override_reason'] }}</div>
+                        @endif
                     </div>
                 @empty
                     <div class="empty">لا أحداث بعد.</div>

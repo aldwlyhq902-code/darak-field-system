@@ -37,6 +37,18 @@ class SecurityServiceProvider extends ServiceProvider
                 : '').'|'.$request->ip()),
         ]);
 
+        // Offline sync, per device token (falls back to the user, then the IP).
+        RateLimiter::for('sync-events', function (Request $request): Limit {
+            $token = $request->user()?->currentAccessToken();
+            $key = match (true) {
+                $token instanceof PersonalAccessToken => 'token:'.$token->getKey(),
+                $request->user() !== null => 'user:'.$request->user()->getAuthIdentifier(),
+                default => 'ip:'.$request->ip(),
+            };
+
+            return Limit::perMinute(max(1, (int) config('darak.api.sync_events_per_minute', 120)))->by('sync|'.$key);
+        });
+
         // Reset-link requests: few per IP, fewer per address. The broker adds its
         // own one-per-minute rule per account; all three answer neutrally.
         RateLimiter::for('password-reset', fn (Request $request) => [

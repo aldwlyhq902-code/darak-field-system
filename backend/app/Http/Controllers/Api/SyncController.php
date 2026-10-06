@@ -85,6 +85,12 @@ class SyncController extends Controller
             'events.*.sequence' => ['nullable', 'integer'],
             'events.*.lat' => ['nullable', 'numeric'],
             'events.*.lng' => ['nullable', 'numeric'],
+            // C3 location quality: lenient on purpose. A batch must not fail
+            // over a GPS detail; the service ignores values it cannot use.
+            'events.*.accuracy_m' => ['nullable', 'numeric'],
+            'events.*.is_mocked' => ['nullable', 'boolean'],
+            // C6: compared per event in SyncService (ACTOR_MISMATCH).
+            'events.*.actor_user_id' => ['nullable', 'integer'],
             'events.*.source' => ['nullable', 'string', 'max:24'],
             'events.*.integrity_hash' => ['nullable', 'string', 'max:64'],
         ]);

@@ -18,6 +18,7 @@ use App\Services\AuditLogger;
 use App\Services\AutomaticReassignmentService;
 use App\Services\DispatchSuggestionService;
 use App\Services\RoutePlanningService;
+use App\Support\ClientTime;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -123,7 +124,7 @@ class OperationsInsightsController extends Controller
         $technician = $this->visibleTechnicians($request)->findOrFail($data['assigned_user_id']);
         $oldTechnician = $visit->technician;
         $oldDay = $visit->scheduled_start;
-        $start = CarbonImmutable::parse($data['scheduled_start']);
+        $start = ClientTime::parse($data['scheduled_start']);
         $duration = (int) ($data['duration_minutes'] ?? max(15, $visit->scheduled_start?->diffInMinutes($visit->scheduled_end) ?? 120));
         $candidate = $visit->replicate()->forceFill(['id' => $visit->id, 'assigned_user_id' => $technician->id, 'scheduled_start' => $start, 'scheduled_end' => $start->addMinutes($duration)]);
         $conflicts = $this->dispatch->conflicts($technician, $candidate);
@@ -154,6 +155,8 @@ class OperationsInsightsController extends Controller
     public function outage(Request $request): RedirectResponse
     {
         $data = $request->validate(['vehicle_id' => ['required', 'exists:vehicles,id'], 'starts_at' => ['required', 'date'], 'ends_at' => ['nullable', 'date', 'after:starts_at'], 'reason' => ['required', 'string', 'max:255']]);
+        $data['starts_at'] = ClientTime::parse($data['starts_at']);
+        $data['ends_at'] = ClientTime::parse($data['ends_at'] ?? null);
         VehicleOutage::create($data + ['status' => 'open', 'reported_by' => $request->user()->id]);
         Vehicle::whereKey($data['vehicle_id'])->update(['operational_status' => 'out_of_service']);
         $count = $this->reassignment->run();

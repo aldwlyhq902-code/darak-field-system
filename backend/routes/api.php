@@ -32,7 +32,7 @@ Route::prefix('v1')->group(function () {
 
         // Offline sync
         Route::get('sync/bootstrap', [SyncController::class, 'bootstrap']);
-        Route::post('sync/events', [SyncController::class, 'events']);
+        Route::post('sync/events', [SyncController::class, 'events'])->middleware('throttle:sync-events');
 
         // Visits
         Route::get('visits', [VisitController::class, 'index']);

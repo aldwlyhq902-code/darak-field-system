@@ -12,10 +12,12 @@ use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetUserLocale;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -68,17 +70,48 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->context(fn (): array => [
             'request_id' => request()?->attributes->get('request_id'),
         ]);
+        // Where an exception came from: the first frame inside app/, which says
+        // far more than a line deep in the framework.
+        $origin = static function (Throwable $exception): string {
+            foreach ([['file' => $exception->getFile(), 'line' => $exception->getLine()], ...$exception->getTrace()] as $frame) {
+                if (isset($frame['file']) && str_starts_with((string) $frame['file'], app_path())) {
+                    return str_replace(base_path().DIRECTORY_SEPARATOR, '', (string) $frame['file']).':'.($frame['line'] ?? 0);
+                }
+            }
+
+            return basename($exception->getFile()).':'.$exception->getLine();
+        };
+
         // Serverless providers may truncate long stack traces from the front.
         // Emit one concise root-cause line for operations logs; it is never
-        // included in the HTTP response shown to users.
-        $exceptions->report(function (Throwable $exception): void {
+        // included in the HTTP response shown to users. Class, code, origin and
+        // request id only: messages can carry bindings and personal data.
+        $exceptions->report(function (Throwable $exception) use ($origin): void {
             if (app()->environment('production')) {
                 error_log(sprintf(
-                    '[MIHWAR_ERROR] %s: %s',
+                    '[MIHWAR_ERROR] %s code=%s at=%s request=%s',
                     get_debug_type($exception),
-                    $exception->getMessage(),
+                    (string) $exception->getCode(),
+                    $origin($exception),
+                    (string) request()?->attributes->get('request_id'),
                 ));
             }
+        });
+
+        // A QueryException message is the SQL WITH its bound values — client
+        // names, phones, coordinates. Log what kind and where, never the text,
+        // and keep it out of the default stack (which would log the message).
+        // Registered after the line above so that line is still written.
+        $exceptions->report(function (QueryException $exception) use ($origin): bool {
+            Log::error('database.query_failed', [
+                'exception' => $exception::class,
+                'sqlstate' => $exception->getCode(),
+                'connection' => $exception->getConnectionName(),
+                'at' => $origin($exception),
+                'request_id' => request()?->attributes->get('request_id'),
+            ]);
+
+            return false;
         });
 
         $exceptions->shouldRenderJsonWhen(
