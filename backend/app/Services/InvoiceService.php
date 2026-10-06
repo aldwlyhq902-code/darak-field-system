@@ -5,7 +5,10 @@ namespace App\Services;
 use App\Contracts\InvoiceProvider;
 use App\Models\ExternalDocument;
 use App\Models\StockMove;
+use App\Models\User;
 use App\Models\Visit;
+use App\Services\Invoicing\ManualInvoiceProvider;
+use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -25,6 +28,7 @@ class InvoiceService
         private readonly InvoiceProvider $provider,
         private readonly InventoryService $inventory,
         private readonly AuditLogger $audit,
+        private readonly NotificationService $notifications,
     ) {}
 
     /** Issue an invoice for out-of-contract work on a visit. */
@@ -42,9 +46,9 @@ class InvoiceService
         }
 
         $lines = $this->lines($visit);
-        $amount = round(array_sum(array_column($lines, 'total')), 2);
-        $vatRate = (float) ($visit->workOrder?->contract?->vat_rate ?? 0.15);
-        $vat = round($amount * $vatRate, 2);
+        $amount = Money::sum(array_column($lines, 'total'));
+        $vatRate = $visit->workOrder?->contract?->vat_rate ?? '0.15';
+        $vat = Money::vat($amount, $vatRate);
 
         // Exactly which movements this invoice was computed from. A later credit
         // note consults this instead of comparing timestamps — a return and an
@@ -77,13 +81,7 @@ class InvoiceService
                 $key,
             );
 
-            $document->forceFill([
-                'external_id' => $response['external_id'] ?? null,
-                'external_number' => $response['external_number'] ?? null,
-                'status' => $response['status'] ?? 'issued',
-                'issued_at' => CarbonImmutable::now(),
-                'response_payload' => $response,
-            ])->save();
+            $this->applyProviderResponse($document, $response);
         } catch (\Throwable $e) {
             // The provider being down must not lose the request — it stays queued
             // as 'failed' with the error visible, never silently dropped.
@@ -142,8 +140,8 @@ class InvoiceService
                 );
             }
 
-            $unitPrice = $this->invoicedUnitPrice($invoice, $part->sku) ?? (float) $part->sale_price;
-            $amount = round($unitPrice * (float) $returnMove->qty, 2);
+            $unitPrice = $this->invoicedUnitPrice($invoice, $part->sku) ?? Money::of($part->sale_price);
+            $amount = Money::mul($unitPrice, $returnMove->qty);
             $vat = $this->proportionalVat($invoice, $amount);
 
             $creditNote = ExternalDocument::create([
@@ -177,30 +175,79 @@ class InvoiceService
         try {
             $response = $this->provider->createCreditNote(
                 (string) $invoice->external_id,
-                ['amount' => (float) $creditNote->amount, 'vat_amount' => (float) $creditNote->vat_amount],
+                ['amount' => Money::of($creditNote->amount), 'vat_amount' => Money::of($creditNote->vat_amount)],
                 $key,
             );
 
-            $creditNote->forceFill([
-                'external_id' => $response['external_id'] ?? null,
-                'external_number' => $response['external_number'] ?? null,
-                'status' => $response['status'] ?? 'issued',
-                'issued_at' => CarbonImmutable::now(),
-                'response_payload' => $response,
-            ])->save();
+            $this->applyProviderResponse($creditNote, $response);
         } catch (\Throwable $e) {
             $creditNote->forceFill(['status' => 'failed', 'last_error' => $e->getMessage()])->save();
         }
 
         $this->audit->record('invoice.credit_note', $creditNote, null, [
             'parent_document_id' => $invoice->id,
-            'amount' => (float) $creditNote->amount,
+            'amount' => Money::of($creditNote->amount),
         ]);
 
         return $creditNote->refresh();
     }
 
-    /** @return array<int, array{sku:string, description:string, qty:float, unit_price:float, total:float}> */
+    /**
+     * Manual invoicing: record the tax document the accountant issued outside
+     * Darak against its pending request. After this the document is issued and
+     * as immutable as any provider-issued one — a later correction is a credit
+     * note, never an edit, so a second recording is refused.
+     *
+     * @param  array{external_number: string, issued_on: string, qr_reference?: ?string}  $data
+     */
+    public function recordManualIssue(ExternalDocument $document, array $data, User $actor): ExternalDocument
+    {
+        return DB::transaction(function () use ($document, $data, $actor): ExternalDocument {
+            $document = ExternalDocument::query()->lockForUpdate()->findOrFail($document->id);
+
+            if ($document->provider !== 'manual' || $document->status !== ManualInvoiceProvider::STATUS_PENDING) {
+                throw new RuntimeException('هذا المستند ليس بانتظار تسجيل يدوي. المستند الصادر لا يُعدّل؛ التصحيح يكون بإشعار دائن.');
+            }
+
+            $number = trim($data['external_number']);
+            $duplicate = ExternalDocument::query()
+                ->where('provider', 'manual')
+                ->where('doc_type', $document->doc_type)
+                ->where('external_number', $number)
+                ->whereKeyNot($document->id)
+                ->exists();
+            if ($duplicate) {
+                throw new RuntimeException('رقم المستند الخارجي مسجل مسبقًا لمستند آخر.');
+            }
+
+            $before = ['status' => $document->status, 'external_number' => $document->external_number];
+            $qr = trim((string) ($data['qr_reference'] ?? ''));
+            $document->forceFill([
+                'external_id' => $number,
+                'external_number' => $number,
+                'status' => 'issued',
+                'issued_at' => CarbonImmutable::parse($data['issued_on'])->startOfDay(),
+                'response_payload' => array_merge($document->response_payload ?? [], [
+                    'manual' => [
+                        'qr_reference' => $qr !== '' ? $qr : null,
+                        'recorded_by' => $actor->id,
+                        'recorded_at' => CarbonImmutable::now()->toIso8601String(),
+                    ],
+                ]),
+            ])->save();
+
+            $this->audit->record('invoice.manual_recorded', $document, $before, [
+                'status' => 'issued',
+                'external_number' => $number,
+                'issued_on' => $document->issued_at?->toDateString(),
+                'qr_reference' => $qr !== '' ? $qr : null,
+            ], $actor->id);
+
+            return $document;
+        });
+    }
+
+    /** @return array<int, array{sku:string, description:string, qty:float, unit_price:string, total:string}> */
     private function lines(Visit $visit): array
     {
         $lines = [];
@@ -212,8 +259,8 @@ class InvoiceService
                 'sku' => $row['sku'],
                 'description' => $row['name'].' ('.$row['sku'].')',
                 'qty' => $row['qty'],
-                'unit_price' => $row['unit_price'],
-                'total' => round($row['qty'] * $row['unit_price'], 2),
+                'unit_price' => Money::of($row['unit_price']),
+                'total' => Money::mul($row['qty'], $row['unit_price']),
             ];
         }
 
@@ -226,35 +273,58 @@ class InvoiceService
      * When the credit closes out the invoice completely, it takes the exact
      * remainder so the notes sum to the invoiced VAT to the halala.
      */
-    private function proportionalVat(ExternalDocument $invoice, float $amount): float
+    private function proportionalVat(ExternalDocument $invoice, string $amount): string
     {
-        $invoiceAmount = (float) $invoice->amount;
+        $invoiceAmount = Money::of($invoice->amount);
 
-        if ($invoiceAmount <= 0) {
-            return 0.0;
+        if (! Money::isPositive($invoiceAmount)) {
+            return Money::zero();
         }
 
-        $alreadyCredited = (float) $invoice->creditNotes()->sum('amount');
-        $alreadyCreditedVat = (float) $invoice->creditNotes()->sum('vat_amount');
+        $alreadyCredited = Money::of($invoice->creditNotes()->sum('amount'));
+        $alreadyCreditedVat = Money::of($invoice->creditNotes()->sum('vat_amount'));
 
-        $isFinal = abs(($alreadyCredited + $amount) - $invoiceAmount) < 0.005;
-
-        if ($isFinal) {
-            return round((float) $invoice->vat_amount - $alreadyCreditedVat, 2);
+        if (Money::equals(Money::add($alreadyCredited, $amount), $invoiceAmount)) {
+            return Money::sub($invoice->vat_amount, $alreadyCreditedVat);
         }
 
-        return round((float) $invoice->vat_amount * ($amount / $invoiceAmount), 2);
+        return Money::div(Money::mul($invoice->vat_amount, $amount, 6), $invoiceAmount);
     }
 
     /** The unit price this invoice charged for a SKU, or null if it had no such line. */
-    private function invoicedUnitPrice(ExternalDocument $invoice, string $sku): ?float
+    private function invoicedUnitPrice(ExternalDocument $invoice, string $sku): ?string
     {
         foreach ($invoice->request_payload['lines'] ?? [] as $line) {
             if (($line['sku'] ?? null) === $sku) {
-                return (float) $line['unit_price'];
+                return Money::of($line['unit_price']);
             }
         }
 
         return null;
+    }
+
+    /**
+     * Records what the provider answered. Only a document the provider actually
+     * issued gets an issue time; a manual one is parked for the finance team
+     * with a task in the notifications inbox and gets the accountant's date
+     * when it is recorded.
+     *
+     * @param  array<string, mixed>  $response
+     */
+    private function applyProviderResponse(ExternalDocument $document, array $response): void
+    {
+        $status = $response['status'] ?? 'issued';
+
+        $document->forceFill([
+            'external_id' => $response['external_id'] ?? null,
+            'external_number' => $response['external_number'] ?? null,
+            'status' => $status,
+            'issued_at' => $status === 'issued' ? CarbonImmutable::now() : null,
+            'response_payload' => $response,
+        ])->save();
+
+        if ($status === ManualInvoiceProvider::STATUS_PENDING) {
+            $this->notifications->manualInvoiceTask($document);
+        }
     }
 }

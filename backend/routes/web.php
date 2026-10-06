@@ -14,6 +14,7 @@ use App\Http\Controllers\Web\FleetController;
 use App\Http\Controllers\Web\HumanResourcesController;
 use App\Http\Controllers\Web\IntelligencePanelController;
 use App\Http\Controllers\Web\InventoryPanelController;
+use App\Http\Controllers\Web\InvoicePanelController;
 use App\Http\Controllers\Web\MaintenancePlanController;
 use App\Http\Controllers\Web\NotificationPanelController;
 use App\Http\Controllers\Web\OperationsInsightsController;
@@ -164,6 +165,8 @@ Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.ar
     Route::get('commercial', [CommercialPanelController::class, 'index'])->name('panel.commercial');
     Route::get('finance', [FinanceInsightsController::class, 'index'])->name('panel.finance');
     Route::post('finance/costs', [FinanceInsightsController::class, 'cost'])->name('panel.finance.cost');
+    Route::get('finance/invoices', [InvoicePanelController::class, 'index'])->name('panel.invoices');
+    Route::post('finance/invoices/{document}/manual-issue', [InvoicePanelController::class, 'record'])->name('panel.invoices.record');
 
     Route::middleware('panel.permission:hr')->prefix('human-resources')->group(function () {
         Route::get('/', [HumanResourcesController::class, 'index'])->name('panel.hr');

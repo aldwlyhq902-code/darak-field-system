@@ -5,10 +5,12 @@ namespace App\Services;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\EmergencyReport;
+use App\Models\ExternalDocument;
 use App\Models\NotificationMessage;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\VisitFeedback;
+use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -172,6 +174,32 @@ class NotificationService
             body: "تقييم يحتاج متابعة: {$visit->site?->client?->name} — {$visit->site?->name}. التقييم {$feedback->rating}/5.",
             visitId: $visit->id,
             context: ['feedback_id' => $feedback->id, 'rating' => $feedback->rating],
+        );
+    }
+
+    /**
+     * A tax document Darak cannot issue itself (manual invoicing): the finance
+     * team issues it in the external tool, then records its number and date on
+     * the invoices page — which keeps the durable list of what is still pending.
+     */
+    public function manualInvoiceTask(ExternalDocument $document): ?NotificationMessage
+    {
+        $document->loadMissing('client');
+        $kind = $document->doc_type === ExternalDocument::TYPE_CREDIT_NOTE ? 'إشعار دائن' : 'فاتورة ضريبية';
+        $client = $document->client?->name ?? '—';
+
+        return $this->queue(
+            type: NotificationMessage::TYPE_MANUAL_INVOICE,
+            channel: NotificationMessage::CHANNEL_IN_APP,
+            recipientKind: 'supervisor',
+            key: "invoice.manual:{$document->id}",
+            body: "مطلوب إصدار {$kind} يدويًا للعميل {$client}: ".Money::format($document->amount).' ر.س + ضريبة '
+                .Money::format($document->vat_amount).' ر.س. سجّل رقمه وتاريخه في صفحة الفواتير بعد إصداره.',
+            visitId: $document->visit_id,
+            context: [
+                'external_document_id' => $document->id,
+                'operating_branch_id' => $document->client?->operating_branch_id,
+            ],
         );
     }
 

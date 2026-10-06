@@ -51,6 +51,11 @@ class ExternalDocument extends Model
         return $this->belongsTo(Visit::class);
     }
 
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
+    }
+
     public function isIssued(): bool
     {
         return $this->status === 'issued';

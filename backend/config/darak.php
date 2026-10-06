@@ -3,7 +3,10 @@
 return [
     /*
     | E-invoicing provider. Bought, never built — Darak stores a reference and a
-    | status only. 'fake' is a deterministic stand-in used in development and tests.
+    | status only. 'fake' is a deterministic stand-in used in development and tests;
+    | 'manual' parks each document for the finance team to issue in an external
+    | ZATCA-compliant tool and record here. Any other value fails on resolution
+    | (see InvoiceProviderFactory) instead of silently falling back to the fake.
     */
     'invoice_provider' => env('DARAK_INVOICE_PROVIDER', 'fake'),
 
