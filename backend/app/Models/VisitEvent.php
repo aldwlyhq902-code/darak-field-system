@@ -16,6 +16,7 @@ class VisitEvent extends Model
         'last_trusted_server_time', 'server_received_at',
         'clock_divergence_seconds', 'clock_suspect',
         'lat', 'lng', 'source', 'integrity_hash', 'sync_status', 'sequence',
+        'accuracy_m', 'is_mocked', 'outside_geofence',
     ];
 
     protected function casts(): array
@@ -28,6 +29,9 @@ class VisitEvent extends Model
             'clock_suspect' => 'boolean',
             'lat' => 'decimal:7',
             'lng' => 'decimal:7',
+            'accuracy_m' => 'decimal:2',
+            'is_mocked' => 'boolean',
+            'outside_geofence' => 'boolean',
         ];
     }
 

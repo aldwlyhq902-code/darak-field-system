@@ -13,6 +13,7 @@ use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Services\SlaCalculator;
 use App\Support\BusinessReference;
+use App\Support\ClientTime;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -227,7 +228,7 @@ class ClientPanelController extends Controller
             'created_by' => $request->user()->id,
         ]);
 
-        $start = CarbonImmutable::parse($data['scheduled_start']);
+        $start = ClientTime::parse($data['scheduled_start']);
 
         // A reactive order about one unit requires that unit; a preventive round
         // requires every asset on the site. Frozen now, so the visit is judged

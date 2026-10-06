@@ -3,15 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Api\MeResource;
 use App\Models\Device;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\DeviceRegistry;
+use App\Services\PasswordLogin;
 use App\Services\TwoFactorService;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -25,6 +27,8 @@ class AuthController extends Controller
         private readonly AuditLogger $audit,
         private readonly TenantAccess $tenantAccess,
         private readonly TwoFactorService $twoFactor,
+        private readonly PasswordLogin $passwords,
+        private readonly DeviceRegistry $devices,
     ) {}
 
     public function login(Request $request): JsonResponse
@@ -37,11 +41,26 @@ class AuthController extends Controller
             'label' => ['nullable', 'string', 'max:120'],
             'app_version' => ['nullable', 'string', 'max:32'],
             'mfa_code' => ['nullable', 'string', 'max:32'],
+            // Self-reported by the app. Recorded and shown to the owner; never a gate.
+            'device_integrity' => ['nullable', 'array'],
+            'device_integrity.rooted' => ['nullable', 'boolean'],
+            'device_integrity.emulator' => ['nullable', 'boolean'],
         ]);
 
-        $user = User::where('email', $data['email'])->first();
+        $result = $this->passwords->attempt('api', User::class, $data['email'], $data['password']);
 
-        if (! $user || ! Hash::check($data['password'], $user->password)) {
+        if ($result['locked_for'] > 0) {
+            return response()->json([
+                'code' => 'ACCOUNT_TEMPORARILY_LOCKED',
+                'message' => PasswordLogin::lockedMessage($result['locked_for']),
+                'retry_after' => $result['locked_for'],
+            ], 429);
+        }
+
+        /** @var User|null $user */
+        $user = $result['user'];
+
+        if ($user === null) {
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
         }
 
@@ -60,13 +79,17 @@ class AuthController extends Controller
                 ], 403);
             }
 
-            $mfaCode = (string) ($data['mfa_code'] ?? '');
-            $validSecondFactor = $mfaCode !== '' && (
-                $this->twoFactor->verify($user, $mfaCode)
-                || $this->twoFactor->consumeRecoveryCode($user, $mfaCode)
-            );
+            $secondFactor = $this->twoFactor->attempt($user, (string) ($data['mfa_code'] ?? ''));
 
-            if (! $validSecondFactor) {
+            if ($secondFactor['locked_for'] > 0) {
+                return response()->json([
+                    'code' => 'ACCOUNT_TEMPORARILY_LOCKED',
+                    'message' => TwoFactorService::lockedMessage($secondFactor['locked_for']),
+                    'retry_after' => $secondFactor['locked_for'],
+                ], 429);
+            }
+
+            if (! $secondFactor['valid']) {
                 return response()->json([
                     'code' => 'TWO_FACTOR_REQUIRED',
                     'message' => 'رمز التحقق أو الاسترداد مطلوب لإصدار رمز API إداري.',
@@ -74,29 +97,31 @@ class AuthController extends Controller
             }
         }
 
-        $device = Device::firstOrNew(['device_uuid' => $data['device_uuid']]);
+        ['status' => $status, 'device' => $device] = $this->devices->register($user, $data);
 
-        if ($device->exists && $device->isRevoked()) {
+        if ($status === DeviceRegistry::STATUS_REVOKED) {
             return response()->json([
                 'code' => 'DEVICE_REVOKED',
                 'message' => 'This device has been revoked. Contact the supervisor.',
             ], 403);
         }
 
-        if ($device->exists && $device->user_id !== $user->id) {
+        if ($status === DeviceRegistry::STATUS_BOUND_TO_ANOTHER_USER) {
             return response()->json([
                 'code' => 'DEVICE_BOUND_TO_ANOTHER_USER',
                 'message' => 'This device is registered to another account. Ask a supervisor to revoke it first.',
             ], 409);
         }
 
-        $device->fill([
-            'user_id' => $user->id,
-            'platform' => $data['platform'] ?? 'android',
-            'label' => $data['label'] ?? null,
-            'app_version' => $data['app_version'] ?? null,
-            'last_seen_at' => CarbonImmutable::now(),
-        ])->save();
+        // A second handset gets no token until the owner approves it. The app
+        // keeps its local queue and simply retries the login later.
+        if ($status === DeviceRegistry::STATUS_PENDING) {
+            return response()->json([
+                'code' => 'DEVICE_PENDING_APPROVAL',
+                'message' => 'هذا جهاز جديد بانتظار اعتماد المشرف. أعد تسجيل الدخول بعد الاعتماد.',
+                'device' => ['id' => $device->id, 'uuid' => $device->device_uuid],
+            ], 403);
+        }
 
         // One active token per device.
         $user->tokens()->where('name', 'device:'.$device->device_uuid)->delete();
@@ -151,16 +176,7 @@ class AuthController extends Controller
 
     public function me(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        return response()->json([
-            'id' => $user->id,
-            'name' => $user->name,
-            'role' => $user->role,
-            'trade' => $user->trade,
-            'specialties' => $user->specialties,
-            'shift' => ['start' => $user->shift_start, 'end' => $user->shift_end],
-            'server_time' => CarbonImmutable::now()->toIso8601String(),
-        ]);
+        // Unwrapped on purpose: the response shape predates the resource.
+        return response()->json((new MeResource($request->user()))->resolve($request));
     }
 }

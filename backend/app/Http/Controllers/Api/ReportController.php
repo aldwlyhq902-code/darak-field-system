@@ -7,6 +7,7 @@ use App\Models\StockMove;
 use App\Models\Visit;
 use App\Services\ReworkDetector;
 use App\Services\VisitReportBuilder;
+use App\Support\ClientTime;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -35,8 +36,8 @@ class ReportController extends Controller
 
     public function visitsCsv(Request $request): StreamedResponse
     {
-        $from = $request->date('from') ?? now()->subDays(30);
-        $to = $request->date('to') ?? now();
+        $from = ClientTime::parse($request->input('from')) ?? now()->subDays(30);
+        $to = ClientTime::parse($request->input('to')) ?? now();
 
         $rows = Visit::query()
             ->leftJoin('work_orders', 'work_orders.id', '=', 'visits.work_order_id')
@@ -78,8 +79,8 @@ class ReportController extends Controller
 
     public function stockMovesCsv(Request $request): StreamedResponse
     {
-        $from = $request->date('from') ?? now()->subDays(30);
-        $to = $request->date('to') ?? now();
+        $from = ClientTime::parse($request->input('from')) ?? now()->subDays(30);
+        $to = ClientTime::parse($request->input('to')) ?? now();
 
         $rows = StockMove::query()
             ->leftJoin('parts', 'parts.id', '=', 'stock_moves.part_id')
@@ -119,8 +120,8 @@ class ReportController extends Controller
      */
     public function firstTimeFix(Request $request)
     {
-        $from = $request->date('from') ?? now()->subDays(90);
-        $to = $request->date('to') ?? now();
+        $from = ClientTime::parse($request->input('from')) ?? now()->subDays(90);
+        $to = ClientTime::parse($request->input('to')) ?? now();
 
         return response()->json([
             'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],

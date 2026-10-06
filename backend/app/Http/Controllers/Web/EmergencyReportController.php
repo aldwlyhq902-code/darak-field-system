@@ -52,6 +52,15 @@ class EmergencyReportController extends Controller
         $site = $this->siteForToken($token);
         abort_if($request->filled('company'), 422);
 
+        // The per-IP throttle does nothing against a QR sticker photographed
+        // and scripted from many addresses. Cap what one site can receive, and
+        // say so neutrally: a genuine reporter is pointed to the phone.
+        if ($this->siteReportCapReached($site)) {
+            return back()->withInput($request->except('photo'))->withErrors([
+                'description' => 'استلمنا عددًا كبيرًا من البلاغات لهذا الموقع مؤخرًا. إن كانت الحالة طارئة فاتصل بنا مباشرة.',
+            ]);
+        }
+
         $data = $request->validate([
             'reporter_name' => ['required', 'string', 'max:100'],
             'reporter_phone' => ['required', 'regex:/^(?:\+?966|0)?5\d{8}$/'],
@@ -63,7 +72,7 @@ class EmergencyReportController extends Controller
                 'nullable',
                 Rule::exists('assets', 'id')->where('site_id', $site->id),
             ],
-            'photo' => ['nullable', 'file', 'mimetypes:image/jpeg,image/png,image/webp', 'max:8192'],
+            'photo' => ['nullable', 'file', 'mimetypes:image/jpeg,image/png,image/webp', 'max:5120'],
         ]);
 
         $photoPath = null;
@@ -73,7 +82,7 @@ class EmergencyReportController extends Controller
             $photo = $request->file('photo');
             $photoMime = $photo->getMimeType();
             $photoSha = hash_file('sha256', $photo->getRealPath());
-            $photoPath = $photo->store('emergency-reports', 'local');
+            $photoPath = $photo->store('emergency-reports', config('darak.files_disk', 'local'));
         }
 
         $report = EmergencyReport::create([
@@ -157,9 +166,10 @@ class EmergencyReportController extends Controller
 
     public function photo(EmergencyReport $emergency)
     {
-        abort_if($emergency->photo_path === null || ! Storage::disk('local')->exists($emergency->photo_path), 404);
+        $disk = Storage::disk(config('darak.files_disk', 'local'));
+        abort_if($emergency->photo_path === null || ! $disk->exists($emergency->photo_path), 404);
 
-        return Storage::disk('local')->response($emergency->photo_path, null, [
+        return $disk->response($emergency->photo_path, null, [
             'Content-Type' => $emergency->photo_mime ?? 'application/octet-stream',
             'Cache-Control' => 'private, no-store',
         ]);
@@ -242,6 +252,18 @@ class EmergencyReportController extends Controller
         $this->audit->record('emergency.rejected', $emergency, null, ['reason' => $data['reason']]);
 
         return redirect()->route('panel.emergencies')->with('ok', 'رُفض البلاغ مع تسجيل السبب.');
+    }
+
+    private function siteReportCapReached(Site $site): bool
+    {
+        $hourly = (int) config('darak.emergency_reports.per_site_hourly', 10);
+        $daily = (int) config('darak.emergency_reports.per_site_daily', 30);
+        $recent = fn (int $hours): int => EmergencyReport::query()
+            ->where('site_id', $site->id)
+            ->where('created_at', '>=', now()->subHours($hours))
+            ->count();
+
+        return ($hourly > 0 && $recent(1) >= $hourly) || ($daily > 0 && $recent(24) >= $daily);
     }
 
     private function siteForToken(string $token): Site

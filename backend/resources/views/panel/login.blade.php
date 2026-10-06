@@ -42,6 +42,7 @@
                 </div>
                 <button class="btn auth-submit">دخول إلى اللوحة</button>
             </form>
+            <p style="margin:14px 0 0;text-align:center;font-size:13px"><a href="{{ route('panel.password.request') }}">نسيت كلمة المرور؟</a></p>
             <p class="auth-help">الفنيون يستخدمون تطبيق الجوال. ينتقل فريق المبيعات تلقائيًا إلى مساحة المبيعات بعد التحقق.</p>
         </div>
     </section>

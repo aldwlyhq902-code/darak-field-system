@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\PasswordLogin;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,7 +18,10 @@ use Illuminate\View\View;
  */
 class PanelAuthController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly PasswordLogin $passwords,
+    ) {}
 
     public function show(): View
     {
@@ -30,30 +35,40 @@ class PanelAuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        if (! Auth::guard('web')->attempt($credentials, $request->boolean('remember'))) {
+        $result = $this->passwords->attempt('web', User::class, $credentials['email'], $credentials['password']);
+
+        if ($result['locked_for'] > 0) {
+            throw ValidationException::withMessages(['email' => PasswordLogin::lockedMessage($result['locked_for'])]);
+        }
+
+        /** @var User|null $user */
+        $user = $result['user'];
+
+        if ($user === null) {
             throw ValidationException::withMessages(['email' => 'بيانات الدخول غير صحيحة.']);
         }
 
-        $user = Auth::guard('web')->user();
-
         if ($user->isTechnician() || ! $user->is_active) {
-            Auth::guard('web')->logout();
-
             throw ValidationException::withMessages([
                 'email' => 'هذه اللوحة للمشرف والإدارة. الفنيون يستخدمون التطبيق.',
             ]);
         }
 
         $remember = $request->boolean('remember');
-        $request->session()->regenerate();
 
         if (! $user->hasConfirmedTwoFactor()) {
+            Auth::guard('web')->login($user, $remember);
+            $request->session()->regenerate();
+            // The password was proven seconds ago, which is what the
+            // password.confirm gate in front of the MFA secret asks for.
+            $request->session()->put('auth.password_confirmed_at', time());
+
             return redirect()->route('panel.two-factor.setup');
         }
 
         // A password alone never creates an authorised panel session once MFA is
         // enabled. Keep only the pending user id until the second factor passes.
-        Auth::guard('web')->logout();
+        $request->session()->regenerate();
         $request->session()->put([
             'two_factor_pending_user_id' => $user->id,
             'two_factor_remember' => $remember,

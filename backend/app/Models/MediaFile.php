@@ -15,6 +15,7 @@ class MediaFile extends Model
         'original_path', 'original_hash', 'derived_path',
         'total_bytes', 'uploaded_bytes', 'upload_state', 'attempts', 'last_error',
         'captured_at', 'lat', 'lng', 'declared_source',
+        'registered_by_user_id', 'registered_device_id',
     ];
 
     protected function casts(): array

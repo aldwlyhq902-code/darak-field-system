@@ -32,6 +32,8 @@ class NotificationMessage extends Model
 
     public const TYPE_SALES_ALERT = 'sales.alert';
 
+    public const TYPE_SECURITY_ALERT = 'security.alert';
+
     public const CHANNEL_IN_APP = 'in_app';
 
     public const CHANNEL_WHATSAPP_MANUAL = 'whatsapp_manual';

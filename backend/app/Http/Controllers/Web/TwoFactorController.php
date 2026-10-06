@@ -95,10 +95,17 @@ class TwoFactorController extends Controller
             throw ValidationException::withMessages(['code' => 'انتهت جلسة التحقق. سجّل الدخول مرة أخرى.']);
         }
 
-        $valid = $this->twoFactor->verify($user, $data['code'])
-            || $this->twoFactor->consumeRecoveryCode($user, $data['code']);
+        $attempt = $this->twoFactor->attempt($user, $data['code']);
 
-        if (! $valid) {
+        if ($attempt['locked_for'] > 0) {
+            // The pending login dies with the lock: after the window the password
+            // must be proven again, not just more codes guessed.
+            $request->session()->forget(['two_factor_pending_user_id', 'two_factor_remember']);
+
+            throw ValidationException::withMessages(['code' => TwoFactorService::lockedMessage($attempt['locked_for'])]);
+        }
+
+        if (! $attempt['valid']) {
             throw ValidationException::withMessages(['code' => 'رمز التحقق أو الاسترداد غير صحيح.']);
         }
 
@@ -118,6 +125,22 @@ class TwoFactorController extends Controller
 
     public function regenerateRecoveryCodes(Request $request): View
     {
+        // New recovery codes are a second factor in their own right. A hijacked
+        // session alone must not be able to mint them: demand the password AND
+        // a live TOTP code (a recovery code cannot vouch for its replacements).
+        $data = $request->validate([
+            'password' => ['required', 'string', 'current_password:web'],
+            'code' => ['required', 'string', 'regex:/^\d{6}$/'],
+        ], ['password.current_password' => 'كلمة المرور غير صحيحة.']);
+
+        $attempt = $this->twoFactor->attempt($request->user(), $data['code'], allowRecoveryCode: false);
+
+        if (! $attempt['valid']) {
+            throw ValidationException::withMessages(['code' => $attempt['locked_for'] > 0
+                ? TwoFactorService::lockedMessage($attempt['locked_for'])
+                : 'رمز التحقق غير صحيح أو انتهت صلاحيته.']);
+        }
+
         $codes = $this->twoFactor->recoveryCodes();
         $request->user()->forceFill(['two_factor_recovery_codes' => $codes['hashed']])->save();
 
@@ -140,14 +163,18 @@ class TwoFactorController extends Controller
                 'two_factor_secret' => null,
                 'two_factor_recovery_codes' => null,
                 'two_factor_confirmed_at' => null,
+                'two_factor_last_used_step' => null,
                 'auth_version' => (int) $user->auth_version + 1,
                 'remember_token' => null,
             ])->save();
 
             DB::table('sessions')->where('user_id', $user->id)->delete();
+            // An MFA reset answers "this account may be compromised". Bearer
+            // tokens minted with the old factor must die with the sessions.
+            $user->tokens()->delete();
         });
 
-        $this->audit->record('auth.two_factor_reset', $user, null, [], $request->user()->id);
+        $this->audit->record('auth.two_factor_reset', $user, null, ['api_tokens_revoked' => true], $request->user()->id);
 
         return back()->with('ok', 'أُعيد ضبط التحقق بخطوتين. سيُطلب إعداده عند الدخول التالي.');
     }

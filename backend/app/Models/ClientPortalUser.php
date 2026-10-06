@@ -6,10 +6,12 @@ use App\Models\Concerns\ScopedToOperatingBranch;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
 
 class ClientPortalUser extends Authenticatable
 {
-    use ScopedToOperatingBranch;
+    // Notifiable: the password-reset link is a mail notification.
+    use Notifiable, ScopedToOperatingBranch;
 
     public const DEFAULT_PERMISSIONS = [
         'quotes.approve', 'contracts.sign', 'reports.dispute',
@@ -28,6 +30,7 @@ class ClientPortalUser extends Authenticatable
             'password' => 'hashed',
             'is_active' => 'boolean',
             'permissions' => 'array',
+            'auth_version' => 'integer',
         ];
     }
 

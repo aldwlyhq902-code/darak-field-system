@@ -281,7 +281,12 @@ class SalesPortalController extends Controller
     {
         abort_unless($this->push->configured(), 422, 'Web Push is not configured.');
         $data = $request->validate([
-            'endpoint' => ['required', 'url', 'max:2048'], 'keys.p256dh' => ['required', 'string', 'max:512'],
+            'endpoint' => ['required', 'url', 'max:2048', function (string $attribute, mixed $value, \Closure $fail): void {
+                // The server later POSTs here: only real browser push services.
+                if (! SalesPushService::isAllowedEndpoint($value)) {
+                    $fail('عنوان الاشتراك ليس خدمة إشعارات معتمدة.');
+                }
+            }], 'keys.p256dh' => ['required', 'string', 'max:512'],
             'keys.auth' => ['required', 'string', 'max:256'], 'contentEncoding' => ['nullable', 'in:aesgcm,aes128gcm'],
         ]);
         $this->push->subscribe($request->user(), $data);

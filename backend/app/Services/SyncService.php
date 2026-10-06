@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\InvalidSyncPayload;
 use App\Exceptions\InvalidVisitTransition;
+use App\Exceptions\SyncEventRefused;
 use App\Exceptions\VisitCloseBlocked;
 use App\Models\Asset;
 use App\Models\ChecklistInstance;
@@ -13,7 +14,9 @@ use App\Models\StockLocation;
 use App\Models\StockMove;
 use App\Models\Visit;
 use App\Models\VisitEvent;
+use App\Support\ClientTime;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -78,6 +81,20 @@ class SyncService
                 continue;
             }
 
+            // C6: an event may name the account that produced it. A queue left
+            // behind by a previous user of a shared handset must not be booked
+            // to whoever signed in next. Refused per event, never per batch.
+            if (array_key_exists('actor_user_id', $raw) && $raw['actor_user_id'] !== null
+                && (string) $raw['actor_user_id'] !== (string) $device->user_id) {
+                $results[] = $this->rejection(
+                    $clientEventId,
+                    'ACTOR_MISMATCH',
+                    'This event was recorded by a different account than the one signed in.',
+                );
+
+                continue;
+            }
+
             if (VisitEvent::where('client_event_id', $clientEventId)->exists()) {
                 $results[] = ['client_event_id' => $clientEventId, 'status' => 'duplicate'];
 
@@ -110,8 +127,16 @@ class SyncService
                     continue;
                 }
 
-                Log::error('sync.query_failed', ['event' => $clientEventId, 'error' => $e->getMessage()]);
-                $results[] = $this->rejection($clientEventId, 'DB_ERROR', 'Storage rejected the event.');
+                // Never the message: it carries the SQL and its bindings, i.e.
+                // client data. SQLSTATE + where + request id is enough to trace.
+                Log::error('sync.query_failed', $this->failureContext($clientEventId, $e));
+                $results[] = $this->rejection($clientEventId, 'DB_ERROR', 'Storage rejected the event.', [
+                    'request_id' => $this->requestId(),
+                ]);
+            } catch (SyncEventRefused $e) {
+                $results[] = $this->rejection($clientEventId, $e->errorCode, $e->getMessage());
+            } catch (ModelNotFoundException) {
+                $results[] = $this->rejection($clientEventId, 'NOT_FOUND', 'A record this event refers to does not exist.');
             } catch (InvalidVisitTransition $e) {
                 $results[] = $this->rejection($clientEventId, 'INVALID_VISIT_TRANSITION', $e->getMessage(), [
                     'from' => $e->fromState, 'to' => $e->toState, 'allowed' => $e->allowed,
@@ -138,8 +163,16 @@ class SyncService
                     'retryable' => self::blockersAreTransient($e->blockers),
                 ]);
             } catch (Throwable $e) {
-                Log::warning('sync.event_failed', ['event' => $clientEventId, 'error' => $e->getMessage()]);
-                $results[] = $this->rejection($clientEventId, 'EVENT_FAILED', $e->getMessage());
+                // Raw exception text used to reach the phone (and the log) —
+                // paths, SQL, internals. The device gets a stable code and the
+                // request id; the log gets where it happened, not what it said.
+                Log::warning('sync.event_failed', $this->failureContext($clientEventId, $e));
+                $results[] = $this->rejection(
+                    $clientEventId,
+                    'EVENT_FAILED',
+                    'The server could not apply this event. Quote the request id to support.',
+                    ['request_id' => $this->requestId()],
+                );
             }
         }
 
@@ -169,11 +202,9 @@ class SyncService
         // knew a visit id could edit it, close it and issue stock against it —
         // /sync/events never consults VisitPolicy, so this is the only gate.
         if ($visit->assigned_user_id !== $device->user_id) {
-            throw new \RuntimeException(
-                $visit->assigned_user_id === null
-                    ? 'This visit is not assigned to you. Ask the supervisor to assign it.'
-                    : 'This visit is no longer assigned to this technician.'
-            );
+            throw $visit->assigned_user_id === null
+                ? new SyncEventRefused('VISIT_NOT_ASSIGNED', 'This visit is not assigned to you. Ask the supervisor to assign it.')
+                : new SyncEventRefused('VISIT_REASSIGNED', 'This visit is no longer assigned to this technician.');
         }
 
         $type = (string) $raw['event_type'];
@@ -235,7 +266,7 @@ class SyncService
                 // from another technician's van.
                 $this->assertOwnVehicleStock($device, (int) $payload['from_location_id']);
 
-                $move = $this->inventory->issueToVisit(
+                $move = $this->stockMove(fn (): StockMove => $this->inventory->issueToVisit(
                     (string) $payload['idempotency_key'],
                     (int) $payload['part_id'],
                     (float) $payload['qty'],
@@ -246,7 +277,7 @@ class SyncService
                         'device_id' => $device->id,
                         'device_timestamp' => $event->device_timestamp,
                     ],
-                );
+                ));
                 $meta['stock_move_id'] = $move->id;
                 break;
 
@@ -257,14 +288,14 @@ class SyncService
                 // technician's own vehicle. Without both checks a device could
                 // reverse any movement in the company into any location.
                 if ($original->visit_id !== $visit->id) {
-                    throw new \RuntimeException('That part was not issued on this visit.');
+                    throw new SyncEventRefused('PART_NOT_ON_VISIT', 'That part was not issued on this visit.');
                 }
 
                 // The quantity guard lives inside InventoryService's locked
                 // transaction — checking it here would race two returns.
                 $this->assertOwnVehicleStock($device, (int) $payload['to_location_id']);
 
-                $move = $this->inventory->returnFromVisit(
+                $move = $this->stockMove(fn (): StockMove => $this->inventory->returnFromVisit(
                     (string) $payload['idempotency_key'],
                     $original,
                     (float) $payload['qty'],
@@ -274,7 +305,7 @@ class SyncService
                         'device_id' => $device->id,
                         'device_timestamp' => $event->device_timestamp,
                     ],
-                );
+                ));
                 $meta['stock_move_id'] = $move->id;
                 break;
 
@@ -306,6 +337,9 @@ class SyncService
                         'lng' => $payload['lng'] ?? null,
                         'declared_source' => $payload['declared_source'] ?? 'camera',
                         'upload_state' => 'pending',
+                        // Only this device may later write the bytes.
+                        'registered_by_user_id' => $device->user_id,
+                        'registered_device_id' => $device->id,
                     ],
                 );
 
@@ -373,6 +407,15 @@ class SyncService
         $states = array_values(array_unique(array_merge(array_keys(Visit::TRANSITIONS), ...array_values(Visit::TRANSITIONS))));
         if (! in_array($target, $states, true)) {
             throw new InvalidSyncPayload('Unsupported visit state.');
+        }
+
+        // C3: arriving or closing away from the site is never blocked, but the
+        // technician's explanation travels with the event for the supervisor.
+        // Malformed reasons are dropped (or trimmed), not used to refuse work.
+        $reason = $payload['geofence_override_reason'] ?? null;
+        if (is_string($reason) && trim($reason) !== ''
+            && in_array($target, [Visit::STATE_STARTED, Visit::STATE_AWAITING_CLOSE, Visit::STATE_COMPLETED], true)) {
+            return ['to' => $target, 'geofence_override_reason' => mb_substr(trim($reason), 0, 500)];
         }
 
         return ['to' => $target];
@@ -638,11 +681,98 @@ class SyncService
             'clock_suspect' => $clock['suspect'],
             'lat' => $raw['lat'] ?? null,
             'lng' => $raw['lng'] ?? null,
+            'accuracy_m' => $this->accuracy($raw),
+            'is_mocked' => isset($raw['is_mocked'])
+                ? filter_var($raw['is_mocked'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+                : null,
+            'outside_geofence' => $this->outsideGeofence($visit, $raw),
             'source' => $raw['source'] ?? 'offline',
             'integrity_hash' => $raw['integrity_hash'] ?? null,
             'sequence' => $raw['sequence'] ?? null,
             'sync_status' => 'synced',
         ]);
+    }
+
+    /** @param array<string, mixed> $raw */
+    private function accuracy(array $raw): ?float
+    {
+        $accuracy = $raw['accuracy_m'] ?? null;
+
+        return is_numeric($accuracy) && (float) $accuracy >= 0 ? min((float) $accuracy, 999999.0) : null;
+    }
+
+    /**
+     * C3. Null when either side has no position to compare. The reported GPS
+     * accuracy widens the fence, but by at most 100 m, so a vague fix cannot
+     * excuse a report made from across town.
+     *
+     * @param  array<string, mixed>  $raw
+     */
+    private function outsideGeofence(Visit $visit, array $raw): ?bool
+    {
+        $lat = $raw['lat'] ?? null;
+        $lng = $raw['lng'] ?? null;
+        $site = $visit->site;
+
+        if (! is_numeric($lat) || ! is_numeric($lng) || $site === null
+            || $site->lat === null || $site->lng === null || $site->geofence_radius_m === null) {
+            return null;
+        }
+
+        $distance = self::distanceMeters((float) $lat, (float) $lng, (float) $site->lat, (float) $site->lng);
+
+        return $distance > (float) $site->geofence_radius_m + min($this->accuracy($raw) ?? 0.0, 100.0);
+    }
+
+    /** Great-circle (haversine) distance in metres. */
+    public static function distanceMeters(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $earthRadius = 6371000.0;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+        $a = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+
+        return 2 * $earthRadius * asin(min(1.0, sqrt($a)));
+    }
+
+    /**
+     * InventoryService refuses with plain RuntimeExceptions written for people
+     * ("Insufficient stock at [Van 1]: need 2, available 1"). Those stay readable
+     * on the phone under a stable code; any more specific exception — SQL errors
+     * included — is left alone and handled (and redacted) by ingest().
+     *
+     * @param  callable(): StockMove  $move
+     */
+    private function stockMove(callable $move): StockMove
+    {
+        try {
+            return $move();
+        } catch (\RuntimeException $e) {
+            if ($e::class !== \RuntimeException::class) {
+                throw $e;
+            }
+
+            throw new SyncEventRefused('STOCK_MOVE_REFUSED', $e->getMessage());
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function failureContext(string $clientEventId, Throwable $e): array
+    {
+        return [
+            'event' => $clientEventId,
+            'exception' => $e::class,
+            'code' => $e->getCode(),
+            'at' => basename($e->getFile()).':'.$e->getLine(),
+            'request_id' => $this->requestId(),
+        ];
+    }
+
+    private function requestId(): ?string
+    {
+        $id = app()->bound('request') ? request()->attributes->get('request_id') : null;
+
+        return is_string($id) ? $id : null;
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -678,7 +808,7 @@ class SyncService
             ->exists();
 
         if (! $owns) {
-            throw new \RuntimeException('You can only move parts through your own vehicle stock.');
+            throw new SyncEventRefused('STOCK_LOCATION_FORBIDDEN', 'You can only move parts through your own vehicle stock.');
         }
     }
 
@@ -752,16 +882,13 @@ class SyncService
             || in_array($e->getCode(), ['23000', '23505'], true);
     }
 
+    /**
+     * Device clocks report UTC ("…Z"); the columns are naive and hold app-local
+     * wall-clock. Converting here keeps every device time (event, trusted
+     * server time, media capture) on the same clock as server-side timestamps.
+     */
     private function toDate(mixed $value): ?CarbonImmutable
     {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        try {
-            return CarbonImmutable::parse($value);
-        } catch (Throwable) {
-            return null;
-        }
+        return ClientTime::parse($value);
     }
 }

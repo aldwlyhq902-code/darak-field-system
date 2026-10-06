@@ -142,4 +142,39 @@ return [
         'price_floor' => env('DARAK_QUOTATION_PRICE_FLOOR'),
         'max_discount_percent' => env('DARAK_QUOTATION_MAX_DISCOUNT_PERCENT', 0),
     ],
+
+    // auth & api
+    /*
+    | Per-account lockouts sit on top of the per-IP throttles. A botnet rotating
+    | addresses still meets the account counter; a typo-prone owner still gets
+    | back in after the window. Password counters are keyed by the submitted
+    | email, so an unknown address locks exactly like a real one (no enumeration).
+    */
+    'auth' => [
+        'password_max_attempts' => (int) env('DARAK_PASSWORD_MAX_ATTEMPTS', 5),
+        'password_lockout_minutes' => (int) env('DARAK_PASSWORD_LOCKOUT_MINUTES', 15),
+        'mfa_max_attempts' => (int) env('DARAK_MFA_MAX_ATTEMPTS', 5),
+        'mfa_lockout_minutes' => (int) env('DARAK_MFA_LOCKOUT_MINUTES', 15),
+        // API tokens unused for this many days stop working (401, app re-logins).
+        'token_idle_days' => (int) env('DARAK_TOKEN_IDLE_DAYS', 14),
+        // Showing a new MFA secret requires a password proven this recently.
+        'password_confirm_seconds' => (int) env('DARAK_PASSWORD_CONFIRM_SECONDS', 600),
+    ],
+    'api' => [
+        // Per device token. Generous: a phone back from a dead zone flushes its
+        // queue in batches of up to 200 events.
+        'sync_events_per_minute' => (int) env('DARAK_SYNC_EVENTS_PER_MINUTE', 120),
+        // Idempotency-Key responses are replayable for this long, then pruned.
+        'idempotency_ttl_hours' => (int) env('DARAK_IDEMPOTENCY_TTL_HOURS', 48),
+    ],
+    // Public QR emergency form: per-site caps on top of the per-IP throttle.
+    'emergency_reports' => [
+        'per_site_hourly' => (int) env('DARAK_EMERGENCY_REPORTS_PER_SITE_HOURLY', 10),
+        'per_site_daily' => (int) env('DARAK_EMERGENCY_REPORTS_PER_SITE_DAILY', 30),
+    ],
+    // Evidence images are inspected (header only) before GD decodes them.
+    'media' => [
+        'max_image_pixels' => (int) env('DARAK_MAX_IMAGE_PIXELS', 40_000_000),
+        'max_image_side' => (int) env('DARAK_MAX_IMAGE_SIDE', 12_000),
+    ],
 ];

@@ -25,6 +25,7 @@
         <div class="page-context"><nav class="breadcrumbs" aria-label="مسار الصفحة"><a href="{{ route('panel.board') }}">الرئيسية</a><span aria-hidden="true">/</span><span aria-current="page">@yield('title', 'لوحة التحكم')</span></nav><div class="topbar-title">@yield('title', 'لوحة التحكم')</div></div>
         <div class="topbar-actions"><details class="user-menu"><summary aria-label="فتح قائمة الحساب"><span class="user-avatar" aria-hidden="true">{{ mb_substr($panelUser->name, 0, 1) }}</span><span class="user-copy"><strong>{{ $panelUser->name }}</strong><small>حساب المستخدم</small></span><span class="chevron" aria-hidden="true">⌄</span></summary><div class="user-popover">
             <form method="POST" action="{{ route('locale.switch', app()->isLocale('ar') ? 'en' : 'ar') }}">@csrf<button class="user-action" type="submit"><span class="user-action-icon" aria-hidden="true">文</span><span>{{ app()->isLocale('ar') ? 'English' : 'العربية' }}</span></button></form>
+            <a class="user-action" href="{{ route('panel.account') }}"><span class="user-action-icon" aria-hidden="true">🔒</span><span>أمان الحساب</span></a>
             <div class="menu-divider"></div><form method="POST" action="{{ route('panel.logout') }}">@csrf<button class="user-action danger" type="submit"><span class="user-action-icon" aria-hidden="true">↪</span><span>تسجيل الخروج</span></button></form>
         </div></details></div>
     </header>

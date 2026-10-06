@@ -113,12 +113,30 @@
                     <td style="font-size:13px">{{ $device->last_seen_at?->diffForHumans() ?? '—' }}</td>
                     <td style="font-size:13px">{{ $device->last_sync_at?->diffForHumans() ?? '—' }}</td>
                     <td>
-                        <span class="pill {{ $device->isRevoked() ? 'red' : 'green' }}">
-                            {{ $device->isRevoked() ? 'مُبطل' : 'نشط' }}
-                        </span>
+                        @if ($device->isPendingApproval() && ! $device->isRevoked())
+                            <span class="pill amber">بانتظار الاعتماد</span>
+                        @else
+                            <span class="pill {{ $device->isRevoked() ? 'red' : 'green' }}">
+                                {{ $device->isRevoked() ? 'مُبطل' : 'نشط' }}
+                            </span>
+                        @endif
+                        @if ($device->hasIntegrityWarning())
+                            <span class="pill red" title="أبلغ التطبيق عن بيئة غير موثوقة عند الدخول">
+                                {{ ($device->integrity['rooted'] ?? false) ? 'جهاز مكسور الحماية' : 'محاكي' }}
+                            </span>
+                        @endif
                     </td>
                     <td>
-                        @unless ($device->isRevoked())
+                        @if ($device->isPendingApproval() && ! $device->isRevoked())
+                            <form method="POST" action="{{ route('panel.team.device.approve', $device) }}" style="display:inline">
+                                @csrf
+                                <button class="btn small">اعتماد</button>
+                            </form>
+                            <form method="POST" action="{{ route('panel.team.device.reject', $device) }}" style="display:inline">
+                                @csrf
+                                <button class="btn small ghost" style="color:var(--red);border-color:var(--red)">رفض</button>
+                            </form>
+                        @elseif (! $device->isRevoked())
                             <form method="POST" action="{{ route('panel.team.revoke', $device) }}">
                                 @csrf
                                 <input type="hidden" name="reason" value="أُبطل من اللوحة">
@@ -126,7 +144,7 @@
                             </form>
                         @else
                             <span style="font-size:12px;color:var(--muted)">{{ $device->revoked_reason }}</span>
-                        @endunless
+                        @endif
                     </td>
                 </tr>
             @endforeach

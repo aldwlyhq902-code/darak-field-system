@@ -179,7 +179,7 @@ class ClientPortalAndEmergencyReportTest extends DarakTestCase
             ->assertSee('دارك للعملاء');
         $this->get(route('client.service-worker'))
             ->assertOk()
-            ->assertHeader('Service-Worker-Allowed', '/');
+            ->assertHeader('Service-Worker-Allowed', '/client');
         $this->get(route('client.service-worker'))
             ->assertSee('network-only', false)
             ->assertDontSee('cache.put(event.request');

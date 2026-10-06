@@ -22,7 +22,7 @@
 <a class="skip-link" href="#main-content">تجاوز إلى المحتوى</a>
 @include('partials.language-switcher')
 @auth('client')
-<header class="top"><div class="bar"><a class="logo" href="{{ route('client.home') }}" aria-label="دارك — الصفحة الرئيسية">دارك<small>بوابة العميل</small></a><nav class="nav" aria-label="تنقل بوابة العميل"><a href="{{ route('client.home') }}">الرئيسية</a><form method="POST" action="{{ route('client.logout') }}">@csrf<button class="logout">خروج</button></form></nav></div></header>
+<header class="top"><div class="bar"><a class="logo" href="{{ route('client.home') }}" aria-label="دارك — الصفحة الرئيسية">دارك<small>بوابة العميل</small></a><nav class="nav" aria-label="تنقل بوابة العميل"><a href="{{ route('client.home') }}">الرئيسية</a><a href="{{ route('client.account.password') }}">كلمة المرور</a><form method="POST" action="{{ route('client.logout') }}">@csrf<button class="logout">خروج</button></form></nav></div></header>
 @endauth
 <main id="main-content" tabindex="-1">
     @if(session('ok'))<div class="flash ok" role="status">{{ session('ok') }}</div>@endif

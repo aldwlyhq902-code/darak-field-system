@@ -108,6 +108,15 @@ return [
             'expire' => 60,
             'throttle' => 60,
         ],
+        // Client-portal accounts live in their own table and provider, so their
+        // reset tokens must too: one shared table would let an email that exists
+        // in both places collide.
+        'client_portal_users' => [
+            'provider' => 'client_portal_users',
+            'table' => 'client_portal_password_reset_tokens',
+            'expire' => 60,
+            'throttle' => 60,
+        ],
     ],
 
     /*
