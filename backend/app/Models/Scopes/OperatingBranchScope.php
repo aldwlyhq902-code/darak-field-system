@@ -226,7 +226,13 @@ class OperatingBranchScope implements Scope
                             ->when($branchId !== null, fn ($q) => $q->where('tenant_clients.operating_branch_id', $branchId));
                     });
             });
+
+            return;
         }
+
+        // Fail closed: a model that opts into the scope without a rule here
+        // must never fall through to "every tenant's rows".
+        $builder->whereRaw('1 = 0');
     }
 
     private function throughBranch(Builder $builder, string $branchColumn, int $companyId, ?int $branchId): void

@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\ClientPortalUser;
 use App\Models\CommissionEntry;
 use App\Models\CommissionRule;
+use App\Models\Concerns\ScopedToOperatingBranch;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\ExternalDocument;
@@ -37,6 +38,7 @@ use App\Services\Invoicing\ManualInvoiceProvider;
 use App\Services\ReplenishmentService;
 use App\Services\SubcontractorService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -44,8 +46,10 @@ use Tests\DarakTestCase;
 
 /**
  * The last company-wide records that were still shared across tenants:
- * commission policies, the subcontractor directory, the failure-prediction
- * model and site-less commercial documents shown to restricted delegates.
+ * commission policies, the subcontractor and supplier directories, the
+ * failure-prediction model, the knowledge base, failure reports, performance
+ * settings, per-company numbering, and site-less commercial documents shown to
+ * restricted delegates.
  */
 class TenancyGapsTest extends DarakTestCase
 {
@@ -370,6 +374,21 @@ class TenancyGapsTest extends DarakTestCase
         $this->put(route('panel.hr.profile', $this->otherTechnician), $profile)->assertSessionHasErrors('employee_no');
         $this->actingAs($foreign['owner'], 'web')->put(route('panel.hr.profile', $foreign['technician']), $profile)
             ->assertSessionHasNoErrors()->assertSessionHas('ok');
+    }
+
+    public function test_the_tenant_scope_fails_closed_for_a_table_it_has_no_rule_for(): void
+    {
+        $unruled = new class extends Model
+        {
+            use ScopedToOperatingBranch;
+
+            protected $table = 'parts';
+        };
+
+        $this->actingAs($this->owner, 'web');
+        $this->assertSame(0, $unruled->newQuery()->count(), 'an unlisted table must never show every tenant\'s rows');
+        $this->actingAs($this->platformAdmin(), 'web');
+        $this->assertSame(1, $unruled->newQuery()->count());
     }
 
     private function delegate(string $email): ClientPortalUser
