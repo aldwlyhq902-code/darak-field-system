@@ -124,4 +124,34 @@ return [
         'banned_word_engine',
         'hardcoded_labour_rules',
     ],
+
+    // ops
+    /*
+    | Audit log hardening. New rows are chained with HMAC-SHA256 under this key
+    | (hash_version 2); older rows keep verifying as plain SHA-256 (version 1).
+    | The key must never change once rows exist — keep it in the secrets manager
+    | with the backup password. Rows are immutable, so personal data is redacted
+    | at write time and replaced by a short keyed fingerprint investigators can
+    | still correlate. IPs are truncated (/24, /48) and user agents hashed unless
+    | the owner explicitly opts into full values.
+    */
+    'audit' => [
+        'hmac_key' => env('DARAK_AUDIT_HMAC_KEY'),
+        'keep_full_ip' => (bool) env('DARAK_AUDIT_KEEP_FULL_IP', false),
+        'redact_keys' => [
+            'phone', 'mobile', '*_phone', 'phone_*', 'email', '*_email', 'contact_name',
+            'emergency_contact*', 'national_id', 'iqama*', 'passport*', 'document_number',
+            'reporter_name', 'reporter_role', 'password', 'token', '*_token', 'two_factor_*', 'secret',
+        ],
+        // Free text is redacted only for actions whose text routinely carries
+        // personal or dispute detail; elsewhere notes are operational.
+        'redact_free_text_keys' => [
+            'description', 'notes', 'note', 'comment', 'reason', 'resolution_note',
+            'response_note', 'supervisor_note',
+        ],
+        'redact_free_text_actions' => [
+            'report.*', 'report_dispute.*', 'sales.*', 'employee.*', 'visit_feedback.*',
+            'emergency.*', 'client_service_request.*',
+        ],
+    ],
 ];
