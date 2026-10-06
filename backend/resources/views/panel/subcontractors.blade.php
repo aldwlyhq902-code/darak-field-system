@@ -173,6 +173,9 @@
                     يصدر شهادات رسمية باسمه
                 </label>
                 <div class="field"><label>ملاحظات</label><input name="notes"></div>
+                @if ($companies->isNotEmpty())
+                    <div class="field"><label>الشركة</label><select name="operating_company_id">@foreach ($companies as $company)<option value="{{ $company->id }}">{{ $company->name }}</option>@endforeach</select></div>
+                @endif
                 <button class="btn small">إضافة</button>
             </form>
         </details>

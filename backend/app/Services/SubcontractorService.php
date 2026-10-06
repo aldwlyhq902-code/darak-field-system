@@ -64,6 +64,16 @@ class SubcontractorService
         if (! $partner->is_active) {
             throw new RuntimeException('هذا الشريك غير نشط.');
         }
+        // A partner works only its own company's orders, whoever assigns it (a
+        // platform admin has no scope at all).
+        $orderCompany = DB::table('clients')->where('id', $workOrder->client_id)->value('operating_company_id');
+        if ($partner->operating_company_id === null || $orderCompany === null
+            || (int) $partner->operating_company_id !== (int) $orderCompany) {
+            throw new RuntimeException('الشريك وأمر العمل لا يتبعان الشركة نفسها.');
+        }
+        if ($visit !== null && $visit->work_order_id !== $workOrder->id) {
+            throw new RuntimeException('الزيارة لا تتبع أمر العمل المحدد.');
+        }
 
         $purchaseCost = Money::of($purchaseCost);
         $salePrice = Money::of($salePrice);

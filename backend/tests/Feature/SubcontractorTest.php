@@ -19,6 +19,7 @@ class SubcontractorTest extends DarakTestCase
     private function partner(array $overrides = []): Subcontractor
     {
         return Subcontractor::create(array_merge([
+            'operating_company_id' => $this->operatingCompany->id,
             'name' => 'شريك تنظيف الهود',
             'specialties' => ['hood'],
             'phone' => '0560000000',

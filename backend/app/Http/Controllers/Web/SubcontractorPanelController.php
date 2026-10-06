@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Models\OperatingCompany;
 use App\Models\Subcontractor;
 use App\Models\SubcontractorOrder;
 use App\Models\Visit;
@@ -18,9 +19,12 @@ class SubcontractorPanelController extends Controller
 {
     public function __construct(private readonly SubcontractorService $service) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
         return view('panel.subcontractors', [
+            // The directory is company-owned (global scope): a platform admin
+            // files a partner for a chosen company.
+            'companies' => $request->user()->isPlatformAdmin() ? OperatingCompany::orderBy('name')->get(['id', 'name']) : collect(),
             'partners' => Subcontractor::withCount('orders')->orderBy('name')->paginate(30, ['*'], 'partners_page')->withQueryString(),
             // The assignment select needs every ACTIVE partner (a bounded reference set).
             'activePartners' => Subcontractor::where('is_active', true)->orderBy('name')->get(['id', 'name', 'specialties']),
@@ -40,9 +44,19 @@ class SubcontractorPanelController extends Controller
             'specialties' => ['nullable', 'array'],
             'issues_official_certificates' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:500'],
+            'operating_company_id' => ['nullable', 'integer', 'exists:operating_companies,id'],
         ]);
+        $actor = $request->user();
+        // A partner is filed in the actor's own company directory; only a
+        // platform admin may file one for another company.
+        $companyId = $actor->isPlatformAdmin() ? ($data['operating_company_id'] ?? $actor->operating_company_id) : $actor->operating_company_id;
+        if ($companyId === null) {
+            return back()->with('err', 'اختر الشركة التي يتبعها الشريك.');
+        }
+        unset($data['operating_company_id']);
 
         Subcontractor::create($data + [
+            'operating_company_id' => (int) $companyId,
             'specialties' => $data['specialties'] ?? [],
             'issues_official_certificates' => $request->boolean('issues_official_certificates'),
             'is_active' => true,
@@ -80,9 +94,12 @@ class SubcontractorPanelController extends Controller
         $visit = isset($data['visit_id']) ? Visit::query()->findOrFail($data['visit_id']) : null;
         abort_if($visit !== null && $visit->work_order_id !== $workOrder->id, 422, 'الزيارة لا تتبع أمر العمل المحدد.');
 
+        // Scoped load: another company's partner is a 404, not a flash message.
+        $partner = Subcontractor::query()->findOrFail($data['subcontractor_id']);
+
         try {
             $order = $this->service->assign(
-                Subcontractor::findOrFail($data['subcontractor_id']),
+                $partner,
                 $workOrder,
                 $data['purchase_cost'],
                 $data['sale_price'],

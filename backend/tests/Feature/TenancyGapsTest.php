@@ -8,10 +8,13 @@ use App\Models\CommissionRule;
 use App\Models\OperatingBranch;
 use App\Models\OperatingCompany;
 use App\Models\Site;
+use App\Models\Subcontractor;
+use App\Models\SubcontractorOrder;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Services\CommissionService;
+use App\Services\SubcontractorService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
@@ -90,6 +93,44 @@ class TenancyGapsTest extends DarakTestCase
             ->assertOk()->assertDontSee('Legacy global policy');
         $this->actingAs($this->platformAdmin(), 'web')->get(route('panel.admin-operations'))
             ->assertOk()->assertSee('Legacy global policy');
+    }
+
+    public function test_the_subcontractor_directory_its_orders_and_documents_stay_inside_the_company(): void
+    {
+        $foreign = $this->foreignTenant();
+        $this->actingAs($this->owner, 'web')->post(route('panel.sub.partner'), [
+            'name' => 'Our Hood Partner', 'phone' => '0561111111',
+            'operating_company_id' => $foreign['company']->id,
+        ])->assertRedirect()->assertSessionHas('ok');
+        $partner = Subcontractor::withoutGlobalScopes()->sole();
+        $this->assertSame($this->operatingCompany->id, (int) $partner->operating_company_id);
+
+        $order = app(SubcontractorService::class)->assign($partner, $this->visit->workOrder, 600, 1000, $this->visit);
+        $order->forceFill(['documents' => [['path' => 'subcontractor-docs/cert.pdf', 'title' => 'Cert', 'issued_by' => 'Partner']]])->save();
+
+        $this->actingAs($foreign['owner'], 'web')->get(route('panel.sub'))
+            ->assertOk()->assertDontSee('Our Hood Partner')->assertDontSee('0561111111')->assertDontSee($order->order_no);
+        // The other company can neither hire our partner nor read its documents.
+        $this->actingAs($foreign['owner'], 'web')->post(route('panel.sub.assign'), [
+            'subcontractor_id' => $partner->id, 'work_order_id' => $foreign['workOrder']->id,
+            'purchase_cost' => 100, 'sale_price' => 200,
+        ])->assertNotFound();
+        $this->actingAs($foreign['owner'], 'web')
+            ->get(route('panel.sub.doc', ['order' => $order->id, 'index' => 0]))->assertNotFound();
+        $this->assertSame(1, SubcontractorOrder::withoutGlobalScopes()->count());
+
+        // With no scope at all (platform admin, service call) a partner still
+        // only works the orders of its own company.
+        $this->expectException(RuntimeException::class);
+        app(SubcontractorService::class)->assign($partner, $foreign['workOrder'], 100, 200);
+    }
+
+    public function test_a_company_less_legacy_partner_is_visible_only_to_platform_admins(): void
+    {
+        Subcontractor::create(['name' => 'Legacy Shared Partner', 'is_active' => true]);
+
+        $this->actingAs($this->owner, 'web')->get(route('panel.sub'))->assertOk()->assertDontSee('Legacy Shared Partner');
+        $this->actingAs($this->platformAdmin(), 'web')->get(route('panel.sub'))->assertOk()->assertSee('Legacy Shared Partner');
     }
 
     private function platformAdmin(): User
