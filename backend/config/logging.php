@@ -1,5 +1,6 @@
 <?php
 
+use App\Logging\AlertWebhookLogger;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -54,8 +55,21 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            // The webhook alert channel joins the stack only when its URL is set.
+            'channels' => array_values(array_filter([
+                ...explode(',', (string) env('LOG_STACK', 'single')),
+                env('LOG_ALERT_WEBHOOK_URL') ? 'alert_webhook' : null,
+            ])),
             'ignore_exceptions' => false,
+        ],
+
+        // Critical errors to a Slack-compatible incoming webhook (Discord: append
+        // /slack to the webhook URL). See App\Logging\AlertWebhookHandler.
+        'alert_webhook' => [
+            'driver' => 'custom',
+            'via' => AlertWebhookLogger::class,
+            'url' => env('LOG_ALERT_WEBHOOK_URL'),
+            'level' => env('LOG_ALERT_LEVEL', 'critical'),
         ],
 
         'single' => [

@@ -154,4 +154,33 @@ return [
             'emergency.*', 'client_service_request.*',
         ],
     ],
+
+    /*
+    | Backup rotation after every verified nightly run: the newest archive of each
+    | of the last N days, weeks and months is kept. The archive just created is
+    | never deleted. DARAK_RETENTION_BACKUPS_DAYS (privacy) is a separate maximum
+    | age enforced by darak:retention-purge.
+    */
+    'backup_rotation' => [
+        'daily' => (int) env('DARAK_BACKUP_KEEP_DAILY', 7),
+        'weekly' => (int) env('DARAK_BACKUP_KEEP_WEEKLY', 4),
+        'monthly' => (int) env('DARAK_BACKUP_KEEP_MONTHLY', 6),
+    ],
+
+    /*
+    | Off-site copy after each verified backup: an rclone target such as
+    | "offsite:darak-backups/prod". Empty disables it (preflight then fails when
+    | evidence lives on the local disk).
+    */
+    'backup_rclone_remote' => env('DARAK_BACKUP_RCLONE_REMOTE'),
+    'rclone_path' => env('DARAK_RCLONE_PATH', 'rclone'),
+    'rclone_timeout_seconds' => (int) env('DARAK_RCLONE_TIMEOUT_SECONDS', 3600),
+
+    /*
+    | Dead-man's-switch URLs (healthchecks.io, UptimeRobot heartbeat). The
+    | scheduler pings every five minutes; the backup pings after a fully
+    | successful run. Empty disables the ping.
+    */
+    'heartbeat_url' => env('DARAK_HEARTBEAT_URL'),
+    'backup_heartbeat_url' => env('DARAK_BACKUP_HEARTBEAT_URL'),
 ];
