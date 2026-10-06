@@ -48,6 +48,12 @@ class DeviceApprovalTest extends DarakTestCase
         $alert = NotificationMessage::where('type', NotificationMessage::TYPE_SECURITY_ALERT)->sole();
         $this->assertSame('device_pending_approval', $alert->context['reason']);
         $this->assertSame($device->id, $alert->context['device_id']);
+
+        // It lands in the owner's inbox (scoped to the technician's company).
+        $this->actingAs($this->owner, 'web')
+            ->get(route('panel.notifications'))
+            ->assertOk()
+            ->assertSee('جهاز جديد بانتظار الاعتماد');
     }
 
     public function test_after_owner_approval_the_next_login_succeeds(): void
