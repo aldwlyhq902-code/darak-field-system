@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Web;
 
-use App\Support\ClientPicker;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\CommissionEntry;
@@ -21,6 +20,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\PerformanceScoreService;
 use App\Services\SalesPushService;
+use App\Support\ClientPicker;
 use App\Support\Money;
 use App\Support\PrivateFiles;
 use App\Support\TenantAccess;

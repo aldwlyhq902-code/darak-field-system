@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Client;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 /**
  * Client choices for forms (quotations, maintenance plans) without loading
@@ -20,7 +21,7 @@ final class ClientPicker
 
     /**
      * @param  array<int|string, mixed>  $with  relations the form needs per client
-     * @return array{clients: \Illuminate\Support\Collection<int, Client>, clientSearch: string, clientSearchRequired: bool, clientResultsCapped: bool}
+     * @return array{clients: Collection<int, Client>, clientSearch: string, clientSearchRequired: bool, clientResultsCapped: bool}
      */
     public static function options(Request $request, array $with = ['sites']): array
     {

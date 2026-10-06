@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
-use App\Support\ClientPicker;
 use App\Http\Controllers\Controller;
-use App\Models\Client;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\Payment;
@@ -12,6 +10,7 @@ use App\Models\Quotation;
 use App\Services\AuditLogger;
 use App\Services\CommercialService;
 use App\Support\BusinessReference;
+use App\Support\ClientPicker;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
