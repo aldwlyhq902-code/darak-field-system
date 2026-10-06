@@ -190,4 +190,17 @@ return [
     | until the owner and the privacy adviser approve the retention_days above.
     */
     'retention_purge_enabled' => (bool) env('DARAK_RETENTION_PURGE_ENABLED', false),
+
+    /*
+    | Module switches for SCHEDULED jobs only (routes/console.php); routes and
+    | screens are unaffected. All default to on so behaviour is unchanged; the
+    | owner can freeze a non-MVP module's background work by setting false.
+    */
+    'modules' => [
+        'sales' => (bool) env('DARAK_MODULE_SALES', true),
+        'commissions' => (bool) env('DARAK_MODULE_COMMISSIONS', true),
+        'procurement_automation' => (bool) env('DARAK_MODULE_PROCUREMENT_AUTOMATION', true),
+        'auto_reassign' => (bool) env('DARAK_MODULE_AUTO_REASSIGN', true),
+        'fleet_hr_alerts' => (bool) env('DARAK_MODULE_FLEET_HR_ALERTS', true),
+    ],
 ];
