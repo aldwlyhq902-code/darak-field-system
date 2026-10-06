@@ -6,7 +6,7 @@
     $leaveLabels=['annual'=>'سنوية','sick'=>'مرضية','unpaid'=>'دون راتب','emergency'=>'طارئة','other'=>'أخرى'];
 @endphp
 <h1>شؤون الموظفين والامتثال</h1>
-<div class="sub">ملفات الموظفين، الإقامات والوثائق، أرصدة الإجازات والاعتماد والتنبيه المبكر قبل الانتهاء.</div>
+<div class="sub">ملفات الموظفين، الإقامات والوثائق، أرصدة الإجازات والاعتماد والتنبيه المبكر قبل الانتهاء.@if(auth()->user()->isOwner()) · <a href="{{ route('panel.hr.work-policies') }}">سياسة ساعات العمل (إصدارات المختص)</a>@endif</div>
 
 <div class="kpis">
     <div class="kpi"><div class="v">{{ $users->count() }}</div><div class="l">موظف مسجل</div></div>

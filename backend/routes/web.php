@@ -27,6 +27,7 @@ use App\Http\Controllers\Web\SubcontractorPanelController;
 use App\Http\Controllers\Web\TeamController;
 use App\Http\Controllers\Web\TwoFactorController;
 use App\Http\Controllers\Web\VisitFeedbackController;
+use App\Http\Controllers\Web\WorkPolicyController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -176,6 +177,8 @@ Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.ar
         Route::get('documents/{document}/download', [HumanResourcesController::class, 'download'])->name('panel.hr.document.download');
         Route::post('leaves', [HumanResourcesController::class, 'leave'])->name('panel.hr.leave');
         Route::post('leaves/{leave}/decision', [HumanResourcesController::class, 'leaveDecision'])->name('panel.hr.leave.decision');
+        Route::get('work-policies', [WorkPolicyController::class, 'index'])->name('panel.hr.work-policies');
+        Route::post('work-policies', [WorkPolicyController::class, 'store'])->name('panel.hr.work-policies.store');
     });
 
     Route::middleware('panel.permission:fleet')->prefix('fleet')->group(function () {
