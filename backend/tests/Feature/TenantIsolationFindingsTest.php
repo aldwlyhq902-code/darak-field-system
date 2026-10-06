@@ -121,6 +121,21 @@ class TenantIsolationFindingsTest extends DarakTestCase
             ->assertOk()->assertDontSee($foreign['admin']->name);
     }
 
+    public function test_company_wide_owner_is_never_branded_with_another_tenant(): void
+    {
+        $company = OperatingCompany::create(['name' => 'Second Tenant Co', 'currency' => 'SAR', 'is_active' => true]);
+        $owner = User::create([
+            'name' => 'Second Owner', 'email' => 'second-owner@test.local', 'password' => Hash::make('secret'),
+            'role' => User::ROLE_OWNER, 'is_active' => true, 'operating_company_id' => $company->id,
+        ]);
+        $owner->forceFill(['two_factor_secret' => 'JBSWY3DPEHPK3PXP', 'two_factor_recovery_codes' => [], 'two_factor_confirmed_at' => now()])->save();
+
+        // The fixture company is the oldest row; it used to be shown to every
+        // company-wide owner.
+        $this->actingAs($owner, 'web')->get(route('panel.board'))
+            ->assertOk()->assertSee('Second Tenant Co')->assertDontSee($this->operatingCompany->name);
+    }
+
     public function test_commission_generator_never_credits_another_company_user(): void
     {
         $foreign = $this->foreignTenant();

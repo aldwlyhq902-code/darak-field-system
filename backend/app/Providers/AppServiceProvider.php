@@ -23,9 +23,11 @@ class AppServiceProvider extends ServiceProvider
     {
         View::composer(['layouts.panel', 'layouts.sales'], function ($view): void {
             $user = auth('web')->user();
-            $company = $user?->operatingBranch?->company;
+            // A company-wide user (no branch) is branded with its own company,
+            // never with whichever tenant happens to be the oldest row.
+            $company = $user?->operatingBranch?->company ?? $user?->operatingCompany;
 
-            if ($company === null && $user?->canPanel('admin')) {
+            if ($company === null && $user?->isPlatformAdmin()) {
                 $company = OperatingCompany::query()->where('is_active', true)->oldest('id')->first();
             }
 
