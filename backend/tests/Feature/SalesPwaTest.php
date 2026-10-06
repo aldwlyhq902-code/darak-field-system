@@ -72,6 +72,8 @@ class SalesPwaTest extends DarakTestCase
         ])->assertRedirect()->assertSessionHas('ok');
         $this->assertDatabaseHas('sales_activities', ['sales_lead_id' => $lead->id, 'user_id' => $this->marketer->id]);
 
+        // Quoted at the configured list price, so no price approval is needed.
+        config(['darak.quotation_pricing.list_prices.basic' => 48000]);
         $this->post(route('sales.quotations.store'), [
             'client_id' => $this->client->id, 'site_ids' => [$this->site->id],
             'title' => 'عرض صيانة سنوي', 'package_code' => 'basic', 'price_amount' => 48000,

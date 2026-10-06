@@ -263,7 +263,14 @@ class AdminOperationsController extends Controller
     public function approvalRequest(Request $request): RedirectResponse
     {
         $data = $request->validate(['action_type' => ['required', 'in:discount,settlement'], 'subject_type' => ['required', 'in:quotation,installment'], 'subject_id' => ['required', 'integer'], 'amount' => ['required', 'numeric', 'gt:0'], 'reason' => ['required', 'string', 'max:2000']]);
-        ($data['subject_type'] === 'quotation' ? Quotation::query() : ContractInstallment::query())->findOrFail($data['subject_id']);
+        $subject = ($data['subject_type'] === 'quotation' ? Quotation::query() : ContractInstallment::query())->findOrFail($data['subject_id']);
+        if ($subject instanceof Quotation && $data['action_type'] === 'discount') {
+            try {
+                $this->approvals->assertQuotationDiscountable($subject);
+            } catch (RuntimeException $e) {
+                return back()->with('err', $e->getMessage());
+            }
+        }
         FinancialApproval::create($data + ['public_reference' => (string) Str::uuid(), 'status' => 'pending_first', 'requested_by' => $request->user()->id]);
 
         return back()->with('ok', 'أُرسل الطلب للاعتماد الأول ثم اعتماد مستخدم ثانٍ مستقل.');

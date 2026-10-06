@@ -10,6 +10,7 @@ use App\Models\Payment;
 use App\Models\Quotation;
 use App\Services\AuditLogger;
 use App\Services\CommercialService;
+use App\Services\QuotationPricingService;
 use App\Support\BusinessReference;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,7 @@ class CommercialPanelController extends Controller
     public function __construct(
         private readonly CommercialService $commercial,
         private readonly AuditLogger $audit,
+        private readonly QuotationPricingService $pricing,
     ) {}
 
     public function index(): View
@@ -71,11 +73,12 @@ class CommercialPanelController extends Controller
                 'created_by' => $request->user()->id,
             ]);
             $quote->sites()->sync($data['site_ids']);
+            $this->pricing->requestIfNeeded($quote, $request->user()->id);
 
             return $quote;
         });
 
-        return redirect()->route('panel.commercial')->with('ok', "أُنشئ العرض {$quote->quote_no} كمسودة.");
+        return redirect()->route('panel.commercial')->with('ok', "أُنشئ العرض {$quote->quote_no} كمسودة.".$this->approvalNote($quote));
     }
 
     public function revise(Request $request, Quotation $quotation): RedirectResponse
@@ -93,16 +96,22 @@ class CommercialPanelController extends Controller
                 'created_by' => $request->user()->id,
             ]);
             $next->sites()->sync($data['site_ids']);
+            $this->pricing->requestIfNeeded($next, $request->user()->id);
 
             return $next;
         });
 
-        return back()->with('ok', "أُنشئ الإصدار {$next->version} دون تعديل الإصدار السابق.");
+        return back()->with('ok', "أُنشئ الإصدار {$next->version} دون تعديل الإصدار السابق.".$this->approvalNote($next));
     }
 
     public function send(Request $request, Quotation $quotation): RedirectResponse
     {
         abort_unless($quotation->status === Quotation::STATUS_DRAFT, 422);
+        try {
+            $this->pricing->assertSendable($quotation, $request->user());
+        } catch (RuntimeException $e) {
+            return back()->with('err', $e->getMessage());
+        }
         $quotation->forceFill(['status' => Quotation::STATUS_SENT, 'sent_at' => now()])->save();
         $this->audit->record('quotation.sent', $quotation, null, ['actor_id' => $request->user()->id]);
 
@@ -177,6 +186,13 @@ class CommercialPanelController extends Controller
 
             return ['due_on' => date('Y-m-d', strtotime($parts[0])), 'amount' => round((float) $parts[1], 2)];
         })->values()->all();
+    }
+
+    private function approvalNote(Quotation $quotation): string
+    {
+        return $this->pricing->approvalReason($quotation) === null
+            ? ''
+            : ' سعره بانتظار الاعتماد المالي الثنائي قبل الإرسال للعميل.';
     }
 
     private function nextQuoteNumber(int $version): string
