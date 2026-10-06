@@ -7,12 +7,15 @@ use App\Models\CommissionPayout;
 use App\Models\CommissionRule;
 use App\Models\Contract;
 use App\Models\Payment;
+use App\Models\Scopes\OperatingBranchScope;
 use App\Models\User;
 use App\Models\Visit;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -36,36 +39,48 @@ class CommissionService
 
     public function __construct(private readonly AuditLogger $audit) {}
 
-    /** Idempotently creates accrued entries for every active policy. Returns the count created. */
+    /**
+     * Idempotently creates accrued entries for every active policy. Returns the
+     * count created. A policy pays only its own company's people for its own
+     * company's records; a company-less (legacy platform default) policy pays
+     * nobody.
+     */
     public function generate(): int
     {
         $count = 0;
-        foreach (CommissionRule::where('is_active', true)->get() as $rule) {
+        foreach ($this->activeRules()->whereNotNull('operating_company_id')->get() as $rule) {
+            $companyId = (int) $rule->operating_company_id;
             if ($rule->basis === 'completed_visit' && $rule->applies_to_role === User::ROLE_TECHNICIAN) {
-                Visit::with('technician')->where('state', Visit::STATE_COMPLETED)->whereNotNull('assigned_user_id')->each(function (Visit $visit) use ($rule, &$count) {
-                    if ($this->sameCompany($visit->technician, $this->visitCompany($visit))
-                        && ! CommissionEntry::where('commission_rule_id', $rule->id)->where('visit_id', $visit->id)->exists()) {
-                        $this->create($rule, $visit->technician, null, $visit, null);
-                        $count++;
-                    }
-                });
+                Visit::with('technician')->where('state', Visit::STATE_COMPLETED)->whereNotNull('assigned_user_id')
+                    ->whereIn('site_id', DB::table('sites')->join('clients', 'clients.id', '=', 'sites.client_id')
+                        ->where('clients.operating_company_id', $companyId)->select('sites.id'))
+                    ->each(function (Visit $visit) use ($rule, $companyId, &$count) {
+                        if ($this->sameCompany($visit->technician, $companyId)
+                            && ! CommissionEntry::where('commission_rule_id', $rule->id)->where('visit_id', $visit->id)->exists()) {
+                            $this->create($rule, $visit->technician, null, $visit, null);
+                            $count++;
+                        }
+                    });
             } elseif ($rule->basis === 'contract_value') {
                 Contract::with('sourceQuotation')->whereNotNull('source_quotation_id')
                     ->whereNotIn('status', self::VOID_CONTRACT_STATUSES)
-                    ->each(function (Contract $contract) use ($rule, &$count) {
+                    ->whereIn('client_id', $this->companyClients($companyId))
+                    ->each(function (Contract $contract) use ($rule, $companyId, &$count) {
                         $user = User::find($contract->sourceQuotation?->created_by);
-                        if ($user?->role === $rule->applies_to_role && $this->sameCompany($user, $this->clientCompany($contract->client_id))
+                        if ($user?->role === $rule->applies_to_role && $this->sameCompany($user, $companyId)
                             && ! CommissionEntry::where('commission_rule_id', $rule->id)->where('contract_id', $contract->id)->exists()) {
                             $this->create($rule, $user, $contract, null, null);
                             $count++;
                         }
                     });
             } elseif ($rule->basis === 'collected_payment') {
-                Payment::with('installment.contract.sourceQuotation')->whereNull('refunded_at')->each(function (Payment $payment) use ($rule, &$count) {
-                    if ($this->accrueForPaymentRule($rule, $payment) !== null) {
-                        $count++;
-                    }
-                });
+                Payment::with('installment.contract.sourceQuotation')->whereNull('refunded_at')
+                    ->whereIn('client_id', $this->companyClients($companyId))
+                    ->each(function (Payment $payment) use ($rule, &$count) {
+                        if ($this->accrueForPaymentRule($rule, $payment) !== null) {
+                            $count++;
+                        }
+                    });
             }
         }
 
@@ -84,9 +99,15 @@ class CommissionService
             return [];
         }
 
+        $companyId = $this->clientCompany($payment->client_id);
+        if ($companyId === null) {
+            return [];
+        }
         $payment->loadMissing('installment.contract.sourceQuotation');
 
-        return CommissionRule::where('is_active', true)->where('basis', 'collected_payment')->get()
+        // The receipt's own company policies, whoever records it: a platform
+        // admin has no scope at all.
+        return $this->activeRules()->where('operating_company_id', $companyId)->where('basis', 'collected_payment')->get()
             ->map(fn (CommissionRule $rule) => $this->accrueForPaymentRule($rule, $payment))
             ->filter()->values()->all();
     }
@@ -98,6 +119,22 @@ class CommissionService
     private function sameCompany(?User $user, ?int $companyId): bool
     {
         return $user !== null && $companyId !== null && (int) $user->operating_company_id === $companyId;
+    }
+
+    /**
+     * Rules are read straight from the table: the nightly run has no signed-in
+     * user, and every caller constrains by the record's company explicitly.
+     *
+     * @return Builder<CommissionRule>
+     */
+    private function activeRules(): Builder
+    {
+        return CommissionRule::withoutGlobalScope(OperatingBranchScope::class)->where('is_active', true);
+    }
+
+    private function companyClients(int $companyId): QueryBuilder
+    {
+        return DB::table('clients')->where('operating_company_id', $companyId)->select('id');
     }
 
     private function clientCompany(?int $clientId): ?int
@@ -119,6 +156,21 @@ class CommissionService
     {
         if (! $rule->is_active || $rule->applies_to_role !== $user->role) {
             throw new RuntimeException('قاعدة العمولة لا تنطبق على دور هذا المستخدم.');
+        }
+        // A policy pays its own company's people for its own company's records.
+        $ruleCompany = $rule->operating_company_id === null ? null : (int) $rule->operating_company_id;
+        if (! $this->sameCompany($user, $ruleCompany)) {
+            throw new RuntimeException('قاعدة العمولة لا تتبع شركة هذا المستخدم.');
+        }
+        $recordCompanies = [
+            ...($contract ? [$this->clientCompany($contract->client_id)] : []),
+            ...($visit ? [$this->visitCompany($visit)] : []),
+            ...($payment ? [$this->clientCompany($payment->client_id)] : []),
+        ];
+        foreach ($recordCompanies as $companyId) {
+            if ($companyId !== $ruleCompany) {
+                throw new RuntimeException('المستند لا يتبع شركة قاعدة العمولة.');
+            }
         }
         if ($payment?->isRefunded()) {
             throw new RuntimeException('لا تُحتسب عمولة على سند قبض مسترد.');
@@ -378,8 +430,10 @@ class CommissionService
             return null;
         }
         $user = User::find($payment->installment?->contract?->sourceQuotation?->created_by);
+        $companyId = $this->clientCompany($payment->client_id);
         if ($user?->role !== $rule->applies_to_role
-            || ! $this->sameCompany($user, $this->clientCompany($payment->client_id))
+            || $companyId === null || $companyId !== (int) $rule->operating_company_id
+            || ! $this->sameCompany($user, $companyId)
             || CommissionEntry::where('commission_rule_id', $rule->id)->where('payment_id', $payment->id)->exists()) {
             return null;
         }

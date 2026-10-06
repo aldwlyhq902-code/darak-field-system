@@ -48,7 +48,7 @@ class CommissionLifecycleTest extends DarakTestCase
         $quote->sites()->attach($this->site);
         $this->soldContract = app(CommercialService::class)->convertQuotation($quote, $this->owner->id);
         $this->rule = CommissionRule::create([
-            'name' => 'Collection 5%', 'applies_to_role' => User::ROLE_ADMIN, 'basis' => 'collected_payment',
+            'operating_company_id' => $this->operatingCompany->id, 'name' => 'Collection 5%', 'applies_to_role' => User::ROLE_ADMIN, 'basis' => 'collected_payment',
             'rate' => 5, 'fixed_amount' => 0, 'is_active' => true,
         ]);
     }

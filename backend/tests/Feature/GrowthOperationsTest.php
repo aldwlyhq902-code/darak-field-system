@@ -106,7 +106,7 @@ class GrowthOperationsTest extends DarakTestCase
 
     public function test_admin_operations_page_and_commission_generator_are_available(): void
     {
-        CommissionRule::create(['name' => 'Visit fixed', 'applies_to_role' => User::ROLE_TECHNICIAN, 'basis' => 'completed_visit', 'rate' => 0, 'fixed_amount' => 25, 'is_active' => true]);
+        CommissionRule::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'Visit fixed', 'applies_to_role' => User::ROLE_TECHNICIAN, 'basis' => 'completed_visit', 'rate' => 0, 'fixed_amount' => 25, 'is_active' => true]);
         $this->visit->forceFill(['state' => 'completed', 'closed_at' => now()])->save();
 
         $this->artisan('darak:commissions-generate')->assertSuccessful();

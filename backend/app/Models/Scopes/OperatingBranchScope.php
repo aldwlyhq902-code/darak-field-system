@@ -77,6 +77,13 @@ class OperatingBranchScope implements Scope
 
             return;
         }
+        // Company-wide records shared by every branch of the owning company. A
+        // row with no company is a platform default only platform admins see.
+        if (in_array($table, ['commission_rules'], true)) {
+            $builder->where($column('operating_company_id'), $companyId);
+
+            return;
+        }
         if ($table === 'clients') {
             $builder->where($column('operating_company_id'), $companyId)
                 ->when($branchId !== null, fn ($query) => $query->where($column('operating_branch_id'), $branchId));
