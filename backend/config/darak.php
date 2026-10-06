@@ -118,6 +118,8 @@ return [
     | accident. Each was removed for a documented reason (PRD v1.2 §3):
     |   - global heat threshold: unproven; limits are per-SKU from the maker's sheet
     |   - commission clawback: cannot deduct from earned wages without legal review
+    |     (commission_clawback_days only voids commissions not yet earned, or
+    |     offsets FUTURE commissions — never wages)
     |   - banned-word engine: a word list is not legal protection
     |   - hard-coded labour-law conclusions: supplied by a qualified HR specialist
     */
@@ -140,4 +142,12 @@ return [
     | backup. Changing the disk does not move files already stored.
     */
     'files_disk' => env('DARAK_FILES_DISK', 'local'),
+
+    /*
+    | Commission clawback window (PRD v1.2). An accrued commission becomes
+    | earned after this many days unless its receipt is refunded or its contract
+    | cancelled first. Commissions are never deducted from wages: a reversal
+    | after payout is a negative adjustment against FUTURE commissions only.
+    */
+    'commission_clawback_days' => (int) env('DARAK_COMMISSION_CLAWBACK_DAYS', 30),
 ];

@@ -8,6 +8,7 @@ use App\Http\Controllers\Web\ClientPortalAuthController;
 use App\Http\Controllers\Web\ClientPortalController;
 use App\Http\Controllers\Web\ClientServiceRequestController;
 use App\Http\Controllers\Web\CommercialPanelController;
+use App\Http\Controllers\Web\CommissionPanelController;
 use App\Http\Controllers\Web\EmergencyReportController;
 use App\Http\Controllers\Web\FinanceInsightsController;
 use App\Http\Controllers\Web\FleetController;
@@ -208,12 +209,15 @@ Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.ar
         Route::post('approvals', [AdminOperationsController::class, 'approvalRequest'])->name('panel.admin.approval');
         Route::post('approvals/{approval}/approve', [AdminOperationsController::class, 'approve'])->name('panel.admin.approval.approve');
         Route::post('users/{user}/permissions', [AdminOperationsController::class, 'permissions'])->name('panel.admin.permissions');
+        Route::get('commissions', [CommissionPanelController::class, 'index'])->name('panel.commissions');
+        Route::post('commissions/payouts', [CommissionPanelController::class, 'payout'])->name('panel.commissions.payout');
     });
     Route::post('commercial/quotations', [CommercialPanelController::class, 'storeQuotation'])->name('panel.quotation.store');
     Route::post('commercial/quotations/{quotation}/revise', [CommercialPanelController::class, 'revise'])->name('panel.quotation.revise');
     Route::post('commercial/quotations/{quotation}/send', [CommercialPanelController::class, 'send'])->name('panel.quotation.send');
     Route::post('commercial/quotations/{quotation}/convert', [CommercialPanelController::class, 'convert'])->name('panel.quotation.convert');
     Route::post('commercial/installments/{installment}/payments', [CommercialPanelController::class, 'payment'])->name('panel.installment.payment');
+    Route::post('commercial/payments/{payment}/refund', [CommercialPanelController::class, 'refund'])->name('panel.payment.refund');
 
     Route::get('inventory', [InventoryPanelController::class, 'index'])->name('panel.inventory');
     Route::post('inventory/parts', [InventoryPanelController::class, 'storePart'])->name('panel.inventory.part');

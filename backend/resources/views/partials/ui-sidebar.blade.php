@@ -60,6 +60,7 @@
                 @if(config('darak.experimental_analytics') && $panelUser->canPanel('intelligence'))<a href="{{ route('panel.intelligence') }}" class="nav-link {{ request()->routeIs('panel.intelligence*') ? 'active' : '' }}" @if(request()->routeIs('panel.intelligence*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">✦</span><span>ذكاء الأعطال</span></a>@endif
                 @if($panelUser->canPanel('admin'))
                     <a href="{{ route('panel.admin-operations') }}" class="nav-link {{ request()->routeIs('panel.admin-operations') ? 'active' : '' }}" @if(request()->routeIs('panel.admin-operations')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">⚙</span><span>الإدارة وCRM</span></a>
+                    <a href="{{ route('panel.commissions') }}" class="nav-link {{ request()->routeIs('panel.commissions*') ? 'active' : '' }}" @if(request()->routeIs('panel.commissions*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">٪</span><span>العمولات وصرفها</span></a>
                     <a href="{{ route('panel.admin.organization') }}" class="nav-link {{ request()->routeIs('panel.admin.organization') ? 'active' : '' }}" @if(request()->routeIs('panel.admin.organization')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">⌂</span><span>بيانات المؤسسة</span></a>
                 @endif
             </section>

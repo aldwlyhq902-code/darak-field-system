@@ -31,10 +31,10 @@
 </div></section>
 
 <div class="kpi-grid">
-    <div class="card kpi"><div class="kpi-head"><small>قيمة المسار النشط</small><span class="symbol">↗</span></div><b>{{ number_format($kpis['pipeline_value'],0) }} <small>ر.س</small></b><span class="trend">{{ $kpis['active'] }} فرصة مفتوحة</span></div>
-    <div class="card kpi"><div class="kpi-head"><small>مبيعات الشهر</small><span class="symbol">✓</span></div><b>{{ number_format($kpis['won_value'],0) }} <small>ر.س</small></b><span class="trend">تحويل {{ number_format($kpis['conversion'],1) }}%</span></div>
-    <div class="card kpi"><div class="kpi-head"><small>التحصيل المنسوب لك</small><span class="symbol">◉</span></div><b>{{ number_format($kpis['collections'],0) }} <small>ر.س</small></b><span class="trend">خلال الشهر الحالي</span></div>
-    <div class="card kpi"><div class="kpi-head"><small>العمولة المستحقة</small><span class="symbol">★</span></div><b>{{ number_format($kpis['commissions'],0) }} <small>ر.س</small></b><span class="trend">حسب سياسة المؤسسة</span></div>
+    <div class="card kpi"><div class="kpi-head"><small>قيمة المسار النشط</small><span class="symbol">↗</span></div><b>{{ \App\Support\Money::format($kpis['pipeline_value'],0) }} <small>ر.س</small></b><span class="trend">{{ $kpis['active'] }} فرصة مفتوحة</span></div>
+    <div class="card kpi"><div class="kpi-head"><small>مبيعات الشهر</small><span class="symbol">✓</span></div><b>{{ \App\Support\Money::format($kpis['won_value'],0) }} <small>ر.س</small></b><span class="trend">تحويل {{ number_format($kpis['conversion'],1) }}%</span></div>
+    <div class="card kpi"><div class="kpi-head"><small>التحصيل المنسوب لك</small><span class="symbol">◉</span></div><b>{{ \App\Support\Money::format($kpis['collections'],0) }} <small>ر.س</small></b><span class="trend">خلال الشهر الحالي</span></div>
+    <div class="card kpi"><div class="kpi-head"><small>العمولة المستحقة</small><span class="symbol">★</span></div><b>{{ \App\Support\Money::format($kpis['commissions'],0) }} <small>ر.س</small></b><span class="trend">قيد فترة الاسترداد {{ \App\Support\Money::format($kpis['commissions_accrued'],0) }} · مكتسبة بانتظار الصرف {{ \App\Support\Money::format($kpis['commissions_earned'],0) }} · صُرف هذا الشهر {{ \App\Support\Money::format($kpis['commissions_paid'],0) }}</span></div>
 </div>
 
 <div class="section-title"><div><h2>الأولوية اليوم</h2><p>رتبت حسب موعد المتابعة، والمتأخر يظهر أولًا.</p></div><a class="link" href="#pipeline">عرض المسار كاملًا ←</a></div>

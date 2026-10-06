@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\PerformanceScoreService;
 use App\Services\SalesPushService;
+use App\Support\Money;
 use App\Support\PrivateFiles;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
@@ -62,10 +63,21 @@ class SalesPortalController extends Controller
         $score = $this->performance->marketerScore(
             $user, CarbonImmutable::now()->startOfMonth(), CarbonImmutable::now()->endOfMonth(),
         );
-        $commissions = CommissionEntry::query()->where('user_id', $user->id)
-            ->whereBetween('created_at', [$monthStart, $monthEnd])->get();
-        $collections = (float) Payment::query()->whereBetween('paid_on', [$monthStart->toDateString(), $monthEnd->toDateString()])
-            ->whereHas('installment.contract.sourceQuotation', fn (Builder $query) => $query->where('created_by', $user->id))->sum('amount');
+        // Lifecycle totals (accrued → earned → paid); reversed entries never count.
+        $commissionsThisMonth = Money::of(CommissionEntry::query()->where('user_id', $user->id)
+            ->where('entry_type', CommissionEntry::TYPE_COMMISSION)
+            ->where('status', '!=', CommissionEntry::STATUS_REVERSED)
+            ->whereBetween('accrued_at', [$monthStart, $monthEnd])->sum('commission_amount'));
+        $commissionsByStatus = CommissionEntry::query()->where('user_id', $user->id)
+            ->where('entry_type', CommissionEntry::TYPE_COMMISSION)
+            ->whereIn('status', [CommissionEntry::STATUS_ACCRUED, CommissionEntry::STATUS_EARNED])
+            ->selectRaw('status, COALESCE(SUM(commission_amount), 0) AS total')->groupBy('status')->pluck('total', 'status');
+        $commissionsPaidThisMonth = Money::of(CommissionEntry::query()->where('user_id', $user->id)
+            ->where('entry_type', CommissionEntry::TYPE_COMMISSION)->where('status', CommissionEntry::STATUS_PAID)
+            ->whereBetween('paid_at', [$monthStart, $monthEnd])->sum('commission_amount'));
+        $collections = Money::of(Payment::query()->whereBetween('paid_on', [$monthStart->toDateString(), $monthEnd->toDateString()])
+            ->whereNull('refunded_at')
+            ->whereHas('installment.contract.sourceQuotation', fn (Builder $query) => $query->where('created_by', $user->id))->sum('amount'));
         $monthActivities = SalesActivity::query()->where('user_id', $user->id)->whereBetween('occurred_at', [$monthStart, $monthEnd])->get();
         $target = SalesTarget::query()->firstOrNew(['user_id' => $user->id, 'month' => $monthStart->toDateString()], [
             'calls_target' => 40, 'meetings_target' => 12, 'proposals_target' => 8,
@@ -92,11 +104,14 @@ class SalesPortalController extends Controller
             'targets' => PerformanceMetricSetting::query()->where('category', 'marketers')->pluck('target', 'metric_key'),
             'kpis' => [
                 'active' => $leads->whereIn('stage', self::ACTIVE_STAGES)->count(),
-                'pipeline_value' => (float) $leads->whereIn('stage', self::ACTIVE_STAGES)->sum('estimated_value'),
-                'won_value' => (float) $wonQuotes->sum('price_amount'),
+                'pipeline_value' => Money::sum($leads->whereIn('stage', self::ACTIVE_STAGES)->pluck('estimated_value')),
+                'won_value' => Money::sum($wonQuotes->pluck('price_amount')),
                 'conversion' => $monthlyLeads->count() ? round($monthlyLeads->where('stage', 'won')->count() / $monthlyLeads->count() * 100, 1) : 0,
                 'collections' => $collections,
-                'commissions' => (float) $commissions->sum('commission_amount'),
+                'commissions' => $commissionsThisMonth,
+                'commissions_accrued' => Money::of($commissionsByStatus->get(CommissionEntry::STATUS_ACCRUED)),
+                'commissions_earned' => Money::of($commissionsByStatus->get(CommissionEntry::STATUS_EARNED)),
+                'commissions_paid' => $commissionsPaidThisMonth,
                 'performance' => $score['score'] ?? 50,
                 'rank' => $score['rank'] ?? null,
                 'calls' => $monthActivities->where('type', 'call')->count(),
