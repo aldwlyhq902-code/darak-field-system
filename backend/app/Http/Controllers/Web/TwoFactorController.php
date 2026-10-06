@@ -125,6 +125,22 @@ class TwoFactorController extends Controller
 
     public function regenerateRecoveryCodes(Request $request): View
     {
+        // New recovery codes are a second factor in their own right. A hijacked
+        // session alone must not be able to mint them: demand the password AND
+        // a live TOTP code (a recovery code cannot vouch for its replacements).
+        $data = $request->validate([
+            'password' => ['required', 'string', 'current_password:web'],
+            'code' => ['required', 'string', 'regex:/^\d{6}$/'],
+        ], ['password.current_password' => 'كلمة المرور غير صحيحة.']);
+
+        $attempt = $this->twoFactor->attempt($request->user(), $data['code'], allowRecoveryCode: false);
+
+        if (! $attempt['valid']) {
+            throw ValidationException::withMessages(['code' => $attempt['locked_for'] > 0
+                ? TwoFactorService::lockedMessage($attempt['locked_for'])
+                : 'رمز التحقق غير صحيح أو انتهت صلاحيته.']);
+        }
+
         $codes = $this->twoFactor->recoveryCodes();
         $request->user()->forceFill(['two_factor_recovery_codes' => $codes['hashed']])->save();
 

@@ -50,6 +50,7 @@ class ClientPortalAuthController extends Controller
 
         Auth::guard('client')->login($user, $request->boolean('remember'));
         $request->session()->regenerate();
+        $request->session()->put('client_auth_version', (int) $user->auth_version);
 
         return redirect()->intended(route('client.home'));
     }

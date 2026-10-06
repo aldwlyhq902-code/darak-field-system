@@ -10,5 +10,6 @@
         <label style="display:flex;align-items:center;gap:8px;color:var(--ink)"><input type="checkbox" name="remember" value="1" style="width:auto"> تذكرني على هذا الجهاز</label>
         <button class="btn" style="width:100%;margin-top:17px">دخول آمن</button>
     </form>
+    <p style="margin:14px 0 0;text-align:center;font-size:13px"><a href="{{ route('client.password.request') }}">نسيت كلمة المرور؟</a></p>
 </div>
 @endsection

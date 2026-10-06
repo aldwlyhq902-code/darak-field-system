@@ -139,5 +139,7 @@ return [
         'mfa_lockout_minutes' => (int) env('DARAK_MFA_LOCKOUT_MINUTES', 15),
         // API tokens unused for this many days stop working (401, app re-logins).
         'token_idle_days' => (int) env('DARAK_TOKEN_IDLE_DAYS', 14),
+        // Showing a new MFA secret requires a password proven this recently.
+        'password_confirm_seconds' => (int) env('DARAK_PASSWORD_CONFIRM_SECONDS', 600),
     ],
 ];

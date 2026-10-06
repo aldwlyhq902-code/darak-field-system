@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\Web\AccountSecurityController;
 use App\Http\Controllers\Web\AdditionalWorkApprovalController;
 use App\Http\Controllers\Web\AdminOperationsController;
 use App\Http\Controllers\Web\BoardController;
+use App\Http\Controllers\Web\ClientAccountController;
 use App\Http\Controllers\Web\ClientPanelController;
 use App\Http\Controllers\Web\ClientPortalAuthController;
 use App\Http\Controllers\Web\ClientPortalController;
@@ -19,6 +21,7 @@ use App\Http\Controllers\Web\MaintenancePlanController;
 use App\Http\Controllers\Web\NotificationPanelController;
 use App\Http\Controllers\Web\OperationsInsightsController;
 use App\Http\Controllers\Web\PanelAuthController;
+use App\Http\Controllers\Web\PasswordResetController;
 use App\Http\Controllers\Web\PerformanceDashboardController;
 use App\Http\Controllers\Web\ProcurementPanelController;
 use App\Http\Controllers\Web\SalesPortalController;
@@ -61,6 +64,12 @@ Route::get('client/service-worker.js', fn () => response()->view('client.service
     ->name('client.service-worker');
 Route::get('client/login', [ClientPortalAuthController::class, 'show'])->name('client.login');
 Route::post('client/login', [ClientPortalAuthController::class, 'login'])->middleware('throttle:login');
+Route::get('client/forgot-password', [PasswordResetController::class, 'request'])->name('client.password.request');
+Route::post('client/forgot-password', [PasswordResetController::class, 'email'])
+    ->middleware('throttle:password-reset')->name('client.password.email');
+Route::get('client/reset-password/{token}', [PasswordResetController::class, 'edit'])->name('client.password.reset');
+Route::post('client/reset-password', [PasswordResetController::class, 'update'])
+    ->middleware('throttle:password-reset')->name('client.password.update');
 
 Route::get('report/{token}', [EmergencyReportController::class, 'create'])->name('emergency.create');
 Route::post('report/{token}', [EmergencyReportController::class, 'store'])
@@ -70,6 +79,9 @@ Route::get('report-received/{reference}', [EmergencyReportController::class, 're
 
 Route::middleware(['auth:client', 'client.active'])->prefix('client')->group(function () {
     Route::post('logout', [ClientPortalAuthController::class, 'logout'])->name('client.logout');
+    Route::get('account/password', [ClientAccountController::class, 'editPassword'])->name('client.account.password');
+    Route::post('account/password', [ClientAccountController::class, 'updatePassword'])
+        ->middleware('throttle:6,1')->name('client.account.password.update');
     Route::get('/', [ClientPortalController::class, 'home'])->name('client.home');
     Route::get('visits/{visit}', [ClientPortalController::class, 'visit'])->name('client.visit');
     Route::get('request-service', [ClientServiceRequestController::class, 'create'])->name('client.service-request');
@@ -92,18 +104,33 @@ Route::post('login', [PanelAuthController::class, 'login'])->middleware('throttl
 Route::get('two-factor-challenge', [TwoFactorController::class, 'challenge'])->name('panel.two-factor.challenge');
 Route::post('two-factor-challenge', [TwoFactorController::class, 'verifyChallenge'])
     ->middleware('throttle:mfa')->name('panel.two-factor.verify');
+Route::get('forgot-password', [PasswordResetController::class, 'request'])->name('panel.password.request');
+Route::post('forgot-password', [PasswordResetController::class, 'email'])
+    ->middleware('throttle:password-reset')->name('panel.password.email');
+Route::get('reset-password/{token}', [PasswordResetController::class, 'edit'])->name('panel.password.reset');
+Route::post('reset-password', [PasswordResetController::class, 'update'])
+    ->middleware('throttle:password-reset')->name('panel.password.update');
 
 // `auth:web` alone only asks "is someone signed in", never "are they still
 // allowed to be". A disabled account kept its cookie session and the whole panel.
 Route::middleware(['auth:web', 'panel.active'])->group(function () {
     Route::post('logout', [PanelAuthController::class, 'logout'])->name('panel.logout');
-    Route::get('two-factor/setup', [TwoFactorController::class, 'setup'])->name('panel.two-factor.setup');
+    // A new MFA secret is only shown to a session that proved the password in
+    // the last ten minutes (the login itself counts).
+    Route::get('two-factor/setup', [TwoFactorController::class, 'setup'])
+        ->middleware('password.confirm:panel.password.confirm,'.(int) config('darak.auth.password_confirm_seconds', 600))
+        ->name('panel.two-factor.setup');
+    Route::get('confirm-password', [AccountSecurityController::class, 'showConfirmPassword'])->name('panel.password.confirm');
+    Route::post('confirm-password', [AccountSecurityController::class, 'confirmPassword'])->middleware('throttle:6,1');
     Route::post('two-factor/setup', [TwoFactorController::class, 'confirm'])
         ->middleware('throttle:10,1')->name('panel.two-factor.confirm');
 });
 
 Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.area'])->group(function () {
     Route::get('board', [BoardController::class, 'index'])->name('panel.board');
+    Route::get('account/security', [AccountSecurityController::class, 'show'])->name('panel.account');
+    Route::post('account/password', [AccountSecurityController::class, 'updatePassword'])
+        ->middleware('throttle:6,1')->name('panel.account.password');
     Route::get('operations', [OperationsInsightsController::class, 'calendar'])->name('panel.operations');
     Route::middleware('panel.permission:sales')->prefix('sales')->group(function () {
         Route::get('app', [SalesPortalController::class, 'index'])->name('sales.home');
@@ -256,7 +283,7 @@ Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.ar
     Route::post('team/users/{user}/two-factor-reset', [TwoFactorController::class, 'reset'])
         ->name('panel.team.two-factor-reset');
     Route::post('two-factor/recovery-codes', [TwoFactorController::class, 'regenerateRecoveryCodes'])
-        ->name('panel.two-factor.recovery-codes');
+        ->middleware('throttle:mfa')->name('panel.two-factor.recovery-codes');
 
     Route::get('notifications', [NotificationPanelController::class, 'index'])->name('panel.notifications');
     Route::get('emergencies', [EmergencyReportController::class, 'index'])->name('panel.emergencies');

@@ -59,6 +59,9 @@ class PanelAuthController extends Controller
         if (! $user->hasConfirmedTwoFactor()) {
             Auth::guard('web')->login($user, $remember);
             $request->session()->regenerate();
+            // The password was proven seconds ago, which is what the
+            // password.confirm gate in front of the MFA secret asks for.
+            $request->session()->put('auth.password_confirmed_at', time());
 
             return redirect()->route('panel.two-factor.setup');
         }
