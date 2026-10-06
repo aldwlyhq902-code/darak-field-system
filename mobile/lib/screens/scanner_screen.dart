@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
@@ -35,7 +37,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   void dispose() {
-    _controller.dispose();
+    // Async since mobile_scanner 7; the widget is gone either way.
+    unawaited(_controller.dispose());
     super.dispose();
   }
 

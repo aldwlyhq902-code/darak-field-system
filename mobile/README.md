@@ -100,9 +100,25 @@ openssl pkey -in darak-backup-pin.key -pubout -outform der \
 ## محاذاة الصفحات 16KB (Android 15+)
 
 AGP 8.11 يحاذي المكتبات الأصلية غير المضغوطة على 16KB افتراضياً، وNDK الافتراضي في
-Flutter 3.38 هو r28 (يبني بمحاذاة 16KB)، و`sqlcipher-android` 4.10 يدعمها. للتحقق من
-ملف APK مبني:
+Flutter 3.38 هو r28 (يبني بمحاذاة 16KB)، و`sqlcipher-android` 4.10 يدعمها.
+`mobile_scanner` يجب أن يبقى على 7.x أو أحدث: الإصدار 5.2.3 كان يجلب مكتبتَي ML Kit
+وCameraX (`libbarhopper_v3.so` و`libimage_processing_util_jni.so`) بمحاذاة 4KB، وهذا
+يمنع الرفع إلى Google Play.
+
+فحص `zipalign` وحده لا يكفي، لأنه يتحقق من مواضع الملفات داخل الحزمة فقط ونجح رغم مكتبات
+ML Kit غير المحاذاة. لذلك افحص أيضاً محاذاة مقاطع `LOAD` في كل مكتبة:
 
 ```bash
-zipalign -c -P 16 -v 4 build/app/outputs/flutter-apk/app-release.apk
+APK=build/app/outputs/flutter-apk/app-release.apk
+zipalign -c -P 16 -v 4 "$APK"
+
+# يجب أن تكون كل قيمة 0x4000 أو أكبر في arm64-v8a وx86_64.
+mkdir -p build/so && unzip -q -o "$APK" -d build/so
+for f in $(find build/so/lib -name '*.so'); do
+  echo "$f: $(llvm-readelf -lW "$f" | awk '$1=="LOAD"{print $NF}' | sort -u | tr '\n' ' ')"
+done
 ```
+
+`llvm-readelf` موجود في NDK تحت `toolchains/llvm/prebuilt/<host>/bin/`. المتطلب يخص
+المعماريات 64-bit فقط، لأن أجهزة صفحات 16KB كلها 64-bit؛ لذلك لا يمنع الرفعَ بقاءُ
+`armeabi-v7a/libbarhopper_v3.so` على 4KB.
