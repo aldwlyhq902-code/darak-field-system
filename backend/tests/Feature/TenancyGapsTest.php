@@ -5,11 +5,16 @@ namespace Tests\Feature;
 use App\Models\Asset;
 use App\Models\AssetFaultPrediction;
 use App\Models\Client;
+use App\Models\ClientPortalUser;
 use App\Models\CommissionEntry;
 use App\Models\CommissionRule;
+use App\Models\Contract;
+use App\Models\ContractInstallment;
 use App\Models\FaultPredictionModel;
 use App\Models\OperatingBranch;
 use App\Models\OperatingCompany;
+use App\Models\Payment;
+use App\Models\Quotation;
 use App\Models\Site;
 use App\Models\Subcontractor;
 use App\Models\SubcontractorOrder;
@@ -20,6 +25,7 @@ use App\Services\CommissionService;
 use App\Services\SubcontractorService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Tests\DarakTestCase;
 
@@ -169,6 +175,61 @@ class TenancyGapsTest extends DarakTestCase
         $this->actingAs($this->owner, 'web')->get(route('panel.intelligence'))
             ->assertOk()->assertDontSee('Foreign Chiller')
             ->assertViewHas('trainedModel', fn ($model) => $model->is($ours));
+    }
+
+    public function test_a_site_restricted_delegate_never_sees_site_less_quotations_or_contracts(): void
+    {
+        $quotation = Quotation::create([
+            'series_uuid' => (string) Str::uuid(), 'version' => 1, 'quote_no' => 'QT-NO-SITES',
+            'client_id' => $this->client->id, 'title' => 'Legacy without sites', 'package_code' => 'basic',
+            'price_amount' => 1000, 'vat_rate' => .15, 'billing_cycle' => 'upfront',
+            'duration_months' => 12, 'starts_on' => now(), 'valid_until' => now()->addMonth(),
+            'status' => Quotation::STATUS_SENT, 'created_by' => $this->owner->id,
+        ]);
+        $contract = Contract::create([
+            'client_id' => $this->client->id, 'contract_no' => 'DK-NO-SITES', 'package_code' => 'basic',
+            'price_amount' => 900, 'vat_rate' => .15, 'starts_on' => now()->toDateString(),
+            'service_window_start' => '07:00:00', 'service_window_end' => '23:00:00', 'sla_minutes' => 240, 'status' => 'active',
+        ]);
+        $installment = ContractInstallment::create([
+            'contract_id' => $contract->id, 'installment_no' => 1, 'due_on' => now()->toDateString(),
+            'amount' => 900, 'vat_amount' => 135, 'total_amount' => 1035, 'paid_amount' => 100, 'status' => 'partial',
+        ]);
+        $payment = Payment::create([
+            'receipt_no' => 'RC-NO-SITES', 'contract_installment_id' => $installment->id, 'client_id' => $this->client->id,
+            'amount' => 100, 'paid_on' => now()->toDateString(), 'method' => 'cash', 'recorded_by' => $this->owner->id,
+        ]);
+        $restricted = $this->delegate('restricted@test.local');
+        $restricted->allowedSites()->attach($this->site);
+
+        $this->actingAs($restricted, 'client')->get(route('client.quotation', $quotation))->assertForbidden();
+        $this->actingAs($restricted, 'client')->post(route('client.quotation.accept', $quotation), ['accept_terms' => '1'])->assertForbidden();
+        $this->actingAs($restricted, 'client')->get(route('client.contract', $contract))->assertForbidden();
+        $this->actingAs($restricted, 'client')->post(route('client.contract.sign', $contract), [
+            'signed_name' => 'Restricted', 'accept_terms' => '1',
+        ])->assertForbidden();
+        $this->actingAs($restricted, 'client')->get(route('client.payment.receipt', $payment))->assertForbidden();
+        $this->actingAs($restricted, 'client')->get(route('client.home'))->assertOk()
+            ->assertSee($this->contract->contract_no)
+            ->assertDontSee('QT-NO-SITES')->assertDontSee('DK-NO-SITES')->assertDontSee('RC-NO-SITES');
+        $this->assertNull($quotation->fresh()->accepted_at);
+        $this->assertNull($contract->fresh()->signed_at);
+
+        // An unrestricted delegate keeps full visibility.
+        $unrestricted = $this->delegate('unrestricted@test.local');
+        $this->actingAs($unrestricted, 'client')->get(route('client.quotation', $quotation))->assertOk();
+        $this->actingAs($unrestricted, 'client')->get(route('client.contract', $contract))->assertOk();
+        $this->actingAs($unrestricted, 'client')->get(route('client.home'))->assertOk()
+            ->assertSee('QT-NO-SITES')->assertSee('DK-NO-SITES')->assertSee('RC-NO-SITES');
+    }
+
+    private function delegate(string $email): ClientPortalUser
+    {
+        return ClientPortalUser::create([
+            'client_id' => $this->client->id, 'name' => 'Delegate '.$email, 'email' => $email,
+            'password' => Hash::make('Strong-Client9!'), 'is_active' => true,
+            'permissions' => ['quotes.approve', 'contracts.sign'],
+        ]);
     }
 
     private function faultHistory(int $clientId, int $siteId, int $assetId, int $technicianId, int $visits, string $prefix): void
