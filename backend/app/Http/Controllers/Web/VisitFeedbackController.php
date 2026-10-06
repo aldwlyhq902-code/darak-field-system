@@ -20,6 +20,9 @@ class VisitFeedbackController extends Controller
     {
         $visit->loadMissing('workOrder');
         abort_unless($visit->workOrder?->client_id === $request->user('client')->client_id, 404);
+        // A site-restricted delegate rates only visits at its own sites, exactly
+        // like the visit page, report and dispute actions.
+        abort_unless($request->user('client')->canAccessSite($visit->site_id), 403);
         abort_unless($visit->isClosed(), 422);
         $data = $request->validate([
             'rating' => ['required', 'integer', 'between:1,5'],
