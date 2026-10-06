@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\OperatingBranch;
-use App\Models\OperatingCompany;
 use App\Models\PerformanceMetricSetting;
 use App\Models\Quotation;
 use App\Models\SalesActivity;
@@ -73,7 +72,9 @@ class PerformanceDashboardTest extends DarakTestCase
     /** @return array{0: OperatingBranch, 1: User} */
     private function performanceFixture(): array
     {
-        $company = OperatingCompany::create(['name' => 'شركة قياس الأداء', 'currency' => 'SAR', 'is_active' => true]);
+        // The branch belongs to the owner's own company: the dashboard is
+        // tenant-scoped, so a fixture spread over two companies proves nothing.
+        $company = $this->operatingCompany;
         $branch = OperatingBranch::create(['operating_company_id' => $company->id, 'name' => 'فرع الأداء', 'code' => 'KPI', 'is_active' => true]);
         $this->technician->forceFill(['operating_branch_id' => $branch->id, 'hourly_cost' => 50])->save();
         $this->client->forceFill(['operating_company_id' => $company->id, 'operating_branch_id' => $branch->id])->save();
@@ -93,7 +94,7 @@ class PerformanceDashboardTest extends DarakTestCase
         $marketer = User::create([
             'name' => 'مسوق الأداء', 'email' => 'marketer-performance@test.local',
             'password' => Hash::make('secret'), 'role' => User::ROLE_ADMIN,
-            'operating_branch_id' => $branch->id, 'is_active' => true,
+            'operating_company_id' => $company->id, 'operating_branch_id' => $branch->id, 'is_active' => true,
         ]);
         $lead = SalesLead::create([
             'lead_no' => 'LEAD-KPI-1', 'company_name' => 'عميل نمو', 'stage' => 'won',
