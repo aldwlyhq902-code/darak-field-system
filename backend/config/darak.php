@@ -137,5 +137,7 @@ return [
         'password_lockout_minutes' => (int) env('DARAK_PASSWORD_LOCKOUT_MINUTES', 15),
         'mfa_max_attempts' => (int) env('DARAK_MFA_MAX_ATTEMPTS', 5),
         'mfa_lockout_minutes' => (int) env('DARAK_MFA_LOCKOUT_MINUTES', 15),
+        // API tokens unused for this many days stop working (401, app re-logins).
+        'token_idle_days' => (int) env('DARAK_TOKEN_IDLE_DAYS', 14),
     ],
 ];

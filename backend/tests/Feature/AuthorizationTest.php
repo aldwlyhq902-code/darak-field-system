@@ -110,7 +110,9 @@ class AuthorizationTest extends DarakTestCase
 
     public function test_revoked_device_cannot_log_in_again(): void
     {
-        $uuid = (string) Str::uuid();
+        // The technician's registered handset: a fresh uuid would now wait for
+        // approval as a second device instead of receiving a token.
+        $uuid = $this->device->device_uuid;
         $ownerToken = $this->loginToken('owner@test.local');
 
         $login = $this->postJson('/api/v1/auth/login', [
@@ -128,7 +130,7 @@ class AuthorizationTest extends DarakTestCase
 
     public function test_device_uuid_cannot_be_reassigned_to_another_account(): void
     {
-        $uuid = (string) Str::uuid();
+        $uuid = $this->device->device_uuid;
         $firstToken = $this->postJson('/api/v1/auth/login', [
             'email' => 'tech1@test.local', 'password' => 'secret', 'device_uuid' => $uuid,
         ])->assertOk()->json('token');
@@ -166,7 +168,7 @@ class AuthorizationTest extends DarakTestCase
         return $this->postJson('/api/v1/auth/login', [
             'email' => $email,
             'password' => 'secret',
-            'device_uuid' => (string) Str::uuid(),
+            'device_uuid' => $user->id === $this->technician->id ? $this->device->device_uuid : (string) Str::uuid(),
             ...($user->isTechnician() ? [] : [
                 'mfa_code' => app(TwoFactorService::class)->currentCode($user),
             ]),

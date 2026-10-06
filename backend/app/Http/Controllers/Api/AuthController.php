@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\DeviceRegistry;
 use App\Services\PasswordLogin;
 use App\Services\TwoFactorService;
 use App\Support\TenantAccess;
@@ -26,6 +27,7 @@ class AuthController extends Controller
         private readonly TenantAccess $tenantAccess,
         private readonly TwoFactorService $twoFactor,
         private readonly PasswordLogin $passwords,
+        private readonly DeviceRegistry $devices,
     ) {}
 
     public function login(Request $request): JsonResponse
@@ -38,6 +40,10 @@ class AuthController extends Controller
             'label' => ['nullable', 'string', 'max:120'],
             'app_version' => ['nullable', 'string', 'max:32'],
             'mfa_code' => ['nullable', 'string', 'max:32'],
+            // Self-reported by the app. Recorded and shown to the owner; never a gate.
+            'device_integrity' => ['nullable', 'array'],
+            'device_integrity.rooted' => ['nullable', 'boolean'],
+            'device_integrity.emulator' => ['nullable', 'boolean'],
         ]);
 
         $result = $this->passwords->attempt('api', User::class, $data['email'], $data['password']);
@@ -90,29 +96,31 @@ class AuthController extends Controller
             }
         }
 
-        $device = Device::firstOrNew(['device_uuid' => $data['device_uuid']]);
+        ['status' => $status, 'device' => $device] = $this->devices->register($user, $data);
 
-        if ($device->exists && $device->isRevoked()) {
+        if ($status === DeviceRegistry::STATUS_REVOKED) {
             return response()->json([
                 'code' => 'DEVICE_REVOKED',
                 'message' => 'This device has been revoked. Contact the supervisor.',
             ], 403);
         }
 
-        if ($device->exists && $device->user_id !== $user->id) {
+        if ($status === DeviceRegistry::STATUS_BOUND_TO_ANOTHER_USER) {
             return response()->json([
                 'code' => 'DEVICE_BOUND_TO_ANOTHER_USER',
                 'message' => 'This device is registered to another account. Ask a supervisor to revoke it first.',
             ], 409);
         }
 
-        $device->fill([
-            'user_id' => $user->id,
-            'platform' => $data['platform'] ?? 'android',
-            'label' => $data['label'] ?? null,
-            'app_version' => $data['app_version'] ?? null,
-            'last_seen_at' => CarbonImmutable::now(),
-        ])->save();
+        // A second handset gets no token until the owner approves it. The app
+        // keeps its local queue and simply retries the login later.
+        if ($status === DeviceRegistry::STATUS_PENDING) {
+            return response()->json([
+                'code' => 'DEVICE_PENDING_APPROVAL',
+                'message' => 'هذا جهاز جديد بانتظار اعتماد المشرف. أعد تسجيل الدخول بعد الاعتماد.',
+                'device' => ['id' => $device->id, 'uuid' => $device->device_uuid],
+            ], 403);
+        }
 
         // One active token per device.
         $user->tokens()->where('name', 'device:'.$device->device_uuid)->delete();

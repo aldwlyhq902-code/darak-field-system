@@ -8,6 +8,7 @@ use App\Http\Controllers\Web\ClientPortalAuthController;
 use App\Http\Controllers\Web\ClientPortalController;
 use App\Http\Controllers\Web\ClientServiceRequestController;
 use App\Http\Controllers\Web\CommercialPanelController;
+use App\Http\Controllers\Web\DeviceApprovalController;
 use App\Http\Controllers\Web\EmergencyReportController;
 use App\Http\Controllers\Web\FinanceInsightsController;
 use App\Http\Controllers\Web\FleetController;
@@ -250,6 +251,8 @@ Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.ar
     Route::post('team/custodies/{custody}/accept', [TeamController::class, 'acceptCustody'])->name('panel.team.custody.accept');
     Route::post('team/custodies/{custody}/return', [TeamController::class, 'returnCustody'])->name('panel.team.custody.return');
     Route::post('team/devices/{device}/revoke', [TeamController::class, 'revokeDevice'])->name('panel.team.revoke');
+    Route::post('team/devices/{device}/approve', [DeviceApprovalController::class, 'approve'])->name('panel.team.device.approve');
+    Route::post('team/devices/{device}/reject', [DeviceApprovalController::class, 'reject'])->name('panel.team.device.reject');
     Route::post('team/users/{user}/two-factor-reset', [TwoFactorController::class, 'reset'])
         ->name('panel.team.two-factor-reset');
     Route::post('two-factor/recovery-codes', [TwoFactorController::class, 'regenerateRecoveryCodes'])

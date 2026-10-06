@@ -6,6 +6,8 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\PersonalAccessToken;
+use Laravel\Sanctum\Sanctum;
 
 /**
  * Authentication and API hardening that has to be wired at boot: named rate
@@ -31,5 +33,21 @@ class SecurityServiceProvider extends ServiceProvider
                 ? (string) ($request->session()->get('two_factor_pending_user_id') ?? $request->user()?->getAuthIdentifier())
                 : '').'|'.$request->ip()),
         ]);
+
+        // Idle expiry on top of Sanctum's absolute 30-day lifetime. A token on a
+        // phone left in a drawer for two weeks is more likely lost than in use;
+        // the app answers the 401 with a fresh login and keeps its queue.
+        // Evaluated BEFORE Sanctum stamps last_used_at for this request.
+        Sanctum::authenticateAccessTokensUsing(function (PersonalAccessToken $token, bool $isValid): bool {
+            $idleDays = (int) config('darak.auth.token_idle_days', 14);
+
+            if (! $isValid || $idleDays <= 0) {
+                return $isValid;
+            }
+
+            $lastActivity = $token->last_used_at ?? $token->created_at;
+
+            return $lastActivity === null || $lastActivity->gt(now()->subDays($idleDays));
+        });
     }
 }

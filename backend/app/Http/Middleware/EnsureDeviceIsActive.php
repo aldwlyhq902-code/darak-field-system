@@ -37,17 +37,33 @@ class EnsureDeviceIsActive
             $uuid = substr((string) $token->name, strlen('device:'));
             $device = Device::where('device_uuid', $uuid)->first();
 
-            if ($device === null || $device->isRevoked() || $device->user_id !== $user->id) {
+            if ($device === null || $device->isRevoked() || $device->user_id !== $user->id
+                || $device->approval_status === Device::APPROVAL_REJECTED) {
                 return response()->json([
                     'code' => 'DEVICE_REVOKED',
                     'message' => 'This device is no longer authorised.',
                 ], 403);
             }
 
+            // Not a wipe: the device may still be approved. Login never issues a
+            // token to a pending device, so this is the belt to that brace.
+            if ($device->isPendingApproval()) {
+                return response()->json([
+                    'code' => 'DEVICE_PENDING_APPROVAL',
+                    'message' => 'هذا الجهاز بانتظار اعتماد المشرف.',
+                ], 403);
+            }
+
             // Presence precision below five minutes has no operational value and
             // writing this row on every API request creates needless contention.
+            // The app version reported in X-App-Version rides on the same write.
             if ($device->last_seen_at === null || $device->last_seen_at->lt(now()->subMinutes(5))) {
-                $device->forceFill(['last_seen_at' => now()])->saveQuietly();
+                $attributes = ['last_seen_at' => now()];
+                $version = trim((string) $request->header('X-App-Version', ''));
+                if ($version !== '' && mb_strlen($version) <= 32) {
+                    $attributes['app_version'] = $version;
+                }
+                $device->forceFill($attributes)->saveQuietly();
             }
             $request->attributes->set('device', $device);
         }
