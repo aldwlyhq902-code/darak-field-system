@@ -2,9 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Asset;
+use App\Models\AssetFaultPrediction;
 use App\Models\Client;
 use App\Models\CommissionEntry;
 use App\Models\CommissionRule;
+use App\Models\FaultPredictionModel;
 use App\Models\OperatingBranch;
 use App\Models\OperatingCompany;
 use App\Models\Site;
@@ -131,6 +134,59 @@ class TenancyGapsTest extends DarakTestCase
 
         $this->actingAs($this->owner, 'web')->get(route('panel.sub'))->assertOk()->assertDontSee('Legacy Shared Partner');
         $this->actingAs($this->platformAdmin(), 'web')->get(route('panel.sub'))->assertOk()->assertSee('Legacy Shared Partner');
+    }
+
+    public function test_the_failure_model_is_trained_scored_and_shown_per_company(): void
+    {
+        config(['darak.prediction.minimum_samples' => 4]);
+        $foreign = $this->foreignTenant();
+        $foreignAsset = Asset::withoutGlobalScopes()->create([
+            'site_id' => $foreign['site']->id, 'type' => 'split_ac', 'name' => 'Foreign Chiller', 'qr_code' => 'ASSET-FRN-1',
+        ]);
+        $this->faultHistory($this->client->id, $this->site->id, $this->asset->id, $this->technician->id, 5, 'OUR');
+        // Below the threshold on its own; together they used to clear it.
+        $this->faultHistory($foreign['client']->id, $foreign['site']->id, $foreignAsset->id, $foreign['technician']->id, 3, 'FRN');
+
+        $this->artisan('darak:fault-model-train')->assertSuccessful();
+
+        $ours = FaultPredictionModel::withoutGlobalScopes()->sole();
+        $this->assertSame($this->operatingCompany->id, (int) $ours->operating_company_id);
+        $this->assertSame(5, $ours->training_samples + $ours->validation_samples, 'trained on this company\'s history only');
+        $this->assertSame([$this->asset->id], AssetFaultPrediction::where('fault_prediction_model_id', $ours->id)->pluck('asset_id')->all());
+
+        // Once the other company has enough history it gets its own model; ours stays active.
+        $this->faultHistory($foreign['client']->id, $foreign['site']->id, $foreignAsset->id, $foreign['technician']->id, 2, 'FRN2');
+        $this->actingAs($foreign['owner'], 'web')->post(route('panel.intelligence.train'))->assertSessionHas('ok');
+
+        $theirs = FaultPredictionModel::withoutGlobalScopes()->where('operating_company_id', $foreign['company']->id)->sole();
+        $this->assertSame(5, $theirs->training_samples + $theirs->validation_samples);
+        $this->assertTrue($ours->fresh()->is_active);
+        $this->assertSame([$foreignAsset->id], AssetFaultPrediction::where('fault_prediction_model_id', $theirs->id)->pluck('asset_id')->all());
+
+        $this->actingAs($foreign['owner'], 'web')->get(route('panel.intelligence'))
+            ->assertOk()->assertSee('Foreign Chiller')->assertDontSee('Dining Split Unit')
+            ->assertViewHas('trainedModel', fn ($model) => $model->is($theirs));
+        $this->actingAs($this->owner, 'web')->get(route('panel.intelligence'))
+            ->assertOk()->assertDontSee('Foreign Chiller')
+            ->assertViewHas('trainedModel', fn ($model) => $model->is($ours));
+    }
+
+    private function faultHistory(int $clientId, int $siteId, int $assetId, int $technicianId, int $visits, string $prefix): void
+    {
+        $workOrder = WorkOrder::withoutGlobalScopes()->create([
+            'wo_number' => 'WO-'.$prefix.'-FAULT', 'client_id' => $clientId, 'site_id' => $siteId, 'asset_id' => $assetId,
+            'type' => 'corrective', 'title' => 'Recurring fault', 'fault_code' => 'E01',
+            'reported_at' => CarbonImmutable::now()->subYear(), 'sla_minutes_budget' => 240,
+            'sla_due_at' => CarbonImmutable::now()->subYear()->addDay(), 'status' => 'completed',
+        ]);
+        for ($index = 0; $index < $visits; $index++) {
+            $start = CarbonImmutable::now()->subDays(300 - $index * 40);
+            Visit::withoutGlobalScopes()->create([
+                'work_order_id' => $workOrder->id, 'site_id' => $siteId, 'assigned_user_id' => $technicianId,
+                'scheduled_start' => $start, 'scheduled_end' => $start->addHour(), 'state' => Visit::STATE_COMPLETED,
+                'state_changed_at' => $start->addHour(), 'closed_at' => $start->addHour(),
+            ]);
+        }
     }
 
     private function platformAdmin(): User

@@ -94,6 +94,6 @@ class CompletionPackTest extends DarakTestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('لا يمكن تدريب النموذج قبل توفر 500 عينة زمنية');
 
-        app(FaultPredictionTrainer::class)->train();
+        app(FaultPredictionTrainer::class)->train($this->operatingCompany->id);
     }
 }

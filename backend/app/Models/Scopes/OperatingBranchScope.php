@@ -79,7 +79,7 @@ class OperatingBranchScope implements Scope
         }
         // Company-wide records shared by every branch of the owning company. A
         // row with no company is a platform default only platform admins see.
-        if (in_array($table, ['commission_rules', 'subcontractors'], true)) {
+        if (in_array($table, ['commission_rules', 'subcontractors', 'fault_prediction_models'], true)) {
             $builder->where($column('operating_company_id'), $companyId);
 
             return;
