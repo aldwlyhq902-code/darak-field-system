@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Models\Payment;
+use App\Models\ClientServiceRequest;
+use App\Models\AdditionalWorkApproval;
 use App\Http\Controllers\Controller;
 use App\Models\Asset;
 use App\Models\Contract;
@@ -26,31 +29,39 @@ class ClientPortalController extends Controller
     {
         $client = $request->user('client')->client;
         $portal = $request->user('client');
-        $client->load(['sites.assets', 'contracts.sites', 'contracts.installments.payments', 'quotations.sites', 'additionalWorkApprovals.visit.site', 'serviceRequests.site', 'serviceRequests.asset', 'serviceRequests.visit', 'payments.installment.contract']);
+        $client->load(['sites.assets', 'contracts.sites', 'contracts.installments']);
         $allowedSiteIds = $portal->allowedSites()->pluck('sites.id');
-        if ($allowedSiteIds->isNotEmpty()) {
+        $restricted = $allowedSiteIds->isNotEmpty();
+        if ($restricted) {
             $client->setRelation('sites', $client->sites->whereIn('id', $allowedSiteIds));
             $client->setRelation('contracts', $client->contracts->filter(fn ($contract) => $contract->sites->pluck('id')->diff($allowedSiteIds)->isEmpty()));
-            $client->setRelation('quotations', $client->quotations->filter(fn ($quotation) => $quotation->sites->pluck('id')->diff($allowedSiteIds)->isEmpty()));
-            $client->setRelation('additionalWorkApprovals', $client->additionalWorkApprovals->filter(fn ($approval) => $allowedSiteIds->contains($approval->visit?->site_id)));
-            $client->setRelation('serviceRequests', $client->serviceRequests->whereIn('site_id', $allowedSiteIds));
-            $allowedContractIds = $client->contracts->pluck('id');
-            $client->setRelation('payments', $client->payments->filter(fn ($payment) => $allowedContractIds->contains($payment->installment?->contract_id)));
         }
+        $allowedContractIds = $client->contracts->pluck('id');
 
-        $visits = Visit::with(['workOrder', 'site', 'technician'])
-            ->whereHas('workOrder', fn ($query) => $query->where('client_id', $client->id))
-            ->when($allowedSiteIds->isNotEmpty(), fn ($query) => $query->whereIn('site_id', $allowedSiteIds))
-            ->latest('id')
-            ->limit(15)
-            ->get();
+        // Growing histories are queried and paged in the database (named pages)
+        // with the delegate's site restriction applied in SQL, instead of loading
+        // every record of the client and slicing the first N in the view.
+        $onlyAllowedSites = fn ($query) => $query->whereDoesntHave('sites', fn ($sites) => $sites->whereNotIn('sites.id', $allowedSiteIds));
 
         return view('client.home', [
             'client' => $client,
-            'visits' => $visits,
-            'quotations' => $client->quotations->whereIn('status', [Quotation::STATUS_SENT, Quotation::STATUS_ACCEPTED, Quotation::STATUS_CONVERTED])->sortByDesc('id'),
-            'additionalApprovals' => $client->additionalWorkApprovals->sortByDesc('id'),
-            'serviceRequests' => $client->serviceRequests->sortByDesc('id'),
+            'visits' => Visit::with(['workOrder', 'site', 'technician'])
+                ->whereHas('workOrder', fn ($query) => $query->where('client_id', $client->id))
+                ->when($restricted, fn ($query) => $query->whereIn('site_id', $allowedSiteIds))
+                ->latest('id')->paginate(10, ['*'], 'visits_page')->withQueryString(),
+            'quotations' => Quotation::query()->where('client_id', $client->id)
+                ->whereIn('status', [Quotation::STATUS_SENT, Quotation::STATUS_ACCEPTED, Quotation::STATUS_CONVERTED])
+                ->when($restricted, $onlyAllowedSites)
+                ->latest('id')->paginate(10, ['*'], 'quotes_page')->withQueryString(),
+            'payments' => Payment::query()->with('installment.contract')->where('client_id', $client->id)
+                ->when($restricted, fn ($query) => $query->whereHas('installment', fn ($installment) => $installment->whereIn('contract_id', $allowedContractIds)))
+                ->latest('paid_on')->latest('id')->paginate(10, ['*'], 'receipts_page')->withQueryString(),
+            'additionalApprovals' => AdditionalWorkApproval::query()->with('visit.site')->where('client_id', $client->id)
+                ->when($restricted, fn ($query) => $query->whereHas('visit', fn ($visit) => $visit->whereIn('site_id', $allowedSiteIds)))
+                ->latest('id')->paginate(10, ['*'], 'approvals_page')->withQueryString(),
+            'serviceRequests' => ClientServiceRequest::query()->with(['site', 'asset', 'visit'])->where('client_id', $client->id)
+                ->when($restricted, fn ($query) => $query->whereIn('site_id', $allowedSiteIds))
+                ->latest('id')->paginate(10, ['*'], 'requests_page')->withQueryString(),
         ]);
     }
 

@@ -24,17 +24,23 @@ class HumanResourcesController extends Controller
 
     public function index(Request $request): View
     {
-        $users = User::query()->with(['employeeProfile', 'employeeDocuments' => fn ($query) => $query->where('status', 'active')->latest('expires_on'), 'employeeLeaves' => fn ($query) => $query->latest('starts_on')->limit(10)])
+        $staff = User::query()
             ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
-            ->when($request->user()->operating_branch_id, fn ($query, $branchId) => $query->where('operating_branch_id', $branchId))
-            ->orderBy('name')->get();
+            ->when($request->user()->operating_branch_id, fn ($query, $branchId) => $query->where('operating_branch_id', $branchId));
+        $users = (clone $staff)->with(['employeeProfile', 'employeeDocuments' => fn ($query) => $query->where('status', 'active')->latest('expires_on')])
+            ->orderBy('name')->paginate(20, ['*'], 'employees_page')->withQueryString();
+        $documents = EmployeeDocument::query()->where('status', 'active')->whereNotNull('expires_on')->where('expires_on', '<=', now()->addDays(90));
 
+        // Lists page independently; the KPI counts are aggregates over all rows.
         return view('panel.human-resources', [
             'users' => $users,
-            'balances' => $users->mapWithKeys(fn (User $user) => [$user->id => $this->leaves->balance($user)]),
-            'expiringDocuments' => EmployeeDocument::with('user')->where('status', 'active')->whereNotNull('expires_on')->where('expires_on', '<=', now()->addDays(90))->orderBy('expires_on')->get(),
-            'pendingLeaves' => EmployeeLeave::with('user')->where('status', 'pending')->orderBy('starts_on')->get(),
-            'recentLeaves' => EmployeeLeave::with('user')->latest('id')->limit(30)->get(),
+            'employeeOptions' => (clone $staff)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'balances' => $users->getCollection()->mapWithKeys(fn (User $user) => [$user->id => $this->leaves->balance($user)]),
+            'expiringDocuments' => (clone $documents)->with('user')->orderBy('expires_on')->paginate(30, ['*'], 'documents_page')->withQueryString(),
+            'expiredDocumentsCount' => (clone $documents)->where('expires_on', '<', now()->startOfDay())->count(),
+            'expiringDocumentsCount' => (clone $documents)->where('expires_on', '>=', now()->startOfDay())->count(),
+            'pendingLeaves' => EmployeeLeave::with('user')->where('status', 'pending')->orderBy('starts_on')->paginate(20, ['*'], 'pending_page')->withQueryString(),
+            'recentLeaves' => EmployeeLeave::with('user')->latest('id')->paginate(30, ['*'], 'leaves_page')->withQueryString(),
         ]);
     }
 

@@ -27,6 +27,8 @@ use Illuminate\View\View;
  */
 class BoardController extends Controller
 {
+    private const RECENT_EVENTS = 60;
+
     public function __construct(
         private readonly SlaCalculator $sla,
         private readonly CloseGate $closeGate,
@@ -125,12 +127,15 @@ class BoardController extends Controller
         $visit->load([
             'workOrder.contract', 'workOrder.client', 'site.assets',
             'checklistInstances.asset', 'mediaFiles', 'stockMoves.part',
-            'technician', 'events' => fn ($q) => $q->latest('id')->limit(60),
+            // A labelled "latest N" timeline; the full chain is in the audit export.
+            'technician', 'events' => fn ($q) => $q->latest('id')->limit(self::RECENT_EVENTS),
             'additionalWorkApprovals',
         ]);
 
         return view('panel.visit', [
             'visit' => $visit,
+            'recentEvents' => self::RECENT_EVENTS,
+            'eventCount' => $visit->events()->count(),
             'blockers' => $this->closeGate->blockers($visit),
             'consumption' => $inventory->visitConsumption($visit),
             'technicians' => $this->visibleTechnicians($request)->get(),

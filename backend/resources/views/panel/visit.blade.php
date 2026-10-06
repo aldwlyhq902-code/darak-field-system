@@ -170,7 +170,7 @@
         @endif
 
         <div class="card">
-            <div class="hd">آخر الأحداث</div>
+            <div class="hd">آخر الأحداث @if($eventCount > $recentEvents)<span class="pill grey">أحدث {{ $recentEvents }} من {{ $eventCount }}</span>@endif</div>
             <div class="bd" style="max-height:320px;overflow:auto">
                 @forelse ($visit->events as $event)
                     <div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px">

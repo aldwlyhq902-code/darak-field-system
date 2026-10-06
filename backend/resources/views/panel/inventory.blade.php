@@ -139,17 +139,15 @@
 </div>
 
 <div class="card">
-    <div class="hd">كتالوج القطع ({{ $parts->count() }})</div>
+    <div class="hd">كتالوج القطع ({{ $catalogue->total() }})</div>
     <table>
         <thead>
         <tr><th style="width:130px">الرمز</th><th>الصنف</th><th style="width:110px">تكلفة الشراء</th><th style="width:110px">سعر البيع</th><th style="width:110px">الهامش</th><th style="width:120px">حساس للحرارة</th></tr>
         </thead>
         <tbody>
-        @foreach ($parts as $part)
+        @foreach ($catalogue as $part)
             @php
-                $margin = (float) $part->sale_price > 0
-                    ? round((((float) $part->sale_price - (float) $part->purchase_cost) / (float) $part->sale_price) * 100, 1)
-                    : null;
+                $margin = \App\Support\Money::ratioPercent(\App\Support\Money::sub($part->sale_price, $part->purchase_cost), $part->sale_price);
             @endphp
             <tr>
                 <td style="font-size:13px">{{ $part->sku }}</td>
@@ -174,6 +172,7 @@
         @endforeach
         </tbody>
     </table>
+    @include('partials.pager', ['paginator' => $catalogue, 'label' => 'صفحات كتالوج القطع'])
     <div class="bd">
         <details>
             <summary style="cursor:pointer;color:var(--teal)">إضافة صنف</summary>

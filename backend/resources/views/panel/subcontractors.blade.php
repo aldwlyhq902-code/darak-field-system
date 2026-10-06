@@ -14,7 +14,7 @@
                 <div class="field">
                     <label>الشريك</label>
                     <select name="subcontractor_id" required>
-                        @foreach ($partners->where('is_active', true) as $partner)
+                        @foreach ($activePartners as $partner)
                             <option value="{{ $partner->id }}">
                                 {{ $partner->name }}@if ($partner->specialties) — {{ implode('، ', $partner->specialties) }}@endif
                             </option>
@@ -22,12 +22,8 @@
                     </select>
                 </div>
                 <div class="field">
-                    <label>أمر العمل</label>
-                    <select name="work_order_id" required>
-                        @foreach ($openWorkOrders as $wo)
-                            <option value="{{ $wo->id }}">{{ $wo->wo_number }} — {{ $wo->client?->name }} — {{ $wo->title }}</option>
-                        @endforeach
-                    </select>
+                    <label for="sub-wo-number">رقم أمر العمل</label>
+                    <input id="sub-wo-number" name="wo_number" maxlength="64" placeholder="WO-…" required>
                 </div>
             </div>
             <div class="grid3">
@@ -127,6 +123,7 @@
             @endforeach
             </tbody>
         </table>
+        @include('partials.pager', ['paginator' => $orders, 'label' => 'صفحات أوامر الباطن'])
     @endif
     <div class="bd">
         <div class="note">
@@ -137,7 +134,7 @@
 </div>
 
 <div class="card">
-    <div class="hd">الشركاء ({{ $partners->count() }})</div>
+    <div class="hd">الشركاء ({{ $partners->total() }})</div>
     <table>
         <thead><tr><th>الاسم</th><th>التخصصات</th><th style="width:130px">يصدر شهادات</th><th style="width:80px">أوامر</th><th style="width:90px">الحالة</th></tr></thead>
         <tbody>
@@ -152,6 +149,7 @@
         @endforeach
         </tbody>
     </table>
+    @include('partials.pager', ['paginator' => $partners, 'label' => 'صفحات الشركاء'])
     <div class="bd">
         <details>
             <summary style="cursor:pointer;color:var(--teal)">إضافة شريك</summary>

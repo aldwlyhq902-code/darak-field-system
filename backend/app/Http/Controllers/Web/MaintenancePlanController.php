@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Support\ClientPicker;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\MaintenancePlan;
@@ -20,9 +21,11 @@ class MaintenancePlanController extends Controller
 
     public function index(Request $request): View
     {
-        return view('panel.maintenance', [
-            'plans' => MaintenancePlan::with(['client', 'site', 'asset', 'contract', 'preferredTechnician'])->orderBy('next_due_on')->get(),
-            'clients' => Client::with(['sites.assets', 'contracts'])->where('is_active', true)->orderBy('name')->get(),
+        // The form no longer eager-loads every client with all sites, assets and
+        // contracts; past ClientPicker::INLINE_LIMIT it asks for a name first.
+        return view('panel.maintenance', ClientPicker::options($request, ['sites.assets', 'contracts']) + [
+            'plans' => MaintenancePlan::with(['client', 'site', 'asset', 'contract', 'preferredTechnician'])->orderBy('next_due_on')->orderBy('id')
+                ->paginate(30, ['*'], 'plans_page')->withQueryString(),
             'technicians' => User::where('role', User::ROLE_TECHNICIAN)->where('is_active', true)
                 ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
                 ->orderBy('name')->get(),

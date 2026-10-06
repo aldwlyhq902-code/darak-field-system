@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Support\Money;
 use App\Http\Controllers\Controller;
 use App\Models\OperatingBranch;
 use App\Models\StockLocation;
@@ -31,10 +32,14 @@ class FleetController extends Controller
     public function index(Request $request): View
     {
         return view('panel.fleet', [
-            'vehicles' => Vehicle::with(['assignedUser', 'documents' => fn ($query) => $query->where('status', 'active'), 'maintenanceOrders' => fn ($query) => $query->latest('id')->limit(10), 'inspections' => fn ($query) => $query->latest('inspected_at')->limit(5)])->withSum('expenses', 'amount')->orderBy('plate')->get(),
-            'expiringDocuments' => VehicleDocument::with('vehicle')->where('status', 'active')->whereNotNull('expires_on')->where('expires_on', '<=', now()->addDays(90))->orderBy('expires_on')->get(),
-            'openOrders' => VehicleMaintenanceOrder::with('vehicle')->whereIn('status', ['open', 'approved', 'in_progress'])->latest('id')->get(),
-            'recentInspections' => VehicleInspection::with(['vehicle', 'inspector'])->latest('inspected_at')->limit(30)->get(),
+            // Every list pages on its own; the KPIs are aggregates over the whole fleet.
+            'vehicles' => Vehicle::with(['assignedUser', 'documents' => fn ($query) => $query->where('status', 'active')])->withSum('expenses', 'amount')->orderBy('plate')->paginate(20, ['*'], 'vehicles_page')->withQueryString(),
+            'vehicleCount' => Vehicle::count(),
+            'outOfServiceCount' => Vehicle::where('operational_status', 'out_of_service')->count(),
+            'fleetCost' => Money::of(VehicleExpense::sum('amount')),
+            'expiringDocuments' => VehicleDocument::with('vehicle')->where('status', 'active')->whereNotNull('expires_on')->where('expires_on', '<=', now()->addDays(90))->orderBy('expires_on')->paginate(30, ['*'], 'documents_page')->withQueryString(),
+            'openOrders' => VehicleMaintenanceOrder::with('vehicle')->whereIn('status', ['open', 'approved', 'in_progress'])->latest('id')->paginate(30, ['*'], 'orders_page')->withQueryString(),
+            'recentInspections' => VehicleInspection::with(['vehicle', 'inspector'])->latest('inspected_at')->latest('id')->paginate(30, ['*'], 'inspections_page')->withQueryString(),
             'branches' => OperatingBranch::with('company')->where('is_active', true)
                 ->when($request->user()->operating_branch_id, fn ($query, $branchId) => $query->whereKey($branchId))
                 ->orderBy('name')->get(),

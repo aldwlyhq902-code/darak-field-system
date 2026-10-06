@@ -30,11 +30,13 @@ class TeamController extends Controller
             ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $actor->operating_company_id));
 
         return view('panel.team', [
-            'users' => (clone $users)->orderBy('role')->orderBy('name')->get(),
+            'users' => (clone $users)->orderBy('role')->orderBy('name')->paginate(30, ['*'], 'users_page')->withQueryString(),
+            // The custody form needs every active technician, not only the current page.
+            'technicianOptions' => (clone $users)->where('role', User::ROLE_TECHNICIAN)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'devices' => Device::with('user')
                 ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('user', fn ($user) => $user->where('operating_company_id', $actor->operating_company_id)))
-                ->latest('last_seen_at')->get(),
-            'custodies' => Custody::with(['user', 'vehicle', 'stockLocation'])->latest('id')->get(),
+                ->latest('last_seen_at')->latest('id')->paginate(30, ['*'], 'devices_page')->withQueryString(),
+            'custodies' => Custody::with(['user', 'vehicle', 'stockLocation'])->latest('id')->paginate(30, ['*'], 'custodies_page')->withQueryString(),
             'vehicles' => Vehicle::with('stockLocation')->where('is_active', true)->get(),
         ]);
     }

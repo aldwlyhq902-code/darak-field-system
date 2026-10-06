@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Support\ClientPicker;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\Contract;
@@ -28,15 +29,14 @@ class CommercialPanelController extends Controller
         private readonly AuditLogger $audit,
     ) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
         $today = now()->startOfDay();
         $openInstallments = ContractInstallment::query()
             ->whereIn('status', ['pending', 'partial', 'overdue'])
             ->whereColumn('paid_amount', '<', 'total_amount');
 
-        return view('panel.commercial', [
-            'clients' => Client::where('is_active', true)->with('sites')->orderBy('name')->get(),
+        return view('panel.commercial', ClientPicker::options($request) + [
             'quotations' => Quotation::with(['client', 'convertedContract'])
                 ->latest()->paginate(25, ['*'], 'quotations_page')->withQueryString(),
             'installments' => ContractInstallment::with('contract.client')
@@ -54,7 +54,8 @@ class CommercialPanelController extends Controller
                     $query->where('status', 'overdue')->orWhereDate('due_on', '<', $today);
                 })->count(),
             'contractsEnding' => Contract::with('client')->where('status', 'active')
-                ->whereBetween('ends_on', [$today, $today->copy()->addDays(60)])->orderBy('ends_on')->get(),
+                ->whereBetween('ends_on', [$today, $today->copy()->addDays(60)])->orderBy('ends_on')
+                ->paginate(20, ['*'], 'ending_page')->withQueryString(),
         ]);
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Support\ClientPicker;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\CommissionEntry;
@@ -39,6 +40,9 @@ class SalesPortalController extends Controller
 {
     private const ACTIVE_STAGES = ['new', 'qualified', 'proposal', 'negotiation'];
 
+    /** Won/lost leads stay on the board this long; older ones live in reports. */
+    private const CLOSED_LEADS_DAYS = 90;
+
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly PerformanceScoreService $performance,
@@ -50,7 +54,13 @@ class SalesPortalController extends Controller
     {
         $user = $request->user();
         $leadQuery = $this->ownedLeads($user)->with(['owner', 'attachments', 'convertedClient', 'activities' => fn ($q) => $q->latest('occurred_at')]);
-        $leads = (clone $leadQuery)->orderByRaw('CASE WHEN next_action_on IS NULL THEN 1 ELSE 0 END')
+        // The whole working pipeline, plus leads closed recently (labelled on the
+        // board) — not every won/lost lead since the beginning of time.
+        $leads = (clone $leadQuery)
+            ->where(fn (Builder $query) => $query->whereIn('stage', self::ACTIVE_STAGES)
+                ->orWhere('updated_at', '>=', now()->subDays(self::CLOSED_LEADS_DAYS))
+                ->orWhere('created_at', '>=', now()->startOfMonth()))
+            ->orderByRaw('CASE WHEN next_action_on IS NULL THEN 1 ELSE 0 END')
             ->orderBy('next_action_on')->latest('updated_at')->get();
         $quoteQuery = $this->ownedQuotations($user)->with('client');
         $monthStart = now()->startOfMonth();
@@ -87,16 +97,22 @@ class SalesPortalController extends Controller
         $staleLeads = $leads->whereIn('stage', self::ACTIVE_STAGES)->filter(fn (SalesLead $lead) => ($lead->last_contacted_at ?? $lead->created_at)->lte($staleCutoff));
         $teamScores = $user->isOwner() ? $this->performance->marketerScores($user, CarbonImmutable::now()->startOfMonth(), CarbonImmutable::now()->endOfMonth()) : [];
 
-        return view('sales.dashboard', [
+        return view('sales.dashboard', ClientPicker::options($request) + [
+            'activeStages' => self::ACTIVE_STAGES, 'closedLeadsDays' => self::CLOSED_LEADS_DAYS,
             'leads' => $leads, 'pipeline' => $leads->groupBy('stage'),
-            'quotations' => (clone $quoteQuery)->latest()->limit(30)->get(),
-            'clients' => Client::query()->where('is_active', true)->with('sites')->orderBy('name')->get(),
+            'quotations' => (clone $quoteQuery)->latest()->latest('id')->paginate(15, ['*'], 'quotes_page')->withQueryString(),
             'activities' => SalesActivity::query()->whereIn('sales_lead_id', $leads->pluck('id'))->with('lead')->latest('occurred_at')->limit(12)->get(),
             'dueFollowUps' => $dueFollowUps,
             'calendar' => $leads->whereIn('stage', self::ACTIVE_STAGES)->whereNotNull('next_action_on')->filter(fn (SalesLead $lead) => $lead->next_action_on->between(today(), today()->addDays(30)))->groupBy(fn (SalesLead $lead) => $lead->next_action_on->toDateString()),
             'staleLeads' => $staleLeads, 'salesTarget' => $target, 'teamScores' => $teamScores,
             'salesUsers' => $user->isOwner() ? User::query()->where('is_active', true)->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])->get()->filter(fn (User $member) => $member->canPanel('sales')) : collect(),
-            'sourceBreakdown' => $user->isOwner() ? $leads->groupBy('source')->map(fn ($rows) => ['count' => $rows->count(), 'won' => $rows->where('stage', 'won')->count(), 'value' => Money::sum($rows->where('stage', 'won')->pluck('estimated_value'))]) : collect(),
+            // Aggregated over ALL owned leads, not only those shown on the board.
+            'sourceBreakdown' => $user->isOwner() ? $this->ownedLeads($user)->select('source')
+                ->selectRaw('COUNT(*) AS lead_count')
+                ->selectRaw("SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won_count")
+                ->selectRaw("COALESCE(SUM(CASE WHEN stage = 'won' THEN estimated_value ELSE 0 END), 0) AS won_value")
+                ->groupBy('source')->get()
+                ->mapWithKeys(fn ($row) => [$row->source => ['count' => (int) $row->lead_count, 'won' => (int) $row->won_count, 'value' => Money::of($row->won_value)]]) : collect(),
             'salesNotifications' => NotificationMessage::query()->where('user_id', $user->id)->where('type', NotificationMessage::TYPE_SALES_ALERT)->latest()->limit(10)->get(),
             'pushConfigured' => $this->push->configured(), 'pushPublicKey' => config('sales.vapid.public_key'),
             'pushSubscribed' => $user->webPushSubscriptions()->exists(),

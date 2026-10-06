@@ -7,9 +7,10 @@
 
 <div class="grid2">
     <div class="card">
-        <div class="hd">العملاء ({{ $clients->count() }})</div>
+        <div class="hd">العملاء ({{ $clients->total() }})</div>
+        <div class="bd"><form method="GET" action="{{ route('panel.clients') }}" role="search"><label for="client-search">بحث بالاسم</label><input id="client-search" name="q" value="{{ $search }}" placeholder="اسم العميل"></form></div>
         @if ($clients->isEmpty())
-            <div class="empty">لا يوجد عملاء بعد. أضف أولهم من النموذج المجاور.</div>
+            <div class="empty">{{ $search !== '' ? 'لا يوجد عميل مطابق.' : 'لا يوجد عملاء بعد. أضف أولهم من النموذج المجاور.' }}</div>
         @else
             <table>
                 <thead><tr><th>الاسم</th><th style="width:90px">التصنيف</th><th style="width:70px">مواقع</th><th style="width:70px">عقود</th><th style="width:60px"></th></tr></thead>
@@ -32,6 +33,7 @@
                 @endforeach
                 </tbody>
             </table>
+            @include('partials.pager', ['paginator' => $clients, 'label' => 'صفحات العملاء'])
         @endif
     </div>
 

@@ -18,9 +18,10 @@ class NotificationPanelController extends Controller
     public function index(Request $request): View
     {
         return view('panel.notifications', [
-            'queued' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit.site.client'])->where('status', 'queued'))->orderBy('id')->limit(100)->get(),
-            'dead' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit'])->where('status', 'dead'))->latest('id')->limit(100)->get(),
-            'sent' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit'])->where('status', 'sent'))->latest('sent_at')->limit(25)->get(),
+            // Each list pages independently; nothing beyond row 100 is silently dropped.
+            'queued' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit.site.client'])->where('status', 'queued'))->orderBy('id')->paginate(50, ['*'], 'queued_page')->withQueryString(),
+            'dead' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit'])->where('status', 'dead'))->latest('id')->paginate(50, ['*'], 'dead_page')->withQueryString(),
+            'sent' => $this->visibleQuery($request, NotificationMessage::with(['user', 'visit'])->where('status', 'sent'))->latest('sent_at')->latest('id')->paginate(25, ['*'], 'sent_page')->withQueryString(),
         ]);
     }
 

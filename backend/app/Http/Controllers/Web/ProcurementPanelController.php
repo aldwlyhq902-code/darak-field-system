@@ -34,6 +34,8 @@ use RuntimeException;
 
 class ProcurementPanelController extends Controller
 {
+    private const RESERVATION_WINDOW_DAYS = 14;
+
     public function __construct(
         private readonly ProcurementService $service,
         private readonly AuditLogger $audit,
@@ -47,21 +49,30 @@ class ProcurementPanelController extends Controller
     public function index(): View
     {
         return view('panel.procurement', [
-            'suppliers' => Supplier::with('parts')->orderBy('name')->get(), 'parts' => Part::where('is_active', true)->orderBy('name')->get(),
+            // Growing lists page independently (named pages); selects keep the
+            // complete reference sets they need instead of a silently capped slice.
+            'suppliers' => Supplier::with('parts')->orderBy('name')->paginate(20, ['*'], 'suppliers_page')->withQueryString(),
+            'supplierOptions' => Supplier::where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'parts' => Part::where('is_active', true)->orderBy('name')->get(),
             'locations' => StockLocation::with('vehicle.assignedUser')->where('is_active', true)->get(),
-            'orders' => PurchaseOrder::with(['supplier', 'destination', 'items.part'])->latest()->limit(40)->get(),
-            'transfers' => VehicleStockTransfer::with(['part', 'fromLocation.vehicle.assignedUser', 'toLocation.vehicle.assignedUser'])->latest()->limit(40)->get(),
-            'reservations' => StockReservation::with(['visit.site.client', 'part', 'location'])->where('status', 'reserved')->latest()->limit(40)->get(),
-            'visits' => Visit::with('site.client')->where('state', 'scheduled')->where('scheduled_start', '>=', now()->subDay())->orderBy('scheduled_start')->limit(100)->get(),
-            'replenishments' => ReplenishmentRequest::with(['part', 'location', 'supplier'])->where('status', 'open')->latest()->get(),
-            'lots' => InventoryLot::with(['part', 'supplier', 'location'])->where('qty_remaining', '>', 0)->latest()->limit(50)->get(),
-            'stocktakes' => StocktakeSession::with(['location', 'assignedUser', 'lines'])->latest()->limit(30)->get(),
+            'orders' => PurchaseOrder::with(['supplier', 'destination', 'items.part'])->latest()->latest('id')->paginate(20, ['*'], 'orders_page')->withQueryString(),
+            'transfers' => VehicleStockTransfer::with(['part', 'fromLocation.vehicle.assignedUser', 'toLocation.vehicle.assignedUser'])->latest()->latest('id')->paginate(20, ['*'], 'transfers_page')->withQueryString(),
+            'reservations' => StockReservation::with(['visit.site.client', 'part', 'location'])->where('status', 'reserved')->latest()->latest('id')->paginate(20, ['*'], 'reservations_page')->withQueryString(),
+            // Reservation targets: every scheduled visit of the coming two weeks (a
+            // defined window, not a top-100 cut).
+            'visits' => Visit::with('site.client')->where('state', 'scheduled')->whereBetween('scheduled_start', [now()->subDay(), now()->addDays(self::RESERVATION_WINDOW_DAYS)])->orderBy('scheduled_start')->get(),
+            'reservationWindowDays' => self::RESERVATION_WINDOW_DAYS,
+            'replenishments' => ReplenishmentRequest::with(['part', 'location', 'supplier'])->where('status', 'open')->latest()->latest('id')->paginate(20, ['*'], 'replenishments_page')->withQueryString(),
+            'lots' => InventoryLot::with(['part', 'supplier', 'location'])->where('qty_remaining', '>', 0)->latest()->latest('id')->paginate(25, ['*'], 'lots_page')->withQueryString(),
+            'stocktakes' => StocktakeSession::with(['location', 'assignedUser', 'lines'])->latest()->latest('id')->paginate(15, ['*'], 'stocktakes_page')->withQueryString(),
             'loadSuggestions' => $this->loadSuggestions->forTomorrow(),
-            'supplierComparisons' => Part::with('suppliers')->whereHas('suppliers')->get()->map(fn ($part) => [
-                'part' => $part,
-                'offers' => $part->suppliers->sortBy(fn ($supplier) => (float) $supplier->pivot->last_price)->values(),
-            ]),
-            'rfqs' => RequestForQuotation::with(['destination', 'items.part', 'supplierQuotations.supplier', 'supplierQuotations.items.part', 'awardedQuotation.supplier'])->latest()->limit(30)->get(),
+            'supplierComparisons' => Part::with('suppliers')->whereHas('suppliers')->orderBy('name')
+                ->paginate(20, ['*'], 'comparisons_page')->withQueryString()
+                ->through(fn ($part) => [
+                    'part' => $part,
+                    'offers' => $part->suppliers->sortBy(fn ($supplier) => Money::of($supplier->pivot->last_price), SORT_NUMERIC)->values(),
+                ]),
+            'rfqs' => RequestForQuotation::with(['destination', 'items.part', 'supplierQuotations.supplier', 'supplierQuotations.items.part', 'awardedQuotation.supplier'])->latest()->latest('id')->paginate(15, ['*'], 'rfqs_page')->withQueryString(),
         ]);
     }
 

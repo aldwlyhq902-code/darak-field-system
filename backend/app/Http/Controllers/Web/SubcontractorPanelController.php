@@ -21,12 +21,12 @@ class SubcontractorPanelController extends Controller
     public function index(): View
     {
         return view('panel.subcontractors', [
-            'partners' => Subcontractor::withCount('orders')->orderBy('name')->get(),
+            'partners' => Subcontractor::withCount('orders')->orderBy('name')->paginate(30, ['*'], 'partners_page')->withQueryString(),
+            // The assignment select needs every ACTIVE partner (a bounded reference set).
+            'activePartners' => Subcontractor::where('is_active', true)->orderBy('name')->get(['id', 'name', 'specialties']),
             'orders' => SubcontractorOrder::with(['subcontractor', 'workOrder.client', 'visit'])
-                ->latest('id')->limit(50)->get(),
-            'openWorkOrders' => WorkOrder::with('client')
-                ->whereIn('status', ['open', 'scheduled', 'in_progress'])
-                ->latest('id')->limit(80)->get(),
+                ->latest('id')->paginate(25, ['*'], 'orders_page')->withQueryString(),
+            // Work orders are referenced by number rather than a select capped at 80.
         ]);
     }
 
@@ -55,7 +55,8 @@ class SubcontractorPanelController extends Controller
     {
         $data = $request->validate([
             'subcontractor_id' => ['required', 'exists:subcontractors,id'],
-            'work_order_id' => ['required', 'exists:work_orders,id'],
+            'work_order_id' => ['nullable', 'required_without:wo_number', 'exists:work_orders,id'],
+            'wo_number' => ['nullable', 'required_without:work_order_id', 'string', 'max:64'],
             'visit_id' => ['nullable', 'exists:visits,id'],
             'purchase_cost' => ['required', 'numeric', 'min:0'],
             'sale_price' => ['required', 'numeric', 'min:0'],
@@ -75,7 +76,9 @@ class SubcontractorPanelController extends Controller
         try {
             $order = $this->service->assign(
                 Subcontractor::findOrFail($data['subcontractor_id']),
-                WorkOrder::findOrFail($data['work_order_id']),
+                filled($data['wo_number'] ?? null)
+                    ? WorkOrder::where('wo_number', trim($data['wo_number']))->firstOrFail()
+                    : WorkOrder::findOrFail($data['work_order_id']),
                 $data['purchase_cost'],
                 $data['sale_price'],
                 // A nullable rule that is not submitted leaves the key absent
