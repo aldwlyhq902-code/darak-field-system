@@ -72,8 +72,7 @@ class OperationsInsightsController extends Controller
         }
 
         if ($tab === 'resources') {
-            $data['technicians'] = User::where('role', User::ROLE_TECHNICIAN)
-                ->where('is_active', true)
+            $data['technicians'] = $this->visibleTechnicians($request)
                 ->orderBy('name')
                 ->get();
             $data['absences'] = TechnicianAbsence::with('user')
@@ -154,6 +153,8 @@ class OperationsInsightsController extends Controller
     public function outage(Request $request): RedirectResponse
     {
         $data = $request->validate(['vehicle_id' => ['required', 'exists:vehicles,id'], 'starts_at' => ['required', 'date'], 'ends_at' => ['nullable', 'date', 'after:starts_at'], 'reason' => ['required', 'string', 'max:255']]);
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        Vehicle::query()->findOrFail($data['vehicle_id']);
         VehicleOutage::create($data + ['status' => 'open', 'reported_by' => $request->user()->id]);
         Vehicle::whereKey($data['vehicle_id'])->update(['operational_status' => 'out_of_service']);
         $count = $this->reassignment->run();

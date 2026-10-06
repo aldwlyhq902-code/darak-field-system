@@ -43,9 +43,11 @@ class ClientServiceRequestController extends Controller
         $bookedVisits = Visit::query()->where('state', '!=', Visit::STATE_COMPLETED)
             ->where('scheduled_start', '<', $rangeEnd)
             ->where('scheduled_end', '>', $rangeStart)
-            ->when($client->operating_branch_id, fn ($query, int $branchId) => $query->whereHas(
-                'site.client', fn ($clientQuery) => $clientQuery->where('operating_branch_id', $branchId)
-            ))
+            // The portal guard has no workforce scope: a company-wide client must
+            // not count (or wait behind) another company's bookings.
+            ->whereHas('site.client', fn ($clientQuery) => $clientQuery
+                ->where('operating_company_id', $client->operating_company_id)
+                ->when($client->operating_branch_id, fn ($branchQuery, int $branchId) => $branchQuery->where('operating_branch_id', $branchId)))
             ->get(['scheduled_start', 'scheduled_end']);
 
         $capacity = collect(range(1, 14))->map(function (int $offset) use ($technicians, $bookedVisits) {

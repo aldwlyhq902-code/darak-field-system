@@ -18,7 +18,9 @@ use App\Models\SalesTarget;
 use App\Models\Site;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\FinancialApprovalService;
 use App\Services\PerformanceScoreService;
+use App\Services\QuotationPricingService;
 use App\Services\SalesPushService;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
@@ -31,6 +33,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SalesPortalController extends Controller
@@ -42,6 +45,8 @@ class SalesPortalController extends Controller
         private readonly PerformanceScoreService $performance,
         private readonly SalesPushService $push,
         private readonly TenantAccess $tenantAccess,
+        private readonly QuotationPricingService $pricing,
+        private readonly FinancialApprovalService $approvals,
     ) {}
 
     public function index(Request $request): View
@@ -82,7 +87,7 @@ class SalesPortalController extends Controller
             'dueFollowUps' => $dueFollowUps,
             'calendar' => $leads->whereIn('stage', self::ACTIVE_STAGES)->whereNotNull('next_action_on')->filter(fn (SalesLead $lead) => $lead->next_action_on->between(today(), today()->addDays(30)))->groupBy(fn (SalesLead $lead) => $lead->next_action_on->toDateString()),
             'staleLeads' => $staleLeads, 'salesTarget' => $target, 'teamScores' => $teamScores,
-            'salesUsers' => $user->isOwner() ? User::query()->where('is_active', true)->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])->get()->filter(fn (User $member) => $member->canPanel('sales')) : collect(),
+            'salesUsers' => $user->isOwner() ? $this->tenantAccess->scopeUsersToActor(User::query(), $user)->where('is_active', true)->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])->get()->filter(fn (User $member) => $member->canPanel('sales')) : collect(),
             'sourceBreakdown' => $user->isOwner() ? $leads->groupBy('source')->map(fn ($rows) => ['count' => $rows->count(), 'won' => $rows->where('stage', 'won')->count(), 'value' => (float) $rows->where('stage', 'won')->sum('estimated_value')]) : collect(),
             'salesNotifications' => NotificationMessage::query()->where('user_id', $user->id)->where('type', NotificationMessage::TYPE_SALES_ALERT)->latest()->limit(10)->get(),
             'pushConfigured' => $this->push->configured(), 'pushPublicKey' => config('sales.vapid.public_key'),
@@ -257,6 +262,11 @@ class SalesPortalController extends Controller
     {
         abort_unless($request->user()->isOwner() || $quotation->created_by === $request->user()->id, 403);
         $data = $request->validate(['amount' => ['required', 'numeric', 'gt:0', 'lt:'.$quotation->price_amount], 'reason' => ['required', 'string', 'max:2000']]);
+        try {
+            $this->approvals->assertQuotationDiscountable($quotation);
+        } catch (RuntimeException $e) {
+            return back()->with('err', $e->getMessage());
+        }
         FinancialApproval::create([
             'public_reference' => (string) Str::uuid(), 'action_type' => 'discount',
             'subject_type' => 'quotation', 'subject_id' => $quotation->id,
@@ -315,10 +325,15 @@ class SalesPortalController extends Controller
                 'created_by' => $request->user()->id,
             ]);
             $quote->sites()->sync($data['site_ids']);
+            $this->pricing->requestIfNeeded($quote, $request->user()->id);
 
             return $quote;
         });
         $this->audit->record('sales.quotation_created', $quotation, null, $quotation->only(['quote_no', 'client_id', 'price_amount']), $request->user()->id);
+
+        if ($this->pricing->approvalReason($quotation) !== null) {
+            return back()->with('ok', "أُنشئ العرض {$quotation->quote_no} كمسودة، وأُرسل سعره للاعتماد المالي الثنائي قبل إمكانية إرساله للعميل.");
+        }
 
         return back()->with('ok', "أُنشئ العرض {$quotation->quote_no} كمسودة جاهزة للمراجعة والإرسال.");
     }
@@ -327,6 +342,11 @@ class SalesPortalController extends Controller
     {
         abort_unless($request->user()->isOwner() || $quotation->created_by === $request->user()->id, 403);
         abort_unless($quotation->status === Quotation::STATUS_DRAFT, 422, 'لا يمكن إرسال هذا العرض في حالته الحالية.');
+        try {
+            $this->pricing->assertSendable($quotation, $request->user());
+        } catch (RuntimeException $e) {
+            return back()->with('err', $e->getMessage());
+        }
         $quotation->forceFill(['status' => Quotation::STATUS_SENT, 'sent_at' => now()])->save();
         $this->audit->record('quotation.sent', $quotation, null, ['source' => 'sales_pwa'], $request->user()->id);
 

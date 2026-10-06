@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\Custody;
 use App\Models\Device;
+use App\Models\StockLocation;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\AuditLogger;
@@ -51,6 +52,9 @@ class TeamController extends Controller
         $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['user_id']));
         if (isset($data['vehicle_id'])) {
             Vehicle::query()->findOrFail($data['vehicle_id']);
+        }
+        if (isset($data['stock_location_id'])) {
+            StockLocation::query()->findOrFail($data['stock_location_id']);
         }
         $custody = Custody::create($data + [
             'custody_no' => BusinessReference::make('CUS'),

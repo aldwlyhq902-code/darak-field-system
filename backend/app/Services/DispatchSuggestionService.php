@@ -7,20 +7,24 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleOutage;
 use App\Models\Visit;
+use App\Support\TenantAccess;
 use Illuminate\Support\Collection;
 
 class DispatchSuggestionService
 {
-    public function __construct(private readonly RoutePlanningService $routes, private readonly InventoryService $inventory) {}
+    public function __construct(private readonly RoutePlanningService $routes, private readonly InventoryService $inventory, private readonly TenantAccess $tenantAccess) {}
 
     /** @return Collection<int, array{technician:User,score:int,reasons:array<int,string>}> */
     public function suggest(Visit $visit, int $limit = 3): Collection
     {
         $visit->loadMissing(['workOrder.asset', 'site']);
 
-        return User::query()->where('role', User::ROLE_TECHNICIAN)->where('is_active', true)->get()
+        // Candidates come from the visit's own company (and branch), never the
+        // whole users table: the reassignment command runs with no signed-in user.
+        return $this->tenantAccess->scopeUsersToVisit(User::query(), $visit)
+            ->where('role', User::ROLE_TECHNICIAN)->where('is_active', true)->get()
             ->map(function (User $technician) use ($visit) {
-                if ($this->conflicts($technician, $visit) !== []) {
+                if ($this->schedulingConflicts($technician, $visit) !== []) {
                     return null;
                 }
 
@@ -66,6 +70,18 @@ class DispatchSuggestionService
 
     /** @return array<int, string> */
     public function conflicts(User $technician, Visit $visit): array
+    {
+        // Every assignment path (board, API, reschedule, preventive plans and the
+        // reassignment command) ends here, so the tenant boundary is asserted once.
+        $reasons = $this->tenantAccess->userFitsVisit($technician, $visit)
+            ? []
+            : ['الفني لا يتبع شركة أو فرع عميل هذه الزيارة'];
+
+        return array_merge($reasons, $this->schedulingConflicts($technician, $visit));
+    }
+
+    /** @return array<int, string> */
+    private function schedulingConflicts(User $technician, Visit $visit): array
     {
         $reasons = [];
         $start = $visit->scheduled_start;

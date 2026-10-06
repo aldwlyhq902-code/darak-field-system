@@ -71,15 +71,20 @@ class SubcontractorPanelController extends Controller
             return back()->with('err', $preview['warning'].' فعّل تأكيد الهامش السالب إن كنت متعمداً.');
         }
 
+        $workOrder = WorkOrder::findOrFail($data['work_order_id']);
+        // Scoped load, and the visit must belong to the order it is subcontracted under.
+        $visit = isset($data['visit_id']) ? Visit::query()->findOrFail($data['visit_id']) : null;
+        abort_if($visit !== null && $visit->work_order_id !== $workOrder->id, 422, 'الزيارة لا تتبع أمر العمل المحدد.');
+
         try {
             $order = $this->service->assign(
                 Subcontractor::findOrFail($data['subcontractor_id']),
-                WorkOrder::findOrFail($data['work_order_id']),
+                $workOrder,
                 (float) $data['purchase_cost'],
                 (float) $data['sale_price'],
                 // A nullable rule that is not submitted leaves the key absent
                 // entirely, not present-and-null.
-                isset($data['visit_id']) ? Visit::find($data['visit_id']) : null,
+                $visit,
                 $data['scheduled_for'] ?? null,
                 $data['note'] ?? null,
             );

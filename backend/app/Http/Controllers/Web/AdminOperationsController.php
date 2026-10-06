@@ -174,13 +174,25 @@ class AdminOperationsController extends Controller
             && (int) $branch->operating_company_id !== (int) $actor->operating_company_id,
             403,
         );
+        // A branch-bound actor stays inside its branch: it can neither widen a
+        // record to company-wide (no branch) nor move one into another branch.
+        abort_if(
+            ! $actor->isPlatformAdmin() && $actor->operating_branch_id !== null
+            && (int) $branch?->id !== (int) $actor->operating_branch_id,
+            403,
+        );
+        if ($data['entity_type'] === 'user') {
+            // A user's branch is their data boundary. Only the owner moves people,
+            // and nobody — the owner included — re-scopes their own account.
+            abort_unless($actor->isOwner() || $actor->isPlatformAdmin(), 403, 'تغيير فرع المستخدمين صلاحية للمالك فقط.');
+            abort_if((int) $data['entity_id'] === (int) $actor->id, 403, 'لا يمكن تغيير الفرع المرتبط بحسابك.');
+        }
         $model = match ($data['entity_type']) {
-            'user' => User::query()
-                ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $actor->operating_company_id))
-                ->findOrFail($data['entity_id']),
+            'user' => $this->tenantAccess->scopeUsersToActor(User::query(), $actor)->findOrFail($data['entity_id']),
             'client' => Client::findOrFail($data['entity_id']),
             'vehicle' => Vehicle::findOrFail($data['entity_id']),
         };
+        $before = $model->getAttributes();
         $tenant = ['operating_branch_id' => $branch?->id];
         if ($model instanceof User || $model instanceof Client) {
             $tenant['operating_company_id'] = $branch?->operating_company_id
@@ -188,6 +200,7 @@ class AdminOperationsController extends Controller
                 ?? $actor->operating_company_id;
         }
         $model->forceFill($tenant)->save();
+        $this->audit->recordChange('tenancy.branch_assigned', $model, $before, $actor->id);
 
         return back()->with('ok', 'حُدث الفرع المرتبط بالسجل.');
     }
@@ -217,7 +230,10 @@ class AdminOperationsController extends Controller
 
     public function expense(Request $request): RedirectResponse
     {
-        VehicleExpense::create($request->validate(['vehicle_id' => ['required', 'exists:vehicles,id'], 'category' => ['required', 'in:fuel,maintenance,fine,insurance,other'], 'amount' => ['required', 'numeric', 'gt:0'], 'incurred_on' => ['required', 'date'], 'odometer_km' => ['nullable', 'numeric', 'min:0'], 'reference' => ['nullable', 'string', 'max:190'], 'note' => ['nullable', 'string', 'max:1000']]) + ['recorded_by' => $request->user()->id]);
+        $data = $request->validate(['vehicle_id' => ['required', 'exists:vehicles,id'], 'category' => ['required', 'in:fuel,maintenance,fine,insurance,other'], 'amount' => ['required', 'numeric', 'gt:0'], 'incurred_on' => ['required', 'date'], 'odometer_km' => ['nullable', 'numeric', 'min:0'], 'reference' => ['nullable', 'string', 'max:190'], 'note' => ['nullable', 'string', 'max:1000']]);
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        Vehicle::query()->findOrFail($data['vehicle_id']);
+        VehicleExpense::create($data + ['recorded_by' => $request->user()->id]);
 
         return back()->with('ok', 'سُجل مصروف السيارة.');
     }
@@ -247,7 +263,14 @@ class AdminOperationsController extends Controller
     public function approvalRequest(Request $request): RedirectResponse
     {
         $data = $request->validate(['action_type' => ['required', 'in:discount,settlement'], 'subject_type' => ['required', 'in:quotation,installment'], 'subject_id' => ['required', 'integer'], 'amount' => ['required', 'numeric', 'gt:0'], 'reason' => ['required', 'string', 'max:2000']]);
-        ($data['subject_type'] === 'quotation' ? Quotation::query() : ContractInstallment::query())->findOrFail($data['subject_id']);
+        $subject = ($data['subject_type'] === 'quotation' ? Quotation::query() : ContractInstallment::query())->findOrFail($data['subject_id']);
+        if ($subject instanceof Quotation && $data['action_type'] === 'discount') {
+            try {
+                $this->approvals->assertQuotationDiscountable($subject);
+            } catch (RuntimeException $e) {
+                return back()->with('err', $e->getMessage());
+            }
+        }
         FinancialApproval::create($data + ['public_reference' => (string) Str::uuid(), 'status' => 'pending_first', 'requested_by' => $request->user()->id]);
 
         return back()->with('ok', 'أُرسل الطلب للاعتماد الأول ثم اعتماد مستخدم ثانٍ مستقل.');
@@ -271,9 +294,13 @@ class AdminOperationsController extends Controller
     {
         abort_unless($request->user()->isOwner(), 403);
         $this->tenantAccess->assertUser($request->user(), $user);
-        $data = $request->validate(['permissions' => ['nullable', 'array'], 'permissions.*' => ['in:operations,clients,commercial,finance,inventory,intelligence,team,hr,fleet,performance,sales,admin']]);
-        $user->forceFill(['permissions' => $data['permissions'] ?? ['*']])->save();
-        $this->audit->record('user.permissions_changed', $user, null, ['permissions' => $user->permissions], $request->user()->id);
+        $data = $request->validate(['permissions' => ['nullable', 'array'], 'permissions.*' => ['in:operations,clients,commercial,finance,inventory,intelligence,team,hr,fleet,performance,sales,admin'], 'full_access' => ['nullable', 'boolean']]);
+        $before = $user->permissions;
+        // Full access is an explicit choice. An empty selection means no panel
+        // area at all — it used to fall back to ['*'] and silently grant everything.
+        $permissions = $request->boolean('full_access') ? ['*'] : array_values(array_unique($data['permissions'] ?? []));
+        $user->forceFill(['permissions' => $permissions])->save();
+        $this->audit->record('user.permissions_changed', $user, ['permissions' => $before], ['permissions' => $user->permissions], $request->user()->id);
 
         return back()->with('ok', 'حُفظت صلاحيات المستخدم.');
     }

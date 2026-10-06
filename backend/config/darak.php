@@ -124,4 +124,22 @@ return [
         'banned_word_engine',
         'hardcoded_labour_rules',
     ],
+
+    // tenancy
+    /*
+    | Quotation price control (pre-VAT, per billing month, per package). A
+    | quotation written by anyone but the owner cannot be sent until it passes
+    | the dual financial approval when its price is below the floor, or below
+    | the package list price by more than the allowed discount percent. With no
+    | list price configured for a package, every non-owner quotation for it
+    | needs approval. Empty values mean "not configured".
+    */
+    'quotation_pricing' => [
+        'list_prices' => [
+            'basic' => env('DARAK_LIST_PRICE_BASIC'),
+            'comprehensive' => env('DARAK_LIST_PRICE_COMPREHENSIVE'),
+        ],
+        'price_floor' => env('DARAK_QUOTATION_PRICE_FLOOR'),
+        'max_discount_percent' => env('DARAK_QUOTATION_MAX_DISCOUNT_PERCENT', 0),
+    ],
 ];

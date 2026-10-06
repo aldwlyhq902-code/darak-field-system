@@ -7,17 +7,22 @@ use App\Models\StockMove;
 use App\Models\StockReservation;
 use App\Models\User;
 use App\Models\Visit;
+use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
 class VehicleLoadSuggestionService
 {
-    public function __construct(private readonly InventoryService $inventory) {}
+    public function __construct(private readonly InventoryService $inventory, private readonly TenantAccess $tenantAccess) {}
 
     /** @return Collection<int, array<string, mixed>> */
     public function forTomorrow(): Collection
     {
-        $technicians = User::where('role', User::ROLE_TECHNICIAN)->where('is_active', true)->get();
+        // Users carry no global scope: limit the roster to the viewer's tenant.
+        $actor = auth()->user();
+        $technicians = User::where('role', User::ROLE_TECHNICIAN)->where('is_active', true)
+            ->when($actor instanceof User, fn ($query) => $this->tenantAccess->scopeUsersToActor($query, $actor))
+            ->get();
         if ($technicians->isEmpty()) {
             return collect();
         }

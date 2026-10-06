@@ -8,6 +8,7 @@ use App\Models\Contract;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\Visit;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 class CommissionService
@@ -18,7 +19,8 @@ class CommissionService
         foreach (CommissionRule::where('is_active', true)->get() as $rule) {
             if ($rule->basis === 'completed_visit' && $rule->applies_to_role === User::ROLE_TECHNICIAN) {
                 Visit::with('technician')->where('state', Visit::STATE_COMPLETED)->whereNotNull('assigned_user_id')->each(function (Visit $visit) use ($rule, &$count) {
-                    if (! CommissionEntry::where('commission_rule_id', $rule->id)->where('visit_id', $visit->id)->exists()) {
+                    if ($this->sameCompany($visit->technician, $this->visitCompany($visit))
+                        && ! CommissionEntry::where('commission_rule_id', $rule->id)->where('visit_id', $visit->id)->exists()) {
                         $this->create($rule, $visit->technician, null, $visit, null);
                         $count++;
                     }
@@ -26,7 +28,8 @@ class CommissionService
             } elseif ($rule->basis === 'contract_value') {
                 Contract::with('sourceQuotation')->whereNotNull('source_quotation_id')->each(function (Contract $contract) use ($rule, &$count) {
                     $user = User::find($contract->sourceQuotation?->created_by);
-                    if ($user?->role === $rule->applies_to_role && ! CommissionEntry::where('commission_rule_id', $rule->id)->where('contract_id', $contract->id)->exists()) {
+                    if ($user?->role === $rule->applies_to_role && $this->sameCompany($user, $this->clientCompany($contract->client_id))
+                        && ! CommissionEntry::where('commission_rule_id', $rule->id)->where('contract_id', $contract->id)->exists()) {
                         $this->create($rule, $user, $contract, null, null);
                         $count++;
                     }
@@ -34,7 +37,8 @@ class CommissionService
             } elseif ($rule->basis === 'collected_payment') {
                 Payment::with('installment.contract.sourceQuotation')->each(function (Payment $payment) use ($rule, &$count) {
                     $user = User::find($payment->installment?->contract?->sourceQuotation?->created_by);
-                    if ($user?->role === $rule->applies_to_role && ! CommissionEntry::where('commission_rule_id', $rule->id)->where('payment_id', $payment->id)->exists()) {
+                    if ($user?->role === $rule->applies_to_role && $this->sameCompany($user, $this->clientCompany($payment->client_id))
+                        && ! CommissionEntry::where('commission_rule_id', $rule->id)->where('payment_id', $payment->id)->exists()) {
                         $this->create($rule, $user, $payment->installment->contract, null, $payment);
                         $count++;
                     }
@@ -43,6 +47,30 @@ class CommissionService
         }
 
         return $count;
+    }
+
+    /**
+     * The generator runs with no signed-in user, so no global scope applies. A
+     * commission is earned only inside the company that owns the record.
+     */
+    private function sameCompany(?User $user, ?int $companyId): bool
+    {
+        return $user !== null && $companyId !== null && (int) $user->operating_company_id === $companyId;
+    }
+
+    private function clientCompany(?int $clientId): ?int
+    {
+        $companyId = $clientId === null ? null : DB::table('clients')->where('id', $clientId)->value('operating_company_id');
+
+        return $companyId === null ? null : (int) $companyId;
+    }
+
+    private function visitCompany(Visit $visit): ?int
+    {
+        $companyId = DB::table('sites')->join('clients', 'clients.id', '=', 'sites.client_id')
+            ->where('sites.id', $visit->site_id)->value('clients.operating_company_id');
+
+        return $companyId === null ? null : (int) $companyId;
     }
 
     public function create(CommissionRule $rule, User $user, ?Contract $contract, ?Visit $visit, ?Payment $payment): CommissionEntry

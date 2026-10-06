@@ -232,6 +232,11 @@ class VisitController extends Controller
         if ($technician->role !== User::ROLE_TECHNICIAN) {
             $reasons[] = 'Selected user is not a technician.';
         }
+        // Same company is not enough: a branch-bound client is served only by
+        // that branch's technicians.
+        if (! $this->tenantAccess->userFitsVisit($technician, $visit)) {
+            $reasons[] = 'Technician does not belong to the visit client\'s company or branch.';
+        }
 
         $start = $visit->scheduled_start;
         $end = $visit->scheduled_end ?? $start?->copy()->addHours(2);

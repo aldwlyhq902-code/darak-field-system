@@ -40,6 +40,8 @@ class InventoryController extends Controller
             'to_location_id' => ['required', 'integer', 'exists:stock_locations,id'],
             'note' => ['nullable', 'string', 'max:500'],
         ]);
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        StockLocation::query()->findOrFail($data['to_location_id']);
 
         $move = $this->inventory->receipt(
             $data['idempotency_key'],
@@ -61,6 +63,8 @@ class InventoryController extends Controller
             'from_location_id' => ['required', 'integer', 'exists:stock_locations,id'],
             'to_location_id' => ['required', 'integer', 'exists:stock_locations,id'],
         ]);
+        StockLocation::query()->findOrFail($data['from_location_id']);
+        StockLocation::query()->findOrFail($data['to_location_id']);
 
         $move = $this->inventory->loadVehicle(
             $data['idempotency_key'],
@@ -89,6 +93,7 @@ class InventoryController extends Controller
         ]);
 
         $original = StockMove::findOrFail($data['original_move_id']);
+        StockLocation::query()->findOrFail($data['to_location_id']);
 
         $move = $this->inventory->returnFromVisit(
             $data['idempotency_key'],

@@ -139,6 +139,8 @@ class BoardController extends Controller
 
     public function assign(Request $request, Visit $visit): RedirectResponse
     {
+        // Same rule as the API: owner, or an admin holding `operations`.
+        $this->authorize('assign', Visit::class);
         $data = $request->validate(['user_id' => ['required', 'exists:users,id']]);
         $technician = $this->visibleTechnicians($request)->findOrFail($data['user_id']);
 
@@ -186,6 +188,8 @@ class BoardController extends Controller
 
     public function overrideRework(Request $request, Visit $visit): RedirectResponse
     {
+        // Reclassifying rework changes what is billed: owner-only, as on the API.
+        $this->authorize('overrideRework', Visit::class);
         $data = $request->validate([
             'reason' => ['required', 'string', 'max:64'],
             'note' => ['required', 'string', 'max:500'],
