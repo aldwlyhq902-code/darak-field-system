@@ -183,4 +183,11 @@ return [
     */
     'heartbeat_url' => env('DARAK_HEARTBEAT_URL'),
     'backup_heartbeat_url' => env('DARAK_BACKUP_HEARTBEAT_URL'),
+
+    /*
+    | darak:retention-purge is report-only (dry run) by default. Deleting for
+    | real — by hand with --execute or nightly from the scheduler — stays off
+    | until the owner and the privacy adviser approve the retention_days above.
+    */
+    'retention_purge_enabled' => (bool) env('DARAK_RETENTION_PURGE_ENABLED', false),
 ];
