@@ -7,7 +7,9 @@ use App\Models\Device;
 use App\Models\OperatingCompany;
 use App\Models\ReportDispute;
 use App\Models\User;
+use App\Models\Visit;
 use App\Models\VisitFeedback;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /** Central authorization boundary for models that cannot use the branch scope directly. */
@@ -64,5 +66,71 @@ class TenantAccess
             || ($companyId !== null
                 && $actor->operating_company_id !== null
                 && (int) $actor->operating_company_id === $companyId);
+    }
+
+    /**
+     * Users who may work for a client: same company and, when the client is
+     * branch-bound, same branch. Read straight from the tables so a scheduled
+     * command with no signed-in user applies exactly the same boundary.
+     *
+     * @param  Builder<User>  $users
+     * @return Builder<User>
+     */
+    public function scopeUsersToClient(Builder $users, int $clientId): Builder
+    {
+        return $users->whereExists(fn ($query) => $this->matchingClient($query->selectRaw('1')
+            ->from('clients as fit_clients')
+            ->where('fit_clients.id', $clientId)));
+    }
+
+    /**
+     * @param  Builder<User>  $users
+     * @return Builder<User>
+     */
+    public function scopeUsersToVisit(Builder $users, Visit $visit): Builder
+    {
+        return $users->whereExists(fn ($query) => $this->matchingClient($query->selectRaw('1')
+            ->from('sites as fit_sites')
+            ->join('clients as fit_clients', 'fit_clients.id', '=', 'fit_sites.client_id')
+            ->where('fit_sites.id', $visit->site_id)));
+    }
+
+    public function userFitsClient(User $user, int $clientId): bool
+    {
+        return $this->scopeUsersToClient(User::query()->whereKey($user->id), $clientId)->exists();
+    }
+
+    public function userFitsVisit(User $user, Visit $visit): bool
+    {
+        return $this->scopeUsersToVisit(User::query()->whereKey($user->id), $visit)->exists();
+    }
+
+    /**
+     * Restrict a users query to the actor's company and, for a branch-bound
+     * actor, branch. The User model deliberately carries no global scope.
+     *
+     * @param  Builder<User>  $users
+     * @return Builder<User>
+     */
+    public function scopeUsersToActor(Builder $users, User $actor): Builder
+    {
+        if ($actor->isPlatformAdmin()) {
+            return $users;
+        }
+        // Missing tenancy is never an implicit company-wide grant.
+        if ($actor->operating_company_id === null) {
+            return $users->whereRaw('1 = 0');
+        }
+
+        return $users->where('users.operating_company_id', $actor->operating_company_id)
+            ->when($actor->operating_branch_id, fn ($scoped, $branchId) => $scoped->where('users.operating_branch_id', $branchId));
+    }
+
+    private function matchingClient($query)
+    {
+        return $query->whereNotNull('fit_clients.operating_company_id')
+            ->whereColumn('fit_clients.operating_company_id', 'users.operating_company_id')
+            ->where(fn ($branch) => $branch->whereNull('fit_clients.operating_branch_id')
+                ->orWhereColumn('fit_clients.operating_branch_id', 'users.operating_branch_id'));
     }
 }

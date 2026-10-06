@@ -36,6 +36,7 @@ class FleetController extends Controller
             'openOrders' => VehicleMaintenanceOrder::with('vehicle')->whereIn('status', ['open', 'approved', 'in_progress'])->latest('id')->get(),
             'recentInspections' => VehicleInspection::with(['vehicle', 'inspector'])->latest('inspected_at')->limit(30)->get(),
             'branches' => OperatingBranch::with('company')->where('is_active', true)
+                ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
                 ->when($request->user()->operating_branch_id, fn ($query, $branchId) => $query->whereKey($branchId))
                 ->orderBy('name')->get(),
         ]);

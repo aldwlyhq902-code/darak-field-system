@@ -43,8 +43,15 @@ class MaintenancePlanController extends Controller
             'next_due_on' => ['required', 'date'],
             'preferred_user_id' => ['nullable', Rule::exists('users', 'id')->where('role', User::ROLE_TECHNICIAN)->where('is_active', true)],
         ]);
+        // `exists` reads raw tables; the scoped load is what keeps the plan inside
+        // the actor's company and branch.
+        $client = Client::query()->findOrFail($data['client_id']);
         if (isset($data['preferred_user_id'])) {
-            $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['preferred_user_id']));
+            $preferred = User::query()->findOrFail($data['preferred_user_id']);
+            $this->tenantAccess->assertUser($request->user(), $preferred);
+            if (! $this->tenantAccess->userFitsClient($preferred, $client->id)) {
+                return back()->withInput()->withErrors(['preferred_user_id' => 'الفني المفضل لا يتبع شركة أو فرع هذا العميل.']);
+            }
         }
 
         $plan = MaintenancePlan::create($data + ['is_active' => true, 'created_by' => $request->user()->id]);

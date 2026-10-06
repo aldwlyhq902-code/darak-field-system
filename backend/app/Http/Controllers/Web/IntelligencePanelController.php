@@ -71,7 +71,14 @@ class IntelligencePanelController extends Controller
             'visit_id' => ['nullable', 'exists:visits,id'], 'asset_id' => ['nullable', 'exists:assets,id'],
             'failure_kind' => ['required', 'string', 'max:48'], 'note' => ['nullable', 'string', 'max:2000'],
         ]);
-        $lot = isset($data['inventory_lot_id']) ? InventoryLot::find($data['inventory_lot_id']) : null;
+        // `exists` ignores the tenant scope; every referenced record is loaded scoped.
+        $lot = isset($data['inventory_lot_id']) ? InventoryLot::query()->findOrFail($data['inventory_lot_id']) : null;
+        if (isset($data['visit_id'])) {
+            Visit::query()->findOrFail($data['visit_id']);
+        }
+        if (isset($data['asset_id'])) {
+            Asset::query()->findOrFail($data['asset_id']);
+        }
         $failure = PartFailureReport::create($data + ['supplier_id' => $lot?->supplier_id, 'reported_by' => $request->user()->id]);
         $this->audit->record('part.failure_reported', $failure, null, $failure->toArray(), $request->user()->id);
 

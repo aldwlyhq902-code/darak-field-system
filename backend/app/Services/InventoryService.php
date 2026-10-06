@@ -39,6 +39,8 @@ class InventoryService
             return $existing; // replay — deliberately a no-op
         }
 
+        $this->assertLocationsWithinTenant($attributes);
+
         try {
             return $this->insertMove($idempotencyKey, $attributes);
         } catch (QueryException $e) {
@@ -54,6 +56,43 @@ class InventoryService
             }
 
             throw $e;
+        }
+    }
+
+    /**
+     * Defence in depth behind the controllers: `exists` validation reads raw
+     * tables, so a movement re-checks that its locations are visible to the
+     * signed-in operator and that it never spans two companies (or another
+     * company's visit) — including when a scheduled command is the caller.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function assertLocationsWithinTenant(array $attributes): void
+    {
+        $ids = array_values(array_unique(array_filter([
+            (int) ($attributes['from_location_id'] ?? 0),
+            (int) ($attributes['to_location_id'] ?? 0),
+        ])));
+        if ($ids === []) {
+            return;
+        }
+
+        // Scoped for an authenticated operator; unscoped for system callers.
+        $branchIds = StockLocation::query()->whereKey($ids)->pluck('operating_branch_id', 'id');
+        if ($branchIds->count() !== count($ids)) {
+            throw new RuntimeException('موقع المخزون غير موجود أو خارج نطاق صلاحياتك.');
+        }
+
+        $companies = DB::table('operating_branches')->whereIn('id', $branchIds->filter()->all())->pluck('operating_company_id');
+        if (! empty($attributes['visit_id'])) {
+            $companies->push(DB::table('visits')
+                ->join('sites', 'sites.id', '=', 'visits.site_id')
+                ->join('clients', 'clients.id', '=', 'sites.client_id')
+                ->where('visits.id', $attributes['visit_id'])
+                ->value('clients.operating_company_id'));
+        }
+        if ($companies->filter(fn ($id) => $id !== null)->map(fn ($id) => (int) $id)->unique()->count() > 1) {
+            throw new RuntimeException('لا يمكن أن تمتد حركة المخزون بين شركتين مختلفتين.');
         }
     }
 

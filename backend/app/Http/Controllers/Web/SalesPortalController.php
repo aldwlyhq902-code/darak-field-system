@@ -82,7 +82,7 @@ class SalesPortalController extends Controller
             'dueFollowUps' => $dueFollowUps,
             'calendar' => $leads->whereIn('stage', self::ACTIVE_STAGES)->whereNotNull('next_action_on')->filter(fn (SalesLead $lead) => $lead->next_action_on->between(today(), today()->addDays(30)))->groupBy(fn (SalesLead $lead) => $lead->next_action_on->toDateString()),
             'staleLeads' => $staleLeads, 'salesTarget' => $target, 'teamScores' => $teamScores,
-            'salesUsers' => $user->isOwner() ? User::query()->where('is_active', true)->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])->get()->filter(fn (User $member) => $member->canPanel('sales')) : collect(),
+            'salesUsers' => $user->isOwner() ? $this->tenantAccess->scopeUsersToActor(User::query(), $user)->where('is_active', true)->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])->get()->filter(fn (User $member) => $member->canPanel('sales')) : collect(),
             'sourceBreakdown' => $user->isOwner() ? $leads->groupBy('source')->map(fn ($rows) => ['count' => $rows->count(), 'won' => $rows->where('stage', 'won')->count(), 'value' => (float) $rows->where('stage', 'won')->sum('estimated_value')]) : collect(),
             'salesNotifications' => NotificationMessage::query()->where('user_id', $user->id)->where('type', NotificationMessage::TYPE_SALES_ALERT)->latest()->limit(10)->get(),
             'pushConfigured' => $this->push->configured(), 'pushPublicKey' => config('sales.vapid.public_key'),

@@ -62,6 +62,8 @@ class InventoryPanelController extends Controller
             'to_location_id' => ['required', 'exists:stock_locations,id'],
             'note' => ['nullable', 'string', 'max:190'],
         ]);
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        StockLocation::query()->findOrFail($data['to_location_id']);
 
         $this->inventory->receipt(
             (string) Str::uuid(),
@@ -86,6 +88,7 @@ class InventoryPanelController extends Controller
             'counted_qty' => ['required', 'numeric', 'min:0'],
             'reason' => ['required', 'string', 'max:190'],
         ]);
+        StockLocation::query()->findOrFail($data['location_id']);
 
         $current = $this->inventory->balance($data['part_id'], $data['location_id']);
         $difference = round((float) $data['counted_qty'] - $current, 3);
@@ -118,6 +121,8 @@ class InventoryPanelController extends Controller
             'from_location_id' => ['required', 'exists:stock_locations,id'],
             'to_location_id' => ['required', 'exists:stock_locations,id', 'different:from_location_id'],
         ]);
+        StockLocation::query()->findOrFail($data['from_location_id']);
+        StockLocation::query()->findOrFail($data['to_location_id']);
 
         try {
             $this->inventory->loadVehicle(

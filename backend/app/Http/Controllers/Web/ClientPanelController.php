@@ -127,7 +127,8 @@ class ClientPanelController extends Controller
             'service_window_end' => ['required'],
             'is_trial' => ['nullable', 'boolean'],
             'site_ids' => ['required', 'array', 'min:1'],
-            'site_ids.*' => ['exists:sites,id'],
+            // A contract covers only this client's own sites.
+            'site_ids.*' => [Rule::exists('sites', 'id')->where('client_id', $client->id)->whereNull('deleted_at')],
         ]);
 
         $contract = $client->contracts()->create([
@@ -188,6 +189,15 @@ class ClientPanelController extends Controller
                 Rule::exists('users', 'id')->where('role', User::ROLE_TECHNICIAN)->where('is_active', true),
             ],
         ]);
+
+        // `exists` reads the raw users table: a technician of another company
+        // (or another branch of a branch-bound client) must not be assignable.
+        if (! empty($data['assigned_user_id'])
+            && ! $this->tenantAccess->userFitsClient(User::query()->findOrFail($data['assigned_user_id']), $client->id)) {
+            return back()
+                ->withInput()
+                ->withErrors(['assigned_user_id' => 'الفني لا يتبع شركة أو فرع هذا العميل.']);
+        }
 
         $contract = ! empty($data['contract_id']) ? Contract::find($data['contract_id']) : null;
 

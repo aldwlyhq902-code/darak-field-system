@@ -150,6 +150,8 @@ class CommercialPanelController extends Controller
             'down_payment_amount' => ['nullable', 'numeric', 'min:0'],
             'custom_installments_text' => ['nullable', 'string', 'max:8000'],
         ]);
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        Client::query()->findOrFail($data['client_id']);
 
         $data['down_payment_amount'] = (float) ($data['down_payment_amount'] ?? 0);
         $data['custom_installments'] = $this->parseCustomInstallments($data['custom_installments_text'] ?? null);

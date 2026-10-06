@@ -72,6 +72,8 @@ class ProcurementPanelController extends Controller
             'items.*.part_id' => ['required', 'distinct', 'exists:parts,id'], 'items.*.qty' => ['required', 'numeric', 'gt:0'],
             'items.*.specification' => ['nullable', 'string', 'max:1000'],
         ]);
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        StockLocation::query()->findOrFail($data['destination_location_id']);
         $rfq = $this->rfqs->create($data, $request->user()->id);
 
         return back()->with('ok', "أُرسل طلب الأسعار {$rfq->rfq_no} وأصبح جاهزًا لاستقبال عروض الموردين.");
@@ -160,6 +162,7 @@ class ProcurementPanelController extends Controller
     {
         abort_unless($visit->state === Visit::STATE_SCHEDULED, 422);
         $data = $request->validate(['part_id' => ['required', 'exists:parts,id'], 'stock_location_id' => ['required', 'exists:stock_locations,id'], 'qty' => ['required', 'numeric', 'gt:0']]);
+        StockLocation::query()->findOrFail($data['stock_location_id']);
         try {
             $this->service->reserve($visit, $data['part_id'], $data['stock_location_id'], (float) $data['qty'], $request->user()->id);
         } catch (RuntimeException $e) {

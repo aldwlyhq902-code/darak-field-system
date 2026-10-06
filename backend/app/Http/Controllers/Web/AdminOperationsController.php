@@ -217,7 +217,10 @@ class AdminOperationsController extends Controller
 
     public function expense(Request $request): RedirectResponse
     {
-        VehicleExpense::create($request->validate(['vehicle_id' => ['required', 'exists:vehicles,id'], 'category' => ['required', 'in:fuel,maintenance,fine,insurance,other'], 'amount' => ['required', 'numeric', 'gt:0'], 'incurred_on' => ['required', 'date'], 'odometer_km' => ['nullable', 'numeric', 'min:0'], 'reference' => ['nullable', 'string', 'max:190'], 'note' => ['nullable', 'string', 'max:1000']]) + ['recorded_by' => $request->user()->id]);
+        $data = $request->validate(['vehicle_id' => ['required', 'exists:vehicles,id'], 'category' => ['required', 'in:fuel,maintenance,fine,insurance,other'], 'amount' => ['required', 'numeric', 'gt:0'], 'incurred_on' => ['required', 'date'], 'odometer_km' => ['nullable', 'numeric', 'min:0'], 'reference' => ['nullable', 'string', 'max:190'], 'note' => ['nullable', 'string', 'max:1000']]);
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        Vehicle::query()->findOrFail($data['vehicle_id']);
+        VehicleExpense::create($data + ['recorded_by' => $request->user()->id]);
 
         return back()->with('ok', 'سُجل مصروف السيارة.');
     }
