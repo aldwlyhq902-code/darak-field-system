@@ -9,7 +9,7 @@ class AuditLog extends Model
 {
     protected $fillable = [
         'user_id', 'action', 'auditable_type', 'auditable_id',
-        'before', 'after', 'ip', 'user_agent', 'previous_hash', 'entry_hash',
+        'before', 'after', 'ip', 'user_agent', 'previous_hash', 'entry_hash', 'hash_version',
         'created_at', 'updated_at',
     ];
 

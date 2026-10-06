@@ -177,4 +177,92 @@ return [
         'max_image_pixels' => (int) env('DARAK_MAX_IMAGE_PIXELS', 40_000_000),
         'max_image_side' => (int) env('DARAK_MAX_IMAGE_SIDE', 12_000),
     ],
+
+    // ops
+    /*
+    | Audit log hardening. New rows are chained with HMAC-SHA256 under this key
+    | (hash_version 2); older rows keep verifying as plain SHA-256 (version 1).
+    | The key must never change once rows exist — keep it in the secrets manager
+    | with the backup password. Rows are immutable, so personal data is redacted
+    | at write time and replaced by a short keyed fingerprint investigators can
+    | still correlate. IPs are truncated (/24, /48) and user agents hashed unless
+    | the owner explicitly opts into full values.
+    */
+    'audit' => [
+        'hmac_key' => env('DARAK_AUDIT_HMAC_KEY'),
+        'keep_full_ip' => (bool) env('DARAK_AUDIT_KEEP_FULL_IP', false),
+        'redact_keys' => [
+            'phone', 'mobile', '*_phone', 'phone_*', 'email', '*_email', 'contact_name',
+            'emergency_contact*', 'national_id', 'iqama*', 'passport*', 'document_number',
+            'reporter_name', 'reporter_role', 'password', 'token', '*_token', 'two_factor_*', 'secret',
+        ],
+        // Free text is redacted only for actions whose text routinely carries
+        // personal or dispute detail; elsewhere notes are operational.
+        'redact_free_text_keys' => [
+            'description', 'notes', 'note', 'comment', 'reason', 'resolution_note',
+            'response_note', 'supervisor_note',
+        ],
+        'redact_free_text_actions' => [
+            'report.*', 'report_dispute.*', 'sales.*', 'employee.*', 'visit_feedback.*',
+            'emergency.*', 'client_service_request.*',
+        ],
+    ],
+
+    /*
+    | Backup rotation after every verified nightly run: the newest archive of each
+    | of the last N days, weeks and months is kept. The archive just created is
+    | never deleted. DARAK_RETENTION_BACKUPS_DAYS (privacy) is a separate maximum
+    | age enforced by darak:retention-purge.
+    */
+    'backup_rotation' => [
+        'daily' => (int) env('DARAK_BACKUP_KEEP_DAILY', 7),
+        'weekly' => (int) env('DARAK_BACKUP_KEEP_WEEKLY', 4),
+        'monthly' => (int) env('DARAK_BACKUP_KEEP_MONTHLY', 6),
+    ],
+
+    /*
+    | Off-site copy after each verified backup: an rclone target such as
+    | "offsite:darak-backups/prod". Empty disables it (preflight then fails when
+    | evidence lives on the local disk).
+    */
+    'backup_rclone_remote' => env('DARAK_BACKUP_RCLONE_REMOTE'),
+    'rclone_path' => env('DARAK_RCLONE_PATH', 'rclone'),
+    'rclone_timeout_seconds' => (int) env('DARAK_RCLONE_TIMEOUT_SECONDS', 3600),
+
+    /*
+    | Dead-man's-switch URLs (healthchecks.io, UptimeRobot heartbeat). The
+    | scheduler pings every five minutes; the backup pings after a fully
+    | successful run. Empty disables the ping.
+    */
+    'heartbeat_url' => env('DARAK_HEARTBEAT_URL'),
+    'backup_heartbeat_url' => env('DARAK_BACKUP_HEARTBEAT_URL'),
+
+    /*
+    | darak:retention-purge is report-only (dry run) by default. Deleting for
+    | real — by hand with --execute or nightly from the scheduler — stays off
+    | until the owner and the privacy adviser approve the retention_days above.
+    */
+    'retention_purge_enabled' => (bool) env('DARAK_RETENTION_PURGE_ENABLED', false),
+
+    /*
+    | Module switches for SCHEDULED jobs only (routes/console.php); routes and
+    | screens are unaffected. All default to on so behaviour is unchanged; the
+    | owner can freeze a non-MVP module's background work by setting false.
+    */
+    'modules' => [
+        'sales' => (bool) env('DARAK_MODULE_SALES', true),
+        'commissions' => (bool) env('DARAK_MODULE_COMMISSIONS', true),
+        'procurement_automation' => (bool) env('DARAK_MODULE_PROCUREMENT_AUTOMATION', true),
+        'auto_reassign' => (bool) env('DARAK_MODULE_AUTO_REASSIGN', true),
+        'fleet_hr_alerts' => (bool) env('DARAK_MODULE_FLEET_HR_ALERTS', true),
+    ],
+
+    /*
+    | Client-portal map while a technician is en route (position rounded to about
+    | 100 m). An https XYZ tile template with {z}/{x}/{y}; "none" draws no map and
+    | sends nothing to a third party (text-only ETA). The OpenStreetMap default is
+    | a cross-border recipient — see PRIVACY_AND_RETENTION.md.
+    */
+    'map_tiles_url' => env('DARAK_MAP_TILES_URL', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
+    'map_attribution' => env('DARAK_MAP_ATTRIBUTION', '© OpenStreetMap contributors'),
 ];

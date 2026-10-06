@@ -2,6 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Services\AuditLogger;
+use App\Services\BackupService;
+use App\Services\OffsiteBackupService;
+use App\Services\PreflightProbe;
 use Illuminate\Console\Command;
 
 class PreflightCommand extends Command
@@ -10,7 +14,7 @@ class PreflightCommand extends Command
 
     protected $description = 'Fail when production security and operational settings are unsafe.';
 
-    public function handle(): int
+    public function handle(PreflightProbe $probe, BackupService $backups, OffsiteBackupService $offsite): int
     {
         $backupPath = (string) config('darak.backup_path');
         $backupPassword = (string) config('darak.backup_password');
@@ -34,6 +38,19 @@ class PreflightCommand extends Command
             ->every(fn (string $key): bool => filter_var($retention[$key] ?? null, FILTER_VALIDATE_INT) !== false
                 && (int) $retention[$key] > 0);
 
+        $invoiceProvider = strtolower(trim((string) config('darak.invoice_provider')));
+        $mailer = strtolower(trim((string) config('mail.default')));
+        $filesDisk = (string) config('darak.files_disk', 'local');
+        $filesOnLocalDisk = config("filesystems.disks.{$filesDisk}.driver", 'local') === 'local';
+        $remote = $offsite->remote();
+        $pgDump = $backups->pgDumpBinary();
+        $superuser = $probe->databaseRoleIsSuperuser();
+        $timezone = (string) config('app.timezone');
+        $auditKey = (string) AuditLogger::hmacKey();
+        $heartbeatAge = $probe->schedulerHeartbeatAge();
+        $heartbeatLimit = 300;
+
+        // [name, ok, value, warn-only]
         $checks = [
             ['Production environment', config('app.env') === 'production', (string) config('app.env')],
             ['Debug disabled', config('app.debug') === false, config('app.debug') ? 'enabled' : 'disabled'],
@@ -51,14 +68,33 @@ class PreflightCommand extends Command
             ['Persistent production runtime', ! (bool) config('darak.ephemeral_serverless'), config('darak.ephemeral_serverless') ? 'ephemeral/serverless' : 'persistent'],
             ['Privacy decisions approved', $privacyTextApproved, $privacyTextApproved ? 'configured' : 'missing required values'],
             ['Retention periods approved', $retentionApproved, $retentionApproved ? 'configured' : 'missing required positive day values'],
+            // A fake provider issues nothing to ZATCA while the panel shows invoices as issued.
+            ['Real invoice provider', ! in_array($invoiceProvider, ['', 'fake'], true), $invoiceProvider ?: 'missing'],
+            // Password reset and client notices need a mailer that actually delivers.
+            ['Delivering mailer', ! in_array($mailer, ['', 'log', 'array', 'null'], true), $mailer ?: 'missing'],
+            ['Off-site copy of local evidence', ! $filesOnLocalDisk || $remote !== null, $filesOnLocalDisk ? ($remote ?? 'local disk, no DARAK_BACKUP_RCLONE_REMOTE') : $filesDisk.' disk'],
+            ['pg_dump available', $probe->binaryAvailable($pgDump), $pgDump],
+            ['rclone available for off-site copy', $remote === null || $probe->binaryAvailable($offsite->binary()), $remote === null ? 'not configured' : $offsite->binary()],
+            ['Database role is not a superuser', $superuser === false, match ($superuser) {
+                true => 'superuser', false => 'least privilege', null => 'cannot verify',
+            }],
+            ['Audit HMAC key configured', strlen($auditKey) >= 32, $auditKey === '' ? 'missing' : (strlen($auditKey) >= 32 ? 'configured' : 'shorter than 32 characters')],
+            ['Saudi time zone', $timezone === 'Asia/Riyadh', $timezone ?: 'missing', true],
+            // May legitimately be absent on the very first deploy: cron starts after it.
+            ['Scheduler heartbeat fresh', $heartbeatAge !== null && $heartbeatAge <= $heartbeatLimit, $heartbeatAge === null ? 'no heartbeat yet' : $heartbeatAge.' seconds old', true],
         ];
 
         $rows = [];
         $failed = false;
+        $warned = false;
 
-        foreach ($checks as [$name, $ok, $value]) {
-            $rows[] = [$ok ? 'PASS' : 'FAIL', $name, $value];
-            $failed = $failed || ! $ok;
+        foreach ($checks as $check) {
+            [$name, $ok, $value] = $check;
+            $warnOnly = $check[3] ?? false;
+            $status = $ok ? 'PASS' : ($warnOnly ? 'WARN' : 'FAIL');
+            $rows[] = [$status, $name, $value];
+            $failed = $failed || (! $ok && ! $warnOnly);
+            $warned = $warned || (! $ok && $warnOnly);
         }
 
         $this->table(['Status', 'Check', 'Value'], $rows);
@@ -67,6 +103,10 @@ class PreflightCommand extends Command
             $this->error('Production preflight failed. Correct every FAIL before deployment.');
 
             return self::FAILURE;
+        }
+
+        if ($warned) {
+            $this->warn('Review every WARN: it does not block deployment.');
         }
 
         $this->info('Production preflight passed.');

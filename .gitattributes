@@ -7,3 +7,4 @@
 *.yaml text eol=lf
 *.md text eol=lf
 
+deploy/** text eol=lf

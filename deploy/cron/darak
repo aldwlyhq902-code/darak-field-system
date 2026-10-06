@@ -1,0 +1,11 @@
+# Darak — installed to /etc/cron.d/darak by deploy/provision-ubuntu.sh.
+# The scheduler line is the ONLY thing that runs notifications, SLA sweeps,
+# heartbeats, backups and the retention purge (routes/console.php).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+* * * * * __APP_USER__ cd __APP_ROOT__/backend && php artisan schedule:run >> /dev/null 2>&1
+
+# Local health check every five minutes; failures reach syslog (and, through
+# the critical log channel, the alert webhook when configured).
+*/5 * * * * __APP_USER__ cd __APP_ROOT__/backend && php artisan darak:health --json > /dev/null 2>&1 || logger -p user.crit -t darak-health "Darak operational health failed"

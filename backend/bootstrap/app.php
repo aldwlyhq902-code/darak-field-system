@@ -31,12 +31,13 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: getenv('VERCEL') ? '' : 'api',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Vercel terminates TLS before forwarding the request to PHP. Trust its
-        // proxy headers so Laravel keeps generated form actions and redirects on
-        // HTTPS instead of producing mixed-content HTTP URLs in the browser.
-        if (getenv('VERCEL')) {
-            $middleware->trustProxies(at: '*');
-        }
+        // Trust forwarded headers only from the reverse proxy in front of PHP:
+        // Nginx on the same host by default. api/index.php sets "*" for the
+        // Vercel demo, whose TLS terminator has no fixed address. Read from the
+        // process environment (php-fpm `env[TRUSTED_PROXIES]`): this runs before
+        // .env is loaded.
+        $trustedProxies = (string) (getenv('TRUSTED_PROXIES') ?: '127.0.0.1,::1');
+        $middleware->trustProxies(at: trim($trustedProxies) === '*' ? '*' : array_values(array_filter(array_map('trim', explode(',', $trustedProxies)))));
 
         $middleware->prepend(AssignRequestId::class);
         $middleware->append(SecurityHeaders::class);

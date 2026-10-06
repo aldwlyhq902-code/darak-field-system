@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Services\PreflightProbe;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\DarakTestCase;
 
 class PreflightCommandTest extends DarakTestCase
@@ -29,8 +31,110 @@ class PreflightCommandTest extends DarakTestCase
         $this->safeProductionConfiguration();
 
         $this->artisan('darak:preflight')
+            ->doesntExpectOutputToContain('FAIL')
+            ->doesntExpectOutputToContain('WARN')
             ->expectsOutputToContain('Production preflight passed')
             ->assertSuccessful();
+    }
+
+    /** @return array<string, array{0: array<string, mixed>, 1: string}> */
+    public static function unsafeOperationalSettings(): array
+    {
+        return [
+            'fake invoice provider' => [['darak.invoice_provider' => 'fake'], 'Real invoice provider'],
+            'missing invoice provider' => [['darak.invoice_provider' => ''], 'Real invoice provider'],
+            'log mailer' => [['mail.default' => 'log'], 'Delivering mailer'],
+            'array mailer' => [['mail.default' => 'array'], 'Delivering mailer'],
+            'local evidence without off-site copy' => [['darak.backup_rclone_remote' => null], 'Off-site copy of local evidence'],
+            'missing audit HMAC key' => [['darak.audit.hmac_key' => null], 'Audit HMAC key configured'],
+            'short audit HMAC key' => [['darak.audit.hmac_key' => 'too-short'], 'Audit HMAC key configured'],
+        ];
+    }
+
+    /** @param array<string, mixed> $override */
+    #[DataProvider('unsafeOperationalSettings')]
+    public function test_unsafe_operational_settings_fail_preflight(array $override, string $check): void
+    {
+        $this->safeProductionConfiguration();
+        config($override);
+
+        $this->artisan('darak:preflight')
+            ->expectsOutputToContain($check)
+            ->expectsOutputToContain('Production preflight failed')
+            ->assertFailed();
+    }
+
+    public function test_remote_evidence_disk_does_not_need_an_off_site_backup_remote(): void
+    {
+        $this->safeProductionConfiguration();
+        config([
+            'darak.backup_rclone_remote' => null,
+            'darak.files_disk' => 'evidence',
+            'filesystems.disks.evidence' => ['driver' => 's3'],
+        ]);
+
+        $this->artisan('darak:preflight')->assertSuccessful();
+    }
+
+    public function test_missing_pg_dump_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        $this->probe(missing: ['pg_dump', 'pg_dump.exe']);
+
+        $this->artisan('darak:preflight')->expectsOutputToContain('pg_dump available')->assertFailed();
+    }
+
+    public function test_configured_remote_without_rclone_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        $this->probe(missing: ['rclone']);
+
+        $this->artisan('darak:preflight')->expectsOutputToContain('rclone available')->assertFailed();
+    }
+
+    public function test_superuser_database_role_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        $this->probe(superuser: true);
+
+        $this->artisan('darak:preflight')->expectsOutputToContain('superuser')->assertFailed();
+    }
+
+    public function test_unverifiable_database_role_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        $this->probe(superuser: null);
+
+        $this->artisan('darak:preflight')->expectsOutputToContain('cannot verify')->assertFailed();
+    }
+
+    public function test_wrong_timezone_and_stale_heartbeat_only_warn(): void
+    {
+        $this->safeProductionConfiguration();
+        config(['app.timezone' => 'UTC']);
+        $this->probe(heartbeatAge: null);
+
+        $this->artisan('darak:preflight')
+            ->expectsOutputToContain('Saudi time zone')
+            ->expectsOutputToContain('no heartbeat yet')
+            ->expectsOutputToContain('Review every WARN')
+            ->expectsOutputToContain('Production preflight passed')
+            ->assertSuccessful();
+
+        $this->probe(heartbeatAge: 900);
+        $this->artisan('darak:preflight')->expectsOutputToContain('900 seconds old')->assertSuccessful();
+    }
+
+    public function test_real_probe_detects_the_test_database_superuser(): void
+    {
+        if (config('database.default') !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL role check.');
+        }
+
+        // The CI and local test databases connect as the postgres superuser:
+        // exactly what production preflight must refuse.
+        $this->assertTrue((new PreflightProbe)->databaseRoleIsSuperuser());
+        $this->assertFalse((new PreflightProbe)->binaryAvailable('/definitely/missing/rclone'));
     }
 
     public function test_debug_mode_fails_preflight(): void
@@ -88,6 +192,12 @@ class PreflightCommandTest extends DarakTestCase
             'darak.backup_password' => 'a-very-long-production-backup-password',
             'darak.backup_path' => sys_get_temp_dir().DIRECTORY_SEPARATOR.'darak-offsite-backups',
             'darak.ephemeral_serverless' => false,
+            'darak.invoice_provider' => 'manual',
+            'mail.default' => 'smtp',
+            'darak.files_disk' => 'local',
+            'darak.backup_rclone_remote' => 'offsite:darak-backups/prod',
+            'darak.audit.hmac_key' => str_repeat('k', 64),
+            'app.timezone' => 'Asia/Riyadh',
             'darak.privacy' => [
                 'controller_name' => 'Approved controller',
                 'request_channel' => 'privacy@example.test',
@@ -105,6 +215,32 @@ class PreflightCommandTest extends DarakTestCase
                 ],
             ],
         ]);
+        $this->probe();
+    }
+
+    /** @param array<int, string> $missing */
+    private function probe(array $missing = [], ?bool $superuser = false, ?int $heartbeatAge = 30): void
+    {
+        $this->app->instance(PreflightProbe::class, new class($missing, $superuser, $heartbeatAge) extends PreflightProbe
+        {
+            /** @param array<int, string> $missing */
+            public function __construct(private array $missing, private ?bool $superuser, private ?int $heartbeatAge) {}
+
+            public function binaryAvailable(string $binary): bool
+            {
+                return ! in_array(basename(str_replace('\\', '/', $binary)), $this->missing, true);
+            }
+
+            public function databaseRoleIsSuperuser(): ?bool
+            {
+                return $this->superuser;
+            }
+
+            public function schedulerHeartbeatAge(): ?int
+            {
+                return $this->heartbeatAge;
+            }
+        });
     }
 
     public function test_debug_logging_fails_preflight(): void
@@ -127,6 +263,8 @@ class PreflightCommandTest extends DarakTestCase
             'logging.default', 'logging.channels.daily.level',
             'darak.backup_password', 'darak.backup_path',
             'darak.ephemeral_serverless', 'darak.privacy',
+            'darak.invoice_provider', 'mail.default', 'darak.files_disk', 'darak.backup_rclone_remote',
+            'darak.audit.hmac_key', 'app.timezone',
         ];
     }
 }

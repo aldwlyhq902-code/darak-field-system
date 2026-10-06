@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Closure;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
@@ -238,6 +239,99 @@ class BackupService
     }
 
     /**
+     * Grandfather-father-son rotation of the archives in the backup root.
+     *
+     * Walks archives newest first and keeps the newest archive of each of the last
+     * $daily days, $weekly ISO weeks and $monthly months (a period with no archive
+     * does not use up a slot). The newest archive and $protect — the one just
+     * created and verified — are never deleted, whatever the policy says: an
+     * aggressive setting must not leave the server with zero restorable copies.
+     *
+     * @return array{kept: array<int, string>, deleted: array<int, string>, failed: array<int, string>}
+     */
+    public function rotate(int $daily, int $weekly, int $monthly, ?string $protect = null): array
+    {
+        $archives = $this->archives();
+        $keep = [];
+
+        if ($archives !== []) {
+            $keep[basename((string) array_key_first($archives))] = true;
+        }
+
+        if ($protect !== null) {
+            $keep[basename($protect)] = true;
+        }
+
+        foreach (['Y-m-d' => $daily, 'o-W' => $weekly, 'Y-m' => $monthly] as $format => $limit) {
+            $seen = [];
+
+            foreach ($archives as $path => $timestamp) {
+                if (count($seen) >= max(0, $limit)) {
+                    break;
+                }
+
+                $bucket = now()->setTimestamp($timestamp)->format($format);
+
+                if (! isset($seen[$bucket])) {
+                    $seen[$bucket] = true;
+                    $keep[basename($path)] = true;
+                }
+            }
+        }
+
+        $result = ['kept' => [], 'deleted' => [], 'failed' => []];
+
+        foreach (array_keys($archives) as $path) {
+            if (isset($keep[basename($path)])) {
+                $result['kept'][] = $path;
+            } elseif (@unlink($path)) {
+                $result['deleted'][] = $path;
+            } else {
+                $result['failed'][] = $path;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Archives in the backup root, newest first, keyed by path. The creation time
+     * comes from the name (copies and restores reset mtime); mtime is the fallback.
+     *
+     * @return array<string, int>
+     */
+    public function archives(): array
+    {
+        $archives = [];
+
+        foreach (File::glob($this->backupRoot.DIRECTORY_SEPARATOR.'darak-backup-*.zip') as $path) {
+            $archives[$path] = $this->archiveTimestamp($path);
+        }
+
+        uksort($archives, fn (string $a, string $b): int => [$archives[$b], basename($b)] <=> [$archives[$a], basename($a)]);
+
+        return $archives;
+    }
+
+    public function backupRoot(): string
+    {
+        return $this->backupRoot;
+    }
+
+    private function archiveTimestamp(string $path): int
+    {
+        if (preg_match('/^darak-backup-(\d{8}-\d{6})/', basename($path), $match) === 1) {
+            try {
+                return Carbon::createFromFormat('Ymd-His', $match[1], (string) config('app.timezone'))->getTimestamp();
+            } catch (\Throwable) {
+                // Fall through to the file time.
+            }
+        }
+
+        return (int) filemtime($path);
+    }
+
+    /**
      * Restores into the CURRENT environment. Intended for a clean target — the
      * drill is to restore onto an empty box and compare, never onto production.
      *
@@ -431,7 +525,7 @@ class BackupService
         }
     }
 
-    private function pgDumpBinary(): string
+    public function pgDumpBinary(): string
     {
         $configured = config('darak.pg_dump_path');
 

@@ -6,6 +6,13 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
 
+  # Vite, Playwright and the build toolchain (backend/package-lock.json).
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
   - package-ecosystem: pub
     directory: /mobile
     schedule:

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\OffsiteBackupService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,11 @@ class HealthCommand extends Command
             'disk' => $this->diskHealthy(),
             'backup' => $this->backupHealthy(),
         ];
+
+        if (app(OffsiteBackupService::class)->configured()) {
+            $checks['offsite_backup'] = $this->offsiteHealthy();
+        }
+
         $healthy = ! in_array(false, array_column($checks, 'ok'), true);
 
         if ($this->option('json')) {
@@ -55,21 +61,49 @@ class HealthCommand extends Command
         }
     }
 
-    /** @return array{ok: bool, detail: string} */
+    /** @return array{ok: bool, detail: string, age_seconds: int|null, max_age_seconds: int} */
     private function schedulerHealthy(): array
     {
+        $maximum = (int) config('darak.monitoring.scheduler_max_age_seconds', 300);
+
         try {
-            $timestamp = Cache::get('darak:monitor:scheduler-heartbeat');
+            $timestamp = Cache::get(HeartbeatCommand::CACHE_KEY);
         } catch (Throwable $exception) {
-            return ['ok' => false, 'detail' => 'cache unavailable: '.$exception->getMessage()];
+            return ['ok' => false, 'detail' => 'cache unavailable: '.$exception->getMessage(), 'age_seconds' => null, 'max_age_seconds' => $maximum];
         }
 
         $age = is_numeric($timestamp) ? now()->timestamp - (int) $timestamp : null;
-        $maximum = (int) config('darak.monitoring.scheduler_max_age_seconds', 300);
 
         return [
             'ok' => $age !== null && $age >= 0 && $age <= $maximum,
-            'detail' => $age === null ? 'heartbeat missing' : $age.' seconds old',
+            'detail' => $age === null ? 'heartbeat missing' : 'heartbeat '.$age.' seconds old',
+            'age_seconds' => $age,
+            'max_age_seconds' => $maximum,
+        ];
+    }
+
+    /** @return array{ok: bool, detail: string, age_seconds: int|null} */
+    private function offsiteHealthy(): array
+    {
+        try {
+            $status = Cache::get(OffsiteBackupService::STATUS_CACHE_KEY);
+        } catch (Throwable $exception) {
+            return ['ok' => false, 'detail' => 'cache unavailable: '.$exception->getMessage(), 'age_seconds' => null];
+        }
+
+        if (! is_array($status) || ! isset($status['at'])) {
+            return ['ok' => false, 'detail' => 'no off-site copy recorded', 'age_seconds' => null];
+        }
+
+        $age = now()->timestamp - (int) $status['at'];
+        $maximum = ((int) config('darak.rpo_hours', 24) + (int) config('darak.monitoring.backup_grace_hours', 2)) * 3600;
+
+        return [
+            'ok' => (bool) ($status['ok'] ?? false) && $age >= 0 && $age <= $maximum,
+            'detail' => ($status['ok'] ?? false)
+                ? 'last copy '.round($age / 3600, 1).' hours ago'
+                : 'last copy failed: '.($status['error'] ?? 'unknown'),
+            'age_seconds' => $age,
         ];
     }
 
@@ -126,6 +160,7 @@ class HealthCommand extends Command
         return [
             'ok' => $age >= 0 && $age <= $maximum,
             'detail' => round($age / 3600, 1).' hours old',
+            'age_seconds' => $age,
         ];
     }
 }
