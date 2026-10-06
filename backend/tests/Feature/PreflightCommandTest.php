@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\PreflightProbe;
+use League\Flysystem\AwsS3V3\AwsS3V3Adapter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\DarakTestCase;
 
@@ -70,10 +71,46 @@ class PreflightCommandTest extends DarakTestCase
         config([
             'darak.backup_rclone_remote' => null,
             'darak.files_disk' => 'evidence',
-            'filesystems.disks.evidence' => ['driver' => 's3'],
+            'filesystems.disks.evidence' => ['driver' => 'sftp', 'host' => 'files.example.test'],
         ]);
 
         $this->artisan('darak:preflight')->assertSuccessful();
+    }
+
+    public function test_s3_files_disk_without_its_adapter_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        config([
+            'darak.files_disk' => 'evidence',
+            'filesystems.disks.evidence' => ['driver' => 's3', 'bucket' => 'darak-evidence'],
+        ]);
+
+        // league/flysystem-aws-s3-v3 is deliberately not installed in this project.
+        $this->assertFalse(class_exists(AwsS3V3Adapter::class));
+        $this->artisan('darak:preflight')
+            ->expectsOutputToContain('Files disk usable')
+            ->expectsOutputToContain('Production preflight failed')
+            ->assertFailed();
+    }
+
+    public function test_undefined_files_disk_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        config(['darak.files_disk' => 'missing-disk']);
+
+        $this->artisan('darak:preflight')
+            ->expectsOutputToContain('Files disk usable')
+            ->assertFailed();
+    }
+
+    public function test_unknown_invoice_provider_fails_preflight(): void
+    {
+        $this->safeProductionConfiguration();
+        config(['darak.invoice_provider' => 'zatca-typo']);
+
+        $this->artisan('darak:preflight')
+            ->expectsOutputToContain('Real invoice provider')
+            ->assertFailed();
     }
 
     public function test_missing_pg_dump_fails_preflight(): void

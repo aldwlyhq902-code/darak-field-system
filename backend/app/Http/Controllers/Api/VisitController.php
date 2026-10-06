@@ -15,6 +15,7 @@ use App\Services\NotificationService;
 use App\Services\ReworkDetector;
 use App\Services\RoutePlanningService;
 use App\Services\VisitStateMachine;
+use App\Services\WorkPolicyService;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -264,6 +265,8 @@ class VisitController extends Controller
             if ($overlaps) {
                 $reasons[] = 'Technician already has an overlapping visit.';
             }
+
+            array_push($reasons, ...app(WorkPolicyService::class)->violations($technician, $start, $end, $visit->id));
         }
 
         return $reasons;

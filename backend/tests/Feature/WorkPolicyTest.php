@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Models\WorkPolicy;
+use App\Services\DispatchSuggestionService;
 use App\Services\WorkPolicyService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -107,6 +108,22 @@ class WorkPolicyTest extends DarakTestCase
     }
 
     /** @param array<string, int> $rules */
+    public function test_assignment_checks_report_active_policy_violations(): void
+    {
+        $this->policy(['max_daily_minutes' => 240]);
+        $this->assignedVisit('2026-11-10 07:00', '2026-11-10 10:00');
+        $candidate = Visit::create([
+            'work_order_id' => WorkOrder::firstOrFail()->id, 'site_id' => $this->site->id,
+            'scheduled_start' => CarbonImmutable::parse('2026-11-10 11:00'), 'scheduled_end' => CarbonImmutable::parse('2026-11-10 13:00'),
+            'state' => Visit::STATE_SCHEDULED, 'state_changed_at' => now(),
+        ]);
+
+        $reasons = app(DispatchSuggestionService::class)->conflicts($this->technician, $candidate);
+
+        $this->assertNotEmpty(array_filter($reasons, fn (string $reason): bool => str_contains($reason, 'سياسة العمل الإصدار')),
+            'the dispatch gate must surface the work-policy violation: '.implode(' | ', $reasons));
+    }
+
     private function policy(array $rules, string $effectiveFrom = '2026-11-01'): WorkPolicy
     {
         return WorkPolicy::create([

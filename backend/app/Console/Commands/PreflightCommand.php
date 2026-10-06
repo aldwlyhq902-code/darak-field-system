@@ -4,9 +4,11 @@ namespace App\Console\Commands;
 
 use App\Services\AuditLogger;
 use App\Services\BackupService;
+use App\Services\Invoicing\InvoiceProviderFactory;
 use App\Services\OffsiteBackupService;
 use App\Services\PreflightProbe;
 use Illuminate\Console\Command;
+use League\Flysystem\AwsS3V3\AwsS3V3Adapter;
 
 class PreflightCommand extends Command
 {
@@ -69,7 +71,10 @@ class PreflightCommand extends Command
             ['Privacy decisions approved', $privacyTextApproved, $privacyTextApproved ? 'configured' : 'missing required values'],
             ['Retention periods approved', $retentionApproved, $retentionApproved ? 'configured' : 'missing required positive day values'],
             // A fake provider issues nothing to ZATCA while the panel shows invoices as issued.
-            ['Real invoice provider', ! in_array($invoiceProvider, ['', 'fake'], true), $invoiceProvider ?: 'missing'],
+            ['Real invoice provider', InvoiceProviderFactory::isProductionSafe($invoiceProvider), $invoiceProvider ?: 'missing'],
+            // Money is computed with bcmath; without it every amount would fail at runtime.
+            ['bcmath extension loaded', extension_loaded('bcmath'), extension_loaded('bcmath') ? 'loaded' : 'missing'],
+            ['Files disk usable', $this->filesDiskUsable($filesDisk), $filesDisk],
             // Password reset and client notices need a mailer that actually delivers.
             ['Delivering mailer', ! in_array($mailer, ['', 'log', 'array', 'null'], true), $mailer ?: 'missing'],
             ['Off-site copy of local evidence', ! $filesOnLocalDisk || $remote !== null, $filesOnLocalDisk ? ($remote ?? 'local disk, no DARAK_BACKUP_RCLONE_REMOTE') : $filesDisk.' disk'],
@@ -112,6 +117,23 @@ class PreflightCommand extends Command
         $this->info('Production preflight passed.');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The files disk must be defined and, when remote, its Flysystem adapter
+     * installed; otherwise the first evidence upload fails in production.
+     */
+    private function filesDiskUsable(string $disk): bool
+    {
+        $driver = config("filesystems.disks.{$disk}.driver");
+
+        return match ($driver) {
+            'local' => true,
+            's3' => class_exists(AwsS3V3Adapter::class)
+                && filled(config("filesystems.disks.{$disk}.bucket")),
+            null => false,
+            default => true,
+        };
     }
 
     private function isExternalBackupPath(string $path): bool

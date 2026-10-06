@@ -12,7 +12,7 @@ use Illuminate\Support\Collection;
 
 class DispatchSuggestionService
 {
-    public function __construct(private readonly RoutePlanningService $routes, private readonly InventoryService $inventory, private readonly TenantAccess $tenantAccess) {}
+    public function __construct(private readonly RoutePlanningService $routes, private readonly InventoryService $inventory, private readonly TenantAccess $tenantAccess, private readonly WorkPolicyService $workPolicy) {}
 
     /** @return Collection<int, array{technician:User,score:int,reasons:array<int,string>}> */
     public function suggest(Visit $visit, int $limit = 3): Collection
@@ -112,6 +112,12 @@ class DispatchSuggestionService
         $vehicle = Vehicle::where('assigned_user_id', $technician->id)->first();
         if ($start && $vehicle && VehicleOutage::where('vehicle_id', $vehicle->id)->where('status', 'open')->where('starts_at', '<=', $end)->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', $start))->exists()) {
             $reasons[] = 'سيارة الفني متعطلة في هذا الموعد';
+        }
+
+        // Working-hours limits come only from an owner-entered, versioned policy;
+        // with no policy in force there is nothing to enforce here.
+        if ($start && $end) {
+            array_push($reasons, ...$this->workPolicy->violations($technician, $start, $end, $visit->id));
         }
 
         $reasons = array_merge($reasons, $this->routes->timingConflicts($technician, $visit));

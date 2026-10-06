@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Models\Client;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\Payment;
