@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 
 import '../app_state.dart';
-import '../core/api_client.dart';
+import '../core/action_outbox.dart';
+import '../core/error_messages.dart';
+import 'action_feedback.dart';
 
 class VehicleInspectionScreen extends StatefulWidget {
   const VehicleInspectionScreen({super.key, required this.state});
@@ -58,18 +60,24 @@ class _VehicleInspectionScreenState extends State<VehicleInspectionScreen> {
 
   Future<void> _load() async {
     try {
-      final response = await widget.state.api.currentVehicle();
+      // The assigned vehicle rarely changes; the last one seen lets the daily
+      // inspection be filled in (and queued) before the yard has signal.
+      final result = await widget.state.cached(
+        'fleet_vehicle',
+        widget.state.api.currentVehicle,
+        (json) => json is Map ? Map<String, dynamic>.from(json) : const {},
+      );
       if (!mounted) return;
-      final data = response['data'];
+      final data = result.value['data'];
       setState(() {
         vehicle = data is Map ? Map<String, dynamic>.from(data) : null;
         odometer.text = '${vehicle?['current_odometer_km'] ?? ''}';
         loading = false;
       });
-    } on ApiException catch (e) {
+    } catch (e) {
       if (mounted) {
         setState(() {
-          error = e.message;
+          error = friendlyError(e, context: 'vehicle');
           loading = false;
         });
       }
@@ -77,8 +85,14 @@ class _VehicleInspectionScreenState extends State<VehicleInspectionScreen> {
   }
 
   Future<void> _capture() async {
-    final capture = await widget.state.camera.takePhoto();
-    if (capture != null && mounted) setState(() => photo = capture.bytes);
+    try {
+      final capture = await widget.state.camera.takePhoto();
+      if (capture != null && mounted) setState(() => photo = capture.bytes);
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = friendlyError(e, context: 'vehicle photo'));
+      }
+    }
   }
 
   Future<void> _submit() async {
@@ -92,21 +106,38 @@ class _VehicleInspectionScreenState extends State<VehicleInspectionScreen> {
       error = null;
     });
     try {
-      final response = await widget.state.api.submitVehicleInspection(
-        odometerKm: reading,
-        checklist: checks,
-        defects: defects.text,
-        photo: photo,
+      final attempt = await widget.state.performAction(
+        ActionRequest.vehicleInspection(
+          odometerKm: reading,
+          checklist: Map<String, bool>.of(checks),
+          defects: defects.text,
+          photo: photo,
+        ),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: LText('${response['message']}')));
-      Navigator.pop(context, true);
-    } on ApiException catch (e) {
+      final serverMessage = attempt.body['message'];
+      final message = actionMessage(
+        attempt,
+        done: serverMessage is String && serverMessage.isNotEmpty
+            ? serverMessage
+            : 'تم تسجيل الإجراء.',
+        queued: 'حُفظ الفحص على الجهاز وسيُرسل تلقائياً عند توفر الشبكة.',
+      );
+      if (actionKept(attempt)) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: LText(message)));
+        Navigator.pop(context, true);
+      } else {
+        setState(() {
+          error = message;
+          saving = false;
+        });
+      }
+    } catch (e) {
       if (mounted) {
         setState(() {
-          error = e.message;
+          error = friendlyError(e, context: 'vehicle inspection');
           saving = false;
         });
       }

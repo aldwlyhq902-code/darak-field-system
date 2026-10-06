@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:darak_field/core/api_client.dart';
 import 'package:darak_field/core/event_queue.dart';
@@ -114,11 +115,21 @@ void main() {
       final server = _RecordingServer();
       final engine = _engine(server, db, queue, clock);
 
+      // A real file the server will not take yet (its upload endpoint answers
+      // 404 here), so the photo stays pending. A missing file is a different
+      // case: it fails at once and, by design, stops holding the close.
+      final photo = File(
+        '${Directory.systemTemp.path}/darak_held_${DateTime.now().microsecondsSinceEpoch}.jpg',
+      )..writeAsBytesSync(List.filled(10, 7));
+      addTearDown(() {
+        if (photo.existsSync()) photo.deleteSync();
+      });
+
       await db.raw.insert('pending_media', {
         'client_media_id': 'media-1',
         'visit_id': 7,
         'kind': 'photo_after',
-        'local_path': '/nonexistent/photo.jpg',
+        'local_path': photo.path,
         'total_bytes': 10,
         'uploaded_bytes': 0,
         'state': 'pending',

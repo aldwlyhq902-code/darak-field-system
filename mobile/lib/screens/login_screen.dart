@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 
 import '../app_state.dart';
+import '../core/error_messages.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, required this.state, this.notice});
@@ -36,13 +37,20 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
 
-    final error = await widget.state.login(_email.text.trim(), _password.text);
-
-    if (mounted) {
-      setState(() {
-        _busy = false;
-        _error = error;
-      });
+    String? error;
+    try {
+      error = await widget.state.login(_email.text.trim(), _password.text);
+    } catch (e) {
+      // login() maps every failure itself; this is the last line so the
+      // button can never stay disabled.
+      error = friendlyError(e, context: 'login');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = error;
+        });
+      }
     }
   }
 

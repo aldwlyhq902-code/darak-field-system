@@ -19,6 +19,10 @@ class AppLocalizations {
     // Dynamic UI messages use a small set of explicit templates. Arbitrary
     // substring replacement produced half-Arabic, half-English sentences and
     // could even alter server/user data that happened to contain a UI word.
+    for (final (pattern, render) in _englishPatterns) {
+      final match = pattern.firstMatch(source);
+      if (match != null) return render(match);
+    }
     for (final entry in _englishPrefixTemplates.entries) {
       if (source.startsWith(entry.key)) {
         return '${entry.value}${source.substring(entry.key.length)}';
@@ -32,7 +36,70 @@ class AppLocalizations {
     return source;
   }
 
+  /// Whole-sentence templates whose only variable parts are numbers or a
+  /// name, so the English never comes out half-translated.
+  static final List<(RegExp, String Function(Match))> _englishPatterns = [
+    (
+      RegExp(r'^تمت مزامنة (\d+) عملية، وبقي (\d+) بانتظار إعادة المحاولة$'),
+      (m) => 'Synced ${m[1]} operation(s); ${m[2]} still waiting for a retry',
+    ),
+    (RegExp(r'^تمت مزامنة (\d+) عملية$'), (m) => 'Synced ${m[1]} operation(s)'),
+    (
+      RegExp(
+        r'^أُقفل الحساب مؤقتاً بعد محاولات دخول متكررة\. أعد المحاولة بعد (\d+) دقيقة\.$',
+      ),
+      (m) =>
+          'The account is temporarily locked after repeated sign-in attempts. Try again in ${m[1]} minute(s).',
+    ),
+    (
+      RegExp(r'^لم يُرسل شيء بعد — (\d+) بانتظار إعادة المحاولة تلقائياً$'),
+      (m) => 'Nothing sent yet — ${m[1]} waiting for an automatic retry',
+    ),
+    (
+      RegExp(r'^رُفضت (\d+) عملية — راجع شاشة المزامنة$'),
+      (m) => '${m[1]} operation(s) were rejected — review the sync screen',
+    ),
+    (
+      RegExp(r'^بانتظار اكتمال رفع الأدلة قبل إرسال الإقفال \((\d+)\)$'),
+      (m) => 'Waiting for evidence uploads before sending the close (${m[1]})',
+    ),
+    (
+      RegExp(
+        r'^على هذا الجهاز (\d+) عنصر غير مُزامَن يخص فنياً آخر\. '
+        r'يجب أن يسجّل ذلك الفني دخوله ويزامن عمله أولاً، أو يُلغي المشرف اعتماد الجهاز لمسحه\.$',
+      ),
+      (m) =>
+          'This device holds ${m[1]} unsynced item(s) belonging to another technician. '
+          'That technician must sign in and sync first, or a supervisor must revoke the device to erase them.',
+    ),
+    (
+      RegExp(
+        r'^على الجهاز (\d+) عنصر لم يُرسل بعد \((\d+) عملية، (\d+) ملف، (\d+) إجراء\)\. '
+        r'تسجيل الخروج يمسح بيانات الجهاز، فزامن أولاً من شاشة المزامنة\.$',
+      ),
+      (m) =>
+          '${m[1]} item(s) on this device have not been sent yet (${m[2]} operation(s), ${m[3]} file(s), ${m[4]} action(s)). '
+          'Signing out erases the device data, so sync first from the sync screen.',
+    ),
+    (
+      RegExp(
+        r'^ساعة الجهاز تختلف عن توقيت الخادم بنحو (\d+) دقيقة\. فعّل الضبط التلقائي للوقت من الإعدادات\.$',
+      ),
+      (m) =>
+          'The phone clock differs from server time by about ${m[1]} minute(s). Turn on automatic time in Settings.',
+    ),
+    (
+      RegExp(
+        r'^المسافة عن الموقع نحو (\S+) م \(المسموح (\S+) م\)\. اكتب سبباً مختصراً للمتابعة\.$',
+      ),
+      (m) =>
+          'You are about ${m[1]} m from the site (allowed ${m[2]} m). Enter a short reason to continue.',
+    ),
+  ];
+
   static const Map<String, String> _englishPrefixTemplates = {
+    'تسجيل الخروج (': 'Sign out (',
+    'عمليات مسح بانتظار الإرسال: ': 'Scans waiting to be sent: ',
     'آخر مزامنة ': 'Last sync ',
     'حالة الأصل: ': 'Asset status: ',
     'سُجّل الحضور بالملصق: ': 'Attendance recorded with label: ',
@@ -344,6 +411,124 @@ class AppLocalizations {
         'The inspection was saved and the vehicle is roadworthy.',
     'فشل فحص السلامة وأُوقفت السيارة.':
         'The safety inspection failed and the vehicle was taken out of service.',
+    // Errors (lib/core/error_messages.dart).
+    'تعذّر تنفيذ الطلب. أعد المحاولة لاحقاً.':
+        'The request could not be completed. Try again later.',
+    'بانتظار موافقة المشرف على هذا الجهاز. أعد المحاولة لاحقاً.':
+        'Waiting for supervisor approval of this device. Try again later.',
+    'تعذّر الوصول إلى الخادم. تحقق من الشبكة — عملك محفوظ على الجهاز.':
+        'The server could not be reached. Check the network — your work is saved on the device.',
+    'الخادم لم يردّ في الوقت المحدد. ستُعاد المحاولة تلقائياً.':
+        'The server did not answer in time. It will be retried automatically.',
+    'تعذّر التحقق من هوية الخادم. تجنّب الشبكات العامة وأعد المحاولة.':
+        'The server identity could not be verified. Avoid public networks and try again.',
+    'أُلغي اعتماد هذا الجهاز من المشرف.': 'A supervisor revoked this device.',
+    'هذا الحساب معطّل. تواصل مع المشرف.':
+        'This account is disabled. Contact your supervisor.',
+    'هذا الجهاز مسجل لحساب آخر. اطلب من المشرف إلغاء اعتماده أولًا.':
+        'This device is registered to another account. Ask a supervisor to revoke it first.',
+    'هذا الجهاز مسجل لمستخدم آخر.':
+        'This device is registered to another user.',
+    'سُجّلت هذه العملية باسم فني آخر فرفضها الخادم.':
+        'This action was recorded under another technician, so the server refused it.',
+    'لا يمكن إقفال الزيارة بعد — تنقصها متطلبات.':
+        'The visit cannot be closed yet — requirements are missing.',
+    'هذه الخطوة لم تعد متاحة من حالة الزيارة على الخادم.':
+        'This step is no longer available from the visit state on the server.',
+    'بيانات العملية غير صالحة فرفضها الخادم.':
+        'The action data was invalid, so the server refused it.',
+    'رمز التحقق بخطوتين مطلوب لهذا الحساب.':
+        'A two-factor code is required for this account.',
+    'أكمل إعداد التحقق بخطوتين من لوحة الإدارة أولاً.':
+        'Finish two-factor setup in the admin panel first.',
+    'طلبات كثيرة خلال وقت قصير. انتظر قليلاً ثم أعد المحاولة.':
+        'Too many requests in a short time. Wait a moment and try again.',
+    'الخادم غير متاح حالياً. عملك محفوظ وستُعاد المحاولة تلقائياً.':
+        'The server is unavailable right now. Your work is saved and will be retried automatically.',
+    'غير مسموح لك بتنفيذ هذا الإجراء.':
+        'You are not allowed to perform this action.',
+    'العنصر لم يعد موجوداً على الخادم. حدّث البيانات.':
+        'This item no longer exists on the server. Refresh the data.',
+    'تعارض مع حالة أحدث على الخادم. حدّث البيانات ثم أعد المحاولة.':
+        'This conflicts with a newer state on the server. Refresh and try again.',
+    'حجم البيانات أكبر من المسموح.': 'The data is larger than allowed.',
+    'البيانات المدخلة غير مقبولة. راجعها ثم أعد المحاولة.':
+        'The entered data was not accepted. Review it and try again.',
+    'رفض الخادم هذه العملية.': 'The server refused this action.',
+    'بيانات الدخول غير صحيحة.': 'Invalid credentials.',
+    'يلزم تسجيل الدخول.': 'Sign-in required.',
+    'غير مسموح لك بالوصول إلى هذا المورد.':
+        'You are not allowed to access this resource.',
+    'لا يمكن إسناد هذه الزيارة إلى هذا الفني.':
+        'This visit cannot be assigned to this technician.',
+    // Session, wipe and sign-out.
+    'استجابة غير متوقعة من الخادم. أعد المحاولة.':
+        'Unexpected response from the server. Try again.',
+    'هذا الحساب معطّل، فمُسحت بيانات العمل من هذا الجهاز. تواصل مع المشرف.':
+        'This account is disabled, so the work data was erased from this device. Contact your supervisor.',
+    'أُلغي اعتماد هذا الجهاز من المشرف، فمُسحت بيانات العمل منه. تواصل مع المشرف.':
+        'A supervisor revoked this device, so its work data was erased. Contact your supervisor.',
+    'لا يمكن تسجيل الخروج الآن': 'You cannot sign out now',
+    'تسجيل الخروج؟': 'Sign out?',
+    'تسجيل الخروج': 'Sign out',
+    'ستُمسح زيارات اليوم وبياناتها من هذا الجهاز، ويلزم تسجيل الدخول والاتصال بالشبكة للعودة.':
+        'Today’s visits and their data will be erased from this device; signing back in needs a network connection.',
+    'ظهر عمل غير مُزامَن للتو. زامن ثم أعد المحاولة.':
+        'Unsynced work just appeared. Sync, then try again.',
+    'المزيد': 'More',
+    // Visit transitions and the geofence.
+    'إلغاء الانطلاق': 'Cancel departure',
+    'العودة للعمل': 'Back to work',
+    'إعادة فتح الزيارة': 'Reopen visit',
+    'استئناف العمل': 'Resume work',
+    'تعود الزيارة إلى «مجدولة» ويتوقف احتساب وقت الطريق.':
+        'The visit returns to “Scheduled” and travel time stops counting.',
+    'الزيارة مقفلة وقد أُرسل تقريرها. أعد فتحها فقط إن كان هناك عمل لم يكتمل فعلاً.':
+        'The visit is closed and its report was sent. Reopen it only if work is genuinely unfinished.',
+    'تنبيه: يبدو أن الموقع صادر من تطبيق مواقع وهمية. سُجّلت العملية، وسيظهر ذلك للمشرف.':
+        'Note: the location appears to come from a mock-location app. The action was recorded, and your supervisor will see this.',
+    'أنت خارج نطاق موقع العميل': 'You are outside the client site area',
+    'سبب العمل خارج النطاق': 'Reason for working outside the area',
+    'تأكيد ومتابعة': 'Confirm and continue',
+    // The action outbox.
+    'حُفظ الإجراء على الجهاز وسيُرسل تلقائياً عند توفر الشبكة.':
+        'Saved on the device; it will be sent automatically when a network is available.',
+    'بلا شبكة — تُعرض آخر بيانات محفوظة، والإجراءات تُرسل عند عودة الاتصال.':
+        'Offline — showing the last saved data; actions are sent when the connection returns.',
+    'فحص بانتظار الإرسال': 'Inspection waiting to be sent',
+    'بانتظار الإرسال': 'Waiting to send',
+    'الاقتراحات تحتاج اتصالاً بالشبكة. يمكنك كتابة التشخيص وحفظه الآن وسيُرسل لاحقاً.':
+        'Suggestions need a network connection. You can type and save the diagnosis now; it will be sent later.',
+    'اعتُمد التشخيص.': 'Diagnosis recorded.',
+    'حُفظ الطلب على الجهاز وسيُرسل للعميل عند توفر الشبكة. لا تبدأ التنفيذ قبل موافقته.':
+        'The request was saved on the device and will be sent to the client when a network is available. Do not start before approval.',
+    'حُفظ الفحص على الجهاز وسيُرسل تلقائياً عند توفر الشبكة.':
+        'The inspection was saved on the device and will be sent automatically when a network is available.',
+    'إجراءات بانتظار الإرسال': 'Actions waiting to be sent',
+    'العهد والجرد والتحويلات والتشخيص وطلبات العمل الإضافي والفحص. تُرسل تلقائياً عند توفر الشبكة.':
+        'Custody, stocktake, transfers, diagnoses, additional-work requests and inspections. Sent automatically when a network is available.',
+    'تجاهل': 'Dismiss',
+    'رفض الخادم الملف أو تعذّرت قراءته.':
+        'The server refused the file, or it could not be read.',
+    // Contract additions: lockout, idempotency in progress, per-event codes.
+    'أُقفل الحساب مؤقتاً بعد محاولات دخول متكررة. أعد المحاولة بعد قليل.':
+        'The account is temporarily locked after repeated sign-in attempts. Try again shortly.',
+    'الطلب السابق نفسه ما زال قيد التنفيذ على الخادم. سيُعاد التحقق تلقائياً.':
+        'The same request is still being processed by the server. It will be checked again automatically.',
+    'الزيارة غير مسندة إليك، فرفض الخادم العملية.':
+        'The visit is not assigned to you, so the server refused the action.',
+    'أُعيد إسناد الزيارة إلى فني آخر، فرفض الخادم العملية. راجع المشرف.':
+        'The visit was reassigned to another technician, so the server refused the action. Check with your supervisor.',
+    'القطعة ليست ضمن قطع هذه الزيارة.':
+        'The part is not among this visit’s parts.',
+    'لا تملك صلاحية الصرف من موقع المخزون هذا.':
+        'You are not allowed to issue stock from this location.',
+    'رُفضت حركة المخزون — قد لا تكون الكمية متاحة في مخزون سيارتك.':
+        'The stock movement was refused — the quantity may not be available in your vehicle stock.',
+    'تعذّر على الخادم تنفيذ العملية مؤقتاً. ستُعاد المحاولة تلقائياً.':
+        'The server could not process the action right now. It will be retried automatically.',
+    'الصورة أكبر من الحد الذي يقبله الخادم. أسقطها والتقط صورة بديلة.':
+        'The image is larger than the server accepts. Discard it and take a replacement.',
   };
 }
 

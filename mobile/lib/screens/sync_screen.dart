@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 
 import '../app_state.dart';
+import '../core/action_outbox.dart';
+import '../core/error_messages.dart';
 import '../core/event_queue.dart';
 
 /// The three states the technician must be able to see at a glance:
@@ -77,6 +79,71 @@ class _SyncScreenState extends State<SyncScreen> {
 
     await widget.state.runSync();
     await _load();
+  }
+
+  /// Why an upload gave up: the server's own reason when it named one (an
+  /// image over the size limit), otherwise the generic file sentence.
+  static String _uploadReason(Object? stored) {
+    final code = '$stored'.split(':').first.trim();
+    return hasFriendlyMessage(code)
+        ? friendlyRejection(code, null)
+        : 'رفض الخادم الملف أو تعذّرت قراءته.';
+  }
+
+  /// Stored as "CODE: server message".
+  static String _rejectionReason(String stored) {
+    final separator = stored.indexOf(':');
+    if (separator <= 0) return friendlyRejection(null, stored);
+    return friendlyRejection(
+      stored.substring(0, separator).trim(),
+      stored.substring(separator + 1).trim(),
+    );
+  }
+
+  Widget _actionCard(PendingAction action) {
+    final failed = action.status == ActionStatus.failed;
+    return Card(
+      color: failed ? Colors.red.shade50 : Colors.orange.shade50,
+      child: ListTile(
+        leading: Icon(
+          failed ? Icons.error_outline : Icons.schedule,
+          color: failed ? Colors.red : Colors.orange,
+        ),
+        title: LText(action.label.isEmpty ? action.kind : action.label),
+        subtitle: LText(
+          failed
+              ? (action.lastError ?? 'رفض الخادم هذه العملية.')
+              : 'بانتظار الإرسال',
+          style: const TextStyle(fontSize: 12),
+        ),
+        trailing: failed
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: context.tr('إعادة المحاولة'),
+                    icon: const Icon(Icons.refresh),
+                    onPressed: () async {
+                      // Same idempotency key: if the first attempt did land
+                      // after all, the server replays instead of repeating.
+                      await widget.state.outbox.retry(action.idempotencyKey);
+                      await widget.state.runSync(pull: false);
+                      await _load();
+                    },
+                  ),
+                  IconButton(
+                    tooltip: context.tr('تجاهل'),
+                    icon: const Icon(Icons.close),
+                    onPressed: () async {
+                      await widget.state.outbox.dismiss(action.idempotencyKey);
+                      await _load();
+                    },
+                  ),
+                ],
+              )
+            : null,
+      ),
+    );
   }
 
   @override
@@ -167,16 +234,24 @@ class _SyncScreenState extends State<SyncScreen> {
                             'زيارة ${upload['visit_id']} · محاولات: ${upload['attempts']}',
                             style: const TextStyle(fontSize: 12),
                           ),
-                          if (upload['last_error'] != null)
+                          if (upload['last_error'] != null) ...[
                             LText(
-                              '${upload['last_error']}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                              _uploadReason(upload['last_error']),
                               style: TextStyle(
                                 fontSize: 11,
                                 color: Colors.orange.shade900,
                               ),
                             ),
+                            Text(
+                              '${upload['last_error']}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       trailing: Row(
@@ -211,6 +286,20 @@ class _SyncScreenState extends State<SyncScreen> {
                 ),
                 const SizedBox(height: 24),
               ],
+              if (widget.state.outstandingActions.isNotEmpty) ...[
+                LText(
+                  'إجراءات بانتظار الإرسال',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                const LText(
+                  'العهد والجرد والتحويلات والتشخيص وطلبات العمل الإضافي والفحص. تُرسل تلقائياً عند توفر الشبكة.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 10),
+                ...widget.state.outstandingActions.map(_actionCard),
+                const SizedBox(height: 24),
+              ],
               if (_failed.isNotEmpty) ...[
                 LText(
                   'عمليات مرفوضة',
@@ -234,14 +323,26 @@ class _SyncScreenState extends State<SyncScreen> {
                             'زيارة ${event.visitId} · محاولات: ${event.attempts}',
                             style: const TextStyle(fontSize: 12),
                           ),
-                          if (event.lastError != null)
+                          if (event.lastError != null) ...[
+                            // The reason in the technician's language; the
+                            // server's own wording below it for the supervisor.
                             LText(
-                              event.lastError!,
+                              _rejectionReason(event.lastError!),
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.red.shade900,
                               ),
                             ),
+                            Text(
+                              event.lastError!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       trailing: IconButton(

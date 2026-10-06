@@ -99,6 +99,68 @@ void main() {
     await db.raw.close();
   });
 
+  test('a v2 database keeps its queue and gains the v3 columns', () async {
+    final path =
+        '${await databaseFactory.getDatabasesPath()}/upgrade_v2_${DateTime.now().microsecondsSinceEpoch}.db';
+
+    // The v2 outbound tables exactly as they shipped in 0.2.0.
+    final v2 = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(version: 2),
+    );
+    await v2.execute('''
+      CREATE TABLE pending_events (
+        client_event_id TEXT PRIMARY KEY, visit_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL, payload TEXT, device_timestamp TEXT NOT NULL,
+        monotonic_offset_ms INTEGER, last_trusted_server_time TEXT,
+        sequence INTEGER NOT NULL, lat REAL, lng REAL, source TEXT,
+        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT, created_at TEXT NOT NULL)
+    ''');
+    await v2.execute('''
+      CREATE TABLE pending_media (
+        client_media_id TEXT PRIMARY KEY, visit_id INTEGER NOT NULL,
+        checklist_instance_id INTEGER, asset_id INTEGER, kind TEXT NOT NULL,
+        mime TEXT, local_path TEXT NOT NULL, total_bytes INTEGER NOT NULL,
+        uploaded_bytes INTEGER NOT NULL DEFAULT 0, sha256 TEXT, captured_at TEXT,
+        lat REAL, lng REAL, state TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT)
+    ''');
+    await v2.insert('pending_events', {
+      'client_event_id': 'e-1',
+      'visit_id': 7,
+      'event_type': 'visit.transition',
+      'payload': '{"to":"started"}',
+      'device_timestamp': '2026-10-01T08:00:00Z',
+      'sequence': 1,
+      'created_at': '2026-10-01T08:00:00Z',
+    });
+    await v2.insert('pending_media', {
+      'client_media_id': 'm-1',
+      'visit_id': 7,
+      'kind': 'photo_after',
+      'local_path': '/x.jpg',
+      'total_bytes': 10,
+      'attempts': 3,
+    });
+    await v2.close();
+
+    final db = await LocalDb.open(path: path);
+
+    final event = (await db.raw.query('pending_events')).single;
+    expect(event['client_event_id'], 'e-1');
+    expect(event.containsKey('next_attempt_at'), isTrue);
+    expect(event['actor_user_id'], isNull);
+
+    final media = (await db.raw.query('pending_media')).single;
+    expect(media['attempts'], 3, reason: 'nothing reset by the upgrade');
+    expect(media['encrypted'], 0, reason: 'legacy files are plaintext');
+    expect(media['transient_failures'], 0);
+
+    expect(await db.raw.query('pending_actions'), isEmpty);
+    await db.raw.close();
+  });
+
   test('a fresh install already has the composite key', () async {
     final db = await LocalDb.open(path: inMemoryDatabasePath);
 

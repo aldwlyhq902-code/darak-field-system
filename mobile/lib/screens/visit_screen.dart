@@ -3,11 +3,125 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 
 import '../app_state.dart';
+import '../core/error_messages.dart';
 import '../core/evidence_store.dart';
+import '../core/geofence.dart';
+import '../core/visit_progress.dart';
 import 'scanner_screen.dart';
 import 'signature_screen.dart';
 import 'diagnosis_screen.dart';
 import 'additional_work_screen.dart';
+
+/// The button for one edge of the visit state machine.
+class VisitTransitionAction {
+  const VisitTransitionAction({
+    required this.from,
+    required this.to,
+    required this.label,
+    required this.icon,
+    this.backwards = false,
+    this.confirmation,
+  });
+
+  final String from;
+  final String to;
+
+  /// Arabic; English comes from [AppLocalizations].
+  final String label;
+  final IconData icon;
+  final bool backwards;
+
+  /// When set, the technician confirms first.
+  final String? confirmation;
+
+  bool get needsConfirmation => confirmation != null;
+
+  /// One entry per edge of `contracts/visit_transitions.json`; a test fails
+  /// if an edge is ever added without a label here.
+  static const all = <String, VisitTransitionAction>{
+    'scheduled>en_route': VisitTransitionAction(
+      from: 'scheduled',
+      to: 'en_route',
+      label: 'انطلاق',
+      icon: Icons.directions_car,
+    ),
+    'en_route>started': VisitTransitionAction(
+      from: 'en_route',
+      to: 'started',
+      label: 'بدء العمل في الموقع',
+      icon: Icons.play_arrow,
+    ),
+    'en_route>scheduled': VisitTransitionAction(
+      from: 'en_route',
+      to: 'scheduled',
+      label: 'إلغاء الانطلاق',
+      icon: Icons.undo,
+      backwards: true,
+      confirmation: 'تعود الزيارة إلى «مجدولة» ويتوقف احتساب وقت الطريق.',
+    ),
+    'started>paused': VisitTransitionAction(
+      from: 'started',
+      to: 'paused',
+      label: 'إيقاف مؤقت',
+      icon: Icons.pause,
+    ),
+    'started>awaiting_close': VisitTransitionAction(
+      from: 'started',
+      to: 'awaiting_close',
+      label: 'إنهاء العمل',
+      icon: Icons.done,
+    ),
+    'paused>started': VisitTransitionAction(
+      from: 'paused',
+      to: 'started',
+      label: 'استئناف',
+      icon: Icons.play_arrow,
+    ),
+    'paused>awaiting_close': VisitTransitionAction(
+      from: 'paused',
+      to: 'awaiting_close',
+      label: 'إنهاء العمل',
+      icon: Icons.done,
+    ),
+    'awaiting_close>completed': VisitTransitionAction(
+      from: 'awaiting_close',
+      to: 'completed',
+      label: 'إقفال الزيارة',
+      icon: Icons.lock,
+    ),
+    'awaiting_close>started': VisitTransitionAction(
+      from: 'awaiting_close',
+      to: 'started',
+      label: 'العودة للعمل',
+      icon: Icons.replay,
+      backwards: true,
+    ),
+    'completed>reopened': VisitTransitionAction(
+      from: 'completed',
+      to: 'reopened',
+      label: 'إعادة فتح الزيارة',
+      icon: Icons.lock_open,
+      backwards: true,
+      confirmation:
+          'الزيارة مقفلة وقد أُرسل تقريرها. أعد فتحها فقط إن كان هناك عمل لم يكتمل فعلاً.',
+    ),
+    'reopened>started': VisitTransitionAction(
+      from: 'reopened',
+      to: 'started',
+      label: 'استئناف العمل',
+      icon: Icons.play_arrow,
+    ),
+  };
+
+  static VisitTransitionAction of(String from, String to) =>
+      all['$from>$to'] ??
+      VisitTransitionAction(
+        from: from,
+        to: to,
+        label: to,
+        icon: Icons.arrow_forward,
+      );
+}
 
 /// One visit, from "انطلاق" to "إقفال".
 ///
@@ -73,29 +187,14 @@ class _VisitScreenState extends State<VisitScreen> {
   bool get _hasSignature =>
       _media.any((m) => m['kind'] == EvidenceStore.kindSignature);
 
-  /// Local mirror of the server's transition map. An unreachable button beats a
-  /// 409 the technician cannot interpret.
-  List<({String to, String label, IconData icon})> get _actions =>
-      switch (_state) {
-        'scheduled' => [
-          (to: 'en_route', label: 'انطلاق', icon: Icons.directions_car),
-        ],
-        'en_route' => [
-          (to: 'started', label: 'بدء العمل في الموقع', icon: Icons.play_arrow),
-        ],
-        'started' => [
-          (to: 'paused', label: 'إيقاف مؤقت', icon: Icons.pause),
-          (to: 'awaiting_close', label: 'إنهاء العمل', icon: Icons.done),
-        ],
-        'paused' => [
-          (to: 'started', label: 'استئناف', icon: Icons.play_arrow),
-          (to: 'awaiting_close', label: 'إنهاء العمل', icon: Icons.done),
-        ],
-        'awaiting_close' => [
-          (to: 'completed', label: 'إقفال الزيارة', icon: Icons.lock),
-        ],
-        _ => const [],
-      };
+  /// Built from the shared contract (`VisitProgress.transitions`), not a
+  /// hand-kept copy. The copy had drifted: a reopened visit had no button at
+  /// all (reopened → started), nor did "back to work" from awaiting close or
+  /// "cancel departure" — a dead end the technician could not leave.
+  List<VisitTransitionAction> get _actions =>
+      (VisitProgress.transitions[_state] ?? const <String>[])
+          .map((to) => VisitTransitionAction.of(_state, to))
+          .toList();
 
   List<String> get _missing {
     final missing = <String>[];
@@ -125,22 +224,47 @@ class _VisitScreenState extends State<VisitScreen> {
     return missing;
   }
 
-  Future<void> _transition(String to) async {
+  Future<void> _transition(VisitTransitionAction action) async {
+    final to = action.to;
     if (to == 'completed' && _missing.isNotEmpty) {
       _showMissing();
       return;
     }
 
+    if (action.needsConfirmation && !await _confirm(action)) return;
+    if (!mounted) return;
+
     setState(() => _busy = true);
 
-    // The local state advances immediately, so the next button appears with no
-    // network. The server's canonical state overrides it on the next sync.
-    final applied = await widget.state.transition(widget.visitId, to);
-    await _load();
+    try {
+      // At "start" and at close, where the technician is matters. One short
+      // wait for a fix (never more than ~5 s, never a refusal for lack of
+      // one); far from the site, a reason is required to continue (C3).
+      GeofenceCheck? geofence;
+      String? reason;
+      if (GeofenceCheck.appliesTo(to)) {
+        geofence = await widget.state.checkGeofence(widget.visitId);
+        if (!mounted) return;
+        if (geofence.needsReason) {
+          reason = await _askGeofenceReason(geofence);
+          if (reason == null) return;
+        }
+      }
 
-    if (mounted) {
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      // The local state advances immediately, so the next button appears with
+      // no network. The server's canonical state overrides it once it has seen
+      // the transition.
+      final applied = await widget.state.transition(
+        widget.visitId,
+        to,
+        geofence: geofence,
+        overrideReason: reason,
+      );
+      await _load();
+
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
         SnackBar(
           content: LText(
             applied
@@ -149,7 +273,97 @@ class _VisitScreenState extends State<VisitScreen> {
           ),
         ),
       );
+      if (applied && (geofence?.isMocked ?? false)) {
+        messenger.showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.orange.shade800,
+            duration: const Duration(seconds: 6),
+            content: const LText(
+              'تنبيه: يبدو أن الموقع صادر من تطبيق مواقع وهمية. سُجّلت العملية، وسيظهر ذلك للمشرف.',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: LText(friendlyError(error, context: 'transition'))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<bool> _confirm(VisitTransitionAction action) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: LText(action.label),
+        content: LText(action.confirmation ?? ''),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const LText('تراجع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: LText(action.label),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  /// The technician is clearly away from the site. Allowed — buildings with
+  /// several entrances, wrong pins on the map — but never silently.
+  Future<String?> _askGeofenceReason(GeofenceCheck check) async {
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const LText('أنت خارج نطاق موقع العميل'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              LText(
+                'المسافة عن الموقع نحو ${check.distanceM?.round() ?? '—'} م '
+                '(المسموح ${check.allowedM?.round() ?? '—'} م). اكتب سبباً مختصراً للمتابعة.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                maxLength: 200,
+                decoration: InputDecoration(
+                  labelText: context.tr('سبب العمل خارج النطاق'),
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const LText('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: controller.text.trim().length < 3
+                  ? null
+                  : () => Navigator.pop(context, controller.text.trim()),
+              child: const LText('تأكيد ومتابعة'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return reason;
   }
 
   void _showMissing() {
@@ -198,13 +412,21 @@ class _VisitScreenState extends State<VisitScreen> {
   Future<void> _capture(Map<String, dynamic> asset) async {
     setState(() => _busy = true);
 
-    await widget.state.capturePhoto(
-      visitId: widget.visitId,
-      assetId: asset['id'] as int,
-    );
-
-    await _load();
-    if (mounted) setState(() => _busy = false);
+    try {
+      await widget.state.capturePhoto(
+        visitId: widget.visitId,
+        assetId: asset['id'] as int,
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: LText(friendlyError(error, context: 'capture'))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _sign() async {
@@ -456,11 +678,22 @@ class _VisitScreenState extends State<VisitScreen> {
               ..._actions.map(
                 (action) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : () => _transition(action.to),
-                    icon: Icon(action.icon),
-                    label: LText(action.label),
-                  ),
+                  // Steps backwards are outlined so a gloved thumb does not
+                  // undo a departure or reopen a closed visit by accident.
+                  child: action.backwards
+                      ? OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                          ),
+                          onPressed: _busy ? null : () => _transition(action),
+                          icon: Icon(action.icon),
+                          label: LText(action.label),
+                        )
+                      : FilledButton.icon(
+                          onPressed: _busy ? null : () => _transition(action),
+                          icon: Icon(action.icon),
+                          label: LText(action.label),
+                        ),
                 ),
               ),
               if (_state == 'awaiting_close' && _missing.isNotEmpty)

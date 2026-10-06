@@ -221,9 +221,10 @@ void main() {
           reason: 'transport failure is not the event\'s fault',
         );
 
-        // Server recovers.
+        // Server recovers. A sync the technician asks for ignores the
+        // backoff a 503 set; automatic ones wait it out (sync_resilience_test).
         server.failWith = null;
-        final retry = (await engine.sync())!;
+        final retry = (await engine.sync(force: true))!;
         expect(retry.accepted, 2);
         expect(await queue.pending(), isEmpty);
       },
@@ -359,7 +360,7 @@ class _FakeServer {
           results.add({
             'client_event_id': id,
             'status': 'rejected',
-            'code': 'EVENT_FAILED',
+            'code': 'STOCK_MOVE_REFUSED',
             'message': 'Insufficient stock at [Vehicle 1]',
           });
           continue;

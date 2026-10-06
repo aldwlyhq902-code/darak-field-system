@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import 'backoff.dart';
 import 'local_db.dart';
+import 'location.dart';
 import 'trusted_clock.dart';
 
 /// Status of a queued action as the technician sees it: بانتظار المزامنة / فشل / تمت.
@@ -24,10 +26,15 @@ class QueuedEvent {
     this.lastTrustedServerTime,
     this.lat,
     this.lng,
+    this.accuracyM,
+    this.isMocked,
+    this.actorUserId,
     this.source = 'offline',
     this.status = QueuedStatus.pending,
     this.attempts = 0,
     this.lastError,
+    this.nextAttemptAt,
+    this.transientFailures = 0,
   });
 
   final String clientEventId;
@@ -40,10 +47,20 @@ class QueuedEvent {
   final DateTime? lastTrustedServerTime;
   final double? lat;
   final double? lng;
+  final double? accuracyM;
+  final bool? isMocked;
+
+  /// The technician signed in when this was recorded (contract C6). The server
+  /// refuses an event whose author is not the token's user.
+  final int? actorUserId;
   final String source;
   final QueuedStatus status;
   final int attempts;
   final String? lastError;
+  final DateTime? nextAttemptAt;
+
+  /// Consecutive outages/server failures; drives the backoff, never a failure.
+  final int transientFailures;
 
   factory QueuedEvent.fromRow(Map<String, dynamic> row) => QueuedEvent(
     clientEventId: row['client_event_id'] as String,
@@ -60,10 +77,17 @@ class QueuedEvent {
         : DateTime.tryParse(row['last_trusted_server_time'] as String),
     lat: (row['lat'] as num?)?.toDouble(),
     lng: (row['lng'] as num?)?.toDouble(),
+    accuracyM: (row['accuracy_m'] as num?)?.toDouble(),
+    isMocked: row['is_mocked'] == null ? null : row['is_mocked'] == 1,
+    actorUserId: row['actor_user_id'] as int?,
     source: (row['source'] as String?) ?? 'offline',
     status: QueuedStatus.values.byName(row['status'] as String),
     attempts: row['attempts'] as int? ?? 0,
     lastError: row['last_error'] as String?,
+    transientFailures: row['transient_failures'] as int? ?? 0,
+    nextAttemptAt: row['next_attempt_at'] == null
+        ? null
+        : DateTime.tryParse(row['next_attempt_at'] as String),
   );
 
   Map<String, dynamic> toWire() => {
@@ -81,8 +105,12 @@ class QueuedEvent {
           .toUtc()
           .toIso8601String(),
     'sequence': sequence,
+    // Location evidence, top-level (contract C3).
     if (lat != null) 'lat': lat,
     if (lng != null) 'lng': lng,
+    if (accuracyM != null) 'accuracy_m': accuracyM,
+    if (isMocked != null) 'is_mocked': isMocked,
+    if (actorUserId != null) 'actor_user_id': actorUserId,
     'source': source,
   };
 }
@@ -107,8 +135,10 @@ class EventQueue {
     required int visitId,
     required String eventType,
     Map<String, dynamic> payload = const {},
+    LocationFix? location,
     double? lat,
     double? lng,
+    int? actorUserId,
     String source = 'offline',
     String? clientEventId,
   }) => _db.raw.transaction(
@@ -117,37 +147,47 @@ class EventQueue {
       visitId: visitId,
       eventType: eventType,
       payload: payload,
+      location: location,
       lat: lat,
       lng: lng,
+      actorUserId: actorUserId,
       source: source,
       clientEventId: clientEventId,
     ),
   );
 
   /// Inserts an event and advances its causal sequence in the caller's SQLite
-  /// transaction. Evidence capture uses this to commit its media row and the
-  /// matching registration event as one indivisible unit.
+  /// transaction. Evidence capture and every local write (state, checklist,
+  /// parts declaration) use this so the change and the event that reports it
+  /// commit as one indivisible unit.
   Future<QueuedEvent> enqueueInTransaction(
     DatabaseExecutor transaction, {
     required int visitId,
     required String eventType,
     Map<String, dynamic> payload = const {},
+    LocationFix? location,
     double? lat,
     double? lng,
+    int? actorUserId,
     String source = 'offline',
     String? clientEventId,
   }) async {
+    final time = await _clock.sample();
+
     final event = QueuedEvent(
       clientEventId: clientEventId ?? _uuid.v4(),
       visitId: visitId,
       eventType: eventType,
       payload: payload,
-      deviceTimestamp: _clock.deviceNow,
+      deviceTimestamp: time.deviceTime,
       sequence: await _db.nextSequence(transaction),
-      monotonicOffsetMs: _clock.monotonicOffsetMs,
-      lastTrustedServerTime: _clock.lastTrustedServerTime,
-      lat: lat,
-      lng: lng,
+      monotonicOffsetMs: time.monotonicOffsetMs,
+      lastTrustedServerTime: time.lastTrustedServerTime,
+      lat: location?.lat ?? lat,
+      lng: location?.lng ?? lng,
+      accuracyM: location?.accuracyM,
+      isMocked: location?.isMocked,
+      actorUserId: actorUserId,
       source: source,
     );
 
@@ -163,6 +203,9 @@ class EventQueue {
       'sequence': event.sequence,
       'lat': event.lat,
       'lng': event.lng,
+      'accuracy_m': event.accuracyM,
+      'is_mocked': event.isMocked == null ? null : (event.isMocked! ? 1 : 0),
+      'actor_user_id': event.actorUserId,
       'source': event.source,
       'status': QueuedStatus.pending.name,
       'attempts': 0,
@@ -173,11 +216,23 @@ class EventQueue {
   }
 
   /// Oldest first, by the device sequence — the causal order the server replays in.
-  Future<List<QueuedEvent>> pending({int limit = 200}) async {
+  ///
+  /// Rows waiting out a server-side backoff are skipped unless [ignoreBackoff]
+  /// (a sync the technician asked for by hand).
+  Future<List<QueuedEvent>> pending({
+    int limit = 200,
+    bool ignoreBackoff = true,
+    DateTime? now,
+  }) async {
     final rows = await _db.raw.query(
       'pending_events',
-      where: 'status = ?',
-      whereArgs: [QueuedStatus.pending.name],
+      where: ignoreBackoff
+          ? 'status = ?'
+          : 'status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)',
+      whereArgs: [
+        QueuedStatus.pending.name,
+        if (!ignoreBackoff) nowForEligibility(now),
+      ],
       orderBy: 'sequence ASC',
       limit: limit,
     );
@@ -192,7 +247,11 @@ class EventQueue {
     for (final id in ids) {
       batch.update(
         'pending_events',
-        {'status': QueuedStatus.synced.name, 'last_error': null},
+        {
+          'status': QueuedStatus.synced.name,
+          'last_error': null,
+          'next_attempt_at': null,
+        },
         // A response can arrive after the technician discarded the evidence.
         // Never revive a registration that was cancelled while the request was
         // in flight.
@@ -205,23 +264,55 @@ class EventQueue {
 
   Future<void> markFailed(String id, String reason) async {
     await _db.raw.rawUpdate(
-      'UPDATE pending_events SET status = ?, attempts = attempts + 1, last_error = ? '
+      'UPDATE pending_events SET status = ?, attempts = attempts + 1, last_error = ?, next_attempt_at = NULL '
       'WHERE client_event_id = ? AND status = ?',
       [QueuedStatus.failed.name, reason, id, QueuedStatus.pending.name],
     );
   }
 
-  /// Transport failure (no signal, 500). Not the event's fault — it stays pending
-  /// and only the attempt counter moves.
-  Future<void> noteAttempt(Iterable<String> ids, String reason) async {
+  /// No answer, a 5xx/429, or a server-side failure of the event
+  /// (EVENT_FAILED / DB_ERROR). Not the event's fault and NOT an attempt: only
+  /// the transient counter that drives the backoff moves. With [retryAt] the
+  /// rows wait it out before automatic syncs retry them.
+  Future<void> noteTransient(
+    Iterable<String> ids,
+    String reason, {
+    DateTime? retryAt,
+  }) async {
     if (ids.isEmpty) return;
 
     final batch = _db.raw.batch();
     for (final id in ids) {
       batch.rawUpdate(
-        'UPDATE pending_events SET attempts = attempts + 1, last_error = ? '
+        'UPDATE pending_events SET transient_failures = transient_failures + ?, last_error = ?, next_attempt_at = ? '
         'WHERE client_event_id = ? AND status = ?',
-        [reason, id, QueuedStatus.pending.name],
+        [
+          retryAt == null ? 0 : 1,
+          reason,
+          encodeAttemptTime(retryAt),
+          id,
+          QueuedStatus.pending.name,
+        ],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// The server looked at the event and refused it for now (a close waiting
+  /// for its evidence). It stays pending; the attempt counter moves.
+  Future<void> noteAttempt(
+    Iterable<String> ids,
+    String reason, {
+    DateTime? retryAt,
+  }) async {
+    if (ids.isEmpty) return;
+
+    final batch = _db.raw.batch();
+    for (final id in ids) {
+      batch.rawUpdate(
+        'UPDATE pending_events SET attempts = attempts + 1, last_error = ?, next_attempt_at = ? '
+        'WHERE client_event_id = ? AND status = ?',
+        [reason, encodeAttemptTime(retryAt), id, QueuedStatus.pending.name],
       );
     }
     await batch.commit(noResult: true);
@@ -253,6 +344,26 @@ class EventQueue {
     );
 
     return rows.map(QueuedEvent.fromRow).toList();
+  }
+
+  /// True while a `media.register` for this file has not reached the server.
+  /// Uploading before it lands only earns a 404 for an unknown file.
+  Future<bool> registrationPending(String clientMediaId) async {
+    final rows = await _db.raw.query(
+      'pending_events',
+      columns: ['payload'],
+      where: 'event_type = ? AND status = ? AND payload LIKE ?',
+      whereArgs: [
+        'media.register',
+        QueuedStatus.pending.name,
+        '%$clientMediaId%',
+      ],
+    );
+    return rows.any((row) {
+      final payload =
+          jsonDecode(row['payload'] as String? ?? '{}') as Map<String, dynamic>;
+      return payload['client_media_id'] == clientMediaId;
+    });
   }
 
   /// Cancels a `media.register` that can no longer produce useful work.
@@ -311,7 +422,11 @@ class EventQueue {
   Future<void> requeue(String id) async {
     await _db.raw.update(
       'pending_events',
-      {'status': QueuedStatus.pending.name, 'last_error': null},
+      {
+        'status': QueuedStatus.pending.name,
+        'last_error': null,
+        'next_attempt_at': null,
+      },
       where: 'client_event_id = ? AND status = ?',
       whereArgs: [id, QueuedStatus.failed.name],
     );

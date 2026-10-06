@@ -30,16 +30,20 @@ dependencies:
   # never offered, so a photo cannot be "found" instead of taken.
   image_picker: ^1.1.2
   signature: ^5.5.0
-  mobile_scanner: ^5.2.3
+  mobile_scanner: ^7.4.2
   # Credentials and the SQLCipher key stay in the platform keystore.
   flutter_secure_storage: ^9.2.2
   geolocator: ^13.0.1
+  package_info_plus: ^9.0.1
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
   sqflite_common_ffi: ^2.3.3   # lets the sync engine be tested on the desktop
+  integration_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true
