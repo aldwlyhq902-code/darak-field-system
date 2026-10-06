@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\InventoryLot;
+use App\Models\OperatingCompany;
 use App\Models\Part;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -46,9 +47,12 @@ class ProcurementPanelController extends Controller
         private readonly TenantAccess $tenantAccess,
     ) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
         return view('panel.procurement', [
+            // Suppliers are company-owned (global scope): a platform admin files
+            // one for a chosen company.
+            'companies' => $request->user()->isPlatformAdmin() ? OperatingCompany::orderBy('name')->get(['id', 'name']) : collect(),
             // Growing lists page independently (named pages); selects keep the
             // complete reference sets they need instead of a silently capped slice.
             'suppliers' => Supplier::with('parts')->orderBy('name')->paginate(20, ['*'], 'suppliers_page')->withQueryString(),
@@ -100,6 +104,8 @@ class ProcurementPanelController extends Controller
             'items.*.part_id' => ['required', 'distinct', 'exists:parts,id'], 'items.*.qty' => ['required', 'numeric', 'gt:0'],
             'items.*.unit_cost' => ['required', 'numeric', 'min:0'],
         ]);
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        Supplier::query()->findOrFail($data['supplier_id']);
         try {
             $this->rfqs->recordSupplierQuotation($rfq, $data, $request->user()->id);
         } catch (RuntimeException $e) {
@@ -122,8 +128,16 @@ class ProcurementPanelController extends Controller
 
     public function supplier(Request $request): RedirectResponse
     {
-        $data = $request->validate(['name' => ['required', 'string', 'max:190'], 'vat_number' => ['nullable', 'string', 'max:32'], 'phone' => ['nullable', 'string', 'max:32'], 'email' => ['nullable', 'email'], 'lead_time_days' => ['required', 'integer', 'min:0', 'max:365'], 'notes' => ['nullable', 'string', 'max:1000']]);
-        Supplier::create($data + ['is_active' => true]);
+        $data = $request->validate(['name' => ['required', 'string', 'max:190'], 'vat_number' => ['nullable', 'string', 'max:32'], 'phone' => ['nullable', 'string', 'max:32'], 'email' => ['nullable', 'email'], 'lead_time_days' => ['required', 'integer', 'min:0', 'max:365'], 'notes' => ['nullable', 'string', 'max:1000'], 'operating_company_id' => ['nullable', 'integer', 'exists:operating_companies,id']]);
+        $actor = $request->user();
+        // Filed in the actor's company directory; only a platform admin may file
+        // a supplier for another company.
+        $companyId = $actor->isPlatformAdmin() ? ($data['operating_company_id'] ?? $actor->operating_company_id) : $actor->operating_company_id;
+        if ($companyId === null) {
+            return back()->with('err', 'اختر الشركة التي يتبعها المورد.');
+        }
+        unset($data['operating_company_id']);
+        Supplier::create($data + ['operating_company_id' => (int) $companyId, 'is_active' => true]);
 
         return back()->with('ok', 'أُضيف المورد.');
     }
@@ -139,8 +153,13 @@ class ProcurementPanelController extends Controller
     public function order(Request $request): RedirectResponse
     {
         $data = $request->validate(['supplier_id' => ['required', 'exists:suppliers,id'], 'destination_location_id' => ['required', 'exists:stock_locations,id'], 'expected_on' => ['nullable', 'date', 'after_or_equal:today'], 'note' => ['nullable', 'string', 'max:1000'], 'part_id' => ['required', 'exists:parts,id'], 'qty' => ['required', 'numeric', 'gt:0'], 'unit_cost' => ['required', 'numeric', 'min:0']]);
-        abort_unless(Supplier::findOrFail($data['supplier_id'])->is_active, 422);
+        // Scoped loads; and a supplier only supplies its own company's warehouses
+        // (also for a platform admin, who has no scope).
+        $supplier = Supplier::query()->findOrFail($data['supplier_id']);
+        abort_unless($supplier->is_active, 422);
         abort_unless(StockLocation::findOrFail($data['destination_location_id'])->type === StockLocation::TYPE_WAREHOUSE, 422);
+        abort_unless($supplier->operating_company_id !== null
+            && (int) $supplier->operating_company_id === $this->tenantAccess->locationCompanyId((int) $data['destination_location_id']), 422, 'المورد لا يتبع شركة المستودع.');
         $order = DB::transaction(function () use ($data, $request) {
             $subtotal = Money::mul($data['qty'], $data['unit_cost']);
             $vat = Money::vat($subtotal, '0.15');

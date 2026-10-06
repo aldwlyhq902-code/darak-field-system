@@ -60,6 +60,16 @@ class TenantAccess
         $this->assertCompany($actor, $companyId === null ? null : (int) $companyId, $status);
     }
 
+    /** The company owning a stock location (through its branch), read straight from the tables. */
+    public function locationCompanyId(int $locationId): ?int
+    {
+        $companyId = DB::table('stock_locations')
+            ->join('operating_branches', 'operating_branches.id', '=', 'stock_locations.operating_branch_id')
+            ->where('stock_locations.id', $locationId)->value('operating_branches.operating_company_id');
+
+        return $companyId === null ? null : (int) $companyId;
+    }
+
     public function allowsCompany(User $actor, ?int $companyId): bool
     {
         return $actor->isPlatformAdmin()

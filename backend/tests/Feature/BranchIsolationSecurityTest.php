@@ -50,7 +50,7 @@ class BranchIsolationSecurityTest extends DarakTestCase
             'name' => 'B-PRIVATE-WAREHOUSE', 'type' => StockLocation::TYPE_WAREHOUSE,
             'operating_branch_id' => $branchB->id, 'is_active' => true,
         ]);
-        $supplier = Supplier::create(['name' => 'Private Supplier', 'is_active' => true]);
+        $supplier = Supplier::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'Private Supplier', 'is_active' => true]);
         $order = PurchaseOrder::withoutGlobalScopes()->create([
             'po_number' => 'PO-PRIVATE-B', 'supplier_id' => $supplier->id,
             'destination_location_id' => $location->id, 'ordered_on' => now(),

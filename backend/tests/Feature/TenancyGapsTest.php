@@ -15,15 +15,20 @@ use App\Models\KnowledgeArticle;
 use App\Models\OperatingBranch;
 use App\Models\OperatingCompany;
 use App\Models\Payment;
+use App\Models\PurchaseOrder;
 use App\Models\Quotation;
+use App\Models\ReplenishmentRequest;
 use App\Models\Site;
+use App\Models\StockLocation;
 use App\Models\Subcontractor;
 use App\Models\SubcontractorOrder;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Services\AssetIntelligenceService;
 use App\Services\CommissionService;
+use App\Services\ReplenishmentService;
 use App\Services\SubcontractorService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Hash;
@@ -245,6 +250,39 @@ class TenancyGapsTest extends DarakTestCase
         $this->assertNotContains('Our compressor recipe', app(AssetIntelligenceService::class)->diagnosisSuggestions($foreignAsset, 'E01')->pluck('title')->all());
         $this->actingAs($foreign['owner'], 'web')->get(route('panel.intelligence'))
             ->assertOk()->assertDontSee('Our compressor recipe');
+    }
+
+    public function test_the_supplier_directory_and_negotiated_prices_stay_inside_the_company(): void
+    {
+        $foreign = $this->foreignTenant();
+        $foreignWarehouse = StockLocation::withoutGlobalScopes()->create([
+            'type' => StockLocation::TYPE_WAREHOUSE, 'name' => 'Foreign Warehouse',
+            'operating_branch_id' => $foreign['branch']->id, 'is_active' => true,
+        ]);
+        $this->actingAs($this->owner, 'web')->post(route('panel.procurement.supplier'), [
+            'name' => 'Our Parts Wholesaler', 'vat_number' => '300000000000003', 'lead_time_days' => 2,
+        ])->assertSessionHas('ok');
+        $supplier = Supplier::withoutGlobalScopes()->sole();
+        $this->assertSame($this->operatingCompany->id, (int) $supplier->operating_company_id);
+        $this->post(route('panel.procurement.supplier-part', $supplier), ['part_id' => $this->part->id, 'last_price' => 33.5])
+            ->assertSessionHas('ok');
+
+        // The nightly scan (no user) suggests a supplier only to its own company's warehouses.
+        $this->app['auth']->forgetGuards();
+        app(ReplenishmentService::class)->scan();
+        $this->assertSame($supplier->id, ReplenishmentRequest::withoutGlobalScopes()->where('stock_location_id', $this->warehouse->id)->value('suggested_supplier_id'));
+        $this->assertNull(ReplenishmentRequest::withoutGlobalScopes()->where('stock_location_id', $foreignWarehouse->id)->value('suggested_supplier_id'));
+
+        $this->actingAs($foreign['owner'], 'web')->get(route('panel.procurement'))
+            ->assertOk()->assertDontSee('Our Parts Wholesaler')->assertDontSee('300000000000003');
+        $this->post(route('panel.procurement.supplier-part', $supplier), ['part_id' => $this->part->id, 'last_price' => 1])
+            ->assertNotFound();
+        $this->post(route('panel.procurement.order'), [
+            'supplier_id' => $supplier->id, 'destination_location_id' => $foreignWarehouse->id,
+            'part_id' => $this->part->id, 'qty' => 1, 'unit_cost' => 1,
+        ])->assertNotFound();
+        $this->assertEqualsWithDelta(33.5, (float) $supplier->parts()->sole()->pivot->last_price, .001);
+        $this->assertSame(0, PurchaseOrder::withoutGlobalScopes()->count());
     }
 
     private function delegate(string $email): ClientPortalUser
