@@ -200,6 +200,18 @@ class InvoiceService
      *
      * @param  array{external_number: string, issued_on: string, qr_reference?: ?string}  $data
      */
+    /** The company owning a document: its client's, or for a client-less one its visit's. */
+    private function documentCompany(ExternalDocument $document): ?int
+    {
+        $companyId = $document->client_id !== null
+            ? DB::table('clients')->where('id', $document->client_id)->value('operating_company_id')
+            : DB::table('visits')->join('sites', 'sites.id', '=', 'visits.site_id')
+                ->join('clients', 'clients.id', '=', 'sites.client_id')
+                ->where('visits.id', $document->visit_id)->value('clients.operating_company_id');
+
+        return $companyId === null ? null : (int) $companyId;
+    }
+
     public function recordManualIssue(ExternalDocument $document, array $data, User $actor): ExternalDocument
     {
         return DB::transaction(function () use ($document, $data, $actor): ExternalDocument {
@@ -210,11 +222,19 @@ class InvoiceService
             }
 
             $number = trim($data['external_number']);
+            // Numbering is per company: another company's numbers are neither
+            // revealed by this check nor a reason to refuse.
             $duplicate = ExternalDocument::query()
                 ->where('provider', 'manual')
                 ->where('doc_type', $document->doc_type)
                 ->where('external_number', $number)
                 ->whereKeyNot($document->id)
+                ->when($this->documentCompany($document), fn ($query, int $companyId) => $query->where(fn ($same) => $same
+                    ->whereIn('client_id', DB::table('clients')->where('operating_company_id', $companyId)->select('id'))
+                    ->orWhere(fn ($orphan) => $orphan->whereNull('client_id')->whereIn('visit_id', DB::table('visits')
+                        ->join('sites', 'sites.id', '=', 'visits.site_id')
+                        ->join('clients', 'clients.id', '=', 'sites.client_id')
+                        ->where('clients.operating_company_id', $companyId)->select('visits.id')))))
                 ->exists();
             if ($duplicate) {
                 throw new RuntimeException('رقم المستند الخارجي مسجل مسبقًا لمستند آخر.');

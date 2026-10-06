@@ -10,6 +10,7 @@ use App\Models\CommissionEntry;
 use App\Models\CommissionRule;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
+use App\Models\ExternalDocument;
 use App\Models\FaultPredictionModel;
 use App\Models\InventoryLot;
 use App\Models\KnowledgeArticle;
@@ -31,6 +32,8 @@ use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Services\AssetIntelligenceService;
 use App\Services\CommissionService;
+use App\Services\InvoiceService;
+use App\Services\Invoicing\ManualInvoiceProvider;
 use App\Services\ReplenishmentService;
 use App\Services\SubcontractorService;
 use Carbon\CarbonImmutable;
@@ -338,6 +341,35 @@ class TenancyGapsTest extends DarakTestCase
             'category' => 'technicians', 'settings' => [$ours->id => ['weight' => 100, 'target' => 1, 'minimum_sample' => 1]],
         ])->assertStatus(422);
         $this->assertEqualsWithDelta(97, (float) $ours->fresh()->target, .001);
+    }
+
+    public function test_invoice_and_employee_numbers_are_unique_per_company_not_across_companies(): void
+    {
+        $foreign = $this->foreignTenant();
+        $issued = fn (int $clientId, string $number, string $status) => ExternalDocument::create([
+            'doc_type' => ExternalDocument::TYPE_INVOICE, 'provider' => 'manual', 'client_id' => $clientId,
+            'external_number' => $number, 'amount' => 100, 'vat_amount' => 15, 'status' => $status,
+        ]);
+        $issued($foreign['client']->id, 'INV-0001', 'issued');
+        $ours = $issued($this->client->id, '', ManualInvoiceProvider::STATUS_PENDING);
+        $ours->forceFill(['external_number' => null])->save();
+
+        // Another company's numbering is neither revealed nor a blocker.
+        app(InvoiceService::class)->recordManualIssue($ours, ['external_number' => 'INV-0001', 'issued_on' => today()->toDateString()], $this->owner);
+        $this->assertSame('issued', $ours->fresh()->status);
+        $second = $issued($this->client->id, '', ManualInvoiceProvider::STATUS_PENDING);
+        try {
+            app(InvoiceService::class)->recordManualIssue($second, ['external_number' => 'INV-0001', 'issued_on' => today()->toDateString()], $this->owner);
+            $this->fail('a duplicate inside the company must still be refused');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('مسجل مسبقًا', $e->getMessage());
+        }
+
+        $profile = ['employee_no' => 'EMP-100', 'annual_leave_days' => 21];
+        $this->actingAs($this->owner, 'web')->put(route('panel.hr.profile', $this->technician), $profile)->assertSessionHas('ok');
+        $this->put(route('panel.hr.profile', $this->otherTechnician), $profile)->assertSessionHasErrors('employee_no');
+        $this->actingAs($foreign['owner'], 'web')->put(route('panel.hr.profile', $foreign['technician']), $profile)
+            ->assertSessionHasNoErrors()->assertSessionHas('ok');
     }
 
     private function delegate(string $email): ClientPortalUser

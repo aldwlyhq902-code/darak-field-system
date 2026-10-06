@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EmployeeProfile extends Model
 {
-    protected $fillable = ['user_id', 'employee_no', 'nationality', 'hired_on', 'annual_leave_days', 'emergency_contact_name', 'emergency_contact_phone', 'notes'];
+    protected $fillable = ['user_id', 'operating_company_id', 'employee_no', 'nationality', 'hired_on', 'annual_leave_days', 'emergency_contact_name', 'emergency_contact_phone', 'notes'];
 
     protected function casts(): array
     {

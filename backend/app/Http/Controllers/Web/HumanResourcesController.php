@@ -47,7 +47,8 @@ class HumanResourcesController extends Controller
     public function profile(Request $request, User $user): RedirectResponse
     {
         $this->authorizeUser($request, $user);
-        $employeeNoRule = Rule::unique('employee_profiles', 'employee_no');
+        // Employee numbers are unique per company, never across companies.
+        $employeeNoRule = Rule::unique('employee_profiles', 'employee_no')->where('operating_company_id', $user->operating_company_id);
         if ($user->employeeProfile) {
             $employeeNoRule->ignore($user->employeeProfile->id);
         }
@@ -60,7 +61,7 @@ class HumanResourcesController extends Controller
         ]);
         $profile = $user->employeeProfile ?? new EmployeeProfile(['user_id' => $user->id]);
         $before = $profile->exists ? $profile->getAttributes() : null;
-        $profile->fill($data + ['user_id' => $user->id])->save();
+        $profile->fill($data + ['user_id' => $user->id, 'operating_company_id' => $user->operating_company_id])->save();
         $this->audit->record('employee.profile_saved', $profile, $before, $profile->getAttributes(), $request->user()->id);
 
         return back()->with('ok', 'حُفظ ملف الموظف.');
