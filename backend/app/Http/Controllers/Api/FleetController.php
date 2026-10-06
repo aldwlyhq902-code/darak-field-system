@@ -6,9 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Vehicle;
 use App\Services\AuditLogger;
 use App\Services\FleetManagementService;
+use App\Support\PrivateFiles;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class FleetController extends Controller
 {
@@ -34,7 +34,7 @@ class FleetController extends Controller
             'photo' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:5120'],
         ]);
         $file = $request->file('photo');
-        $path = $file?->store('vehicle-inspections/'.$vehicle->id, 'local');
+        $path = $file?->store('vehicle-inspections/'.$vehicle->id, PrivateFiles::diskName());
         try {
             $result = $this->fleet->recordInspection(
                 $vehicle, $request->user(), (float) $data['odometer_km'],
@@ -47,7 +47,7 @@ class FleetController extends Controller
             );
         } catch (\Throwable $exception) {
             if ($path) {
-                Storage::disk('local')->delete($path);
+                PrivateFiles::disk()->delete($path);
             }
             throw $exception;
         }

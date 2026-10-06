@@ -6,7 +6,7 @@ use App\Contracts\InvoiceProvider;
 use App\Models\Visit;
 use App\Policies\VisitPolicy;
 use App\Services\BackupService;
-use App\Services\Invoicing\FakeInvoiceProvider;
+use App\Services\Invoicing\InvoiceProviderFactory;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -14,11 +14,10 @@ class DarakServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // Swapping to the real e-invoicing provider is a one-line change here.
+        // Every supported provider is an explicit arm in the factory; an unknown
+        // value throws on resolution instead of silently becoming the fake.
         $this->app->singleton(InvoiceProvider::class, function () {
-            return match (config('darak.invoice_provider', 'fake')) {
-                default => new FakeInvoiceProvider,
-            };
+            return InvoiceProviderFactory::make(config('darak.invoice_provider', 'fake'));
         });
 
         // Backups live outside the app directory in production so a bad deploy

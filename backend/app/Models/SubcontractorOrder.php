@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\ScopedToOperatingBranch;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -44,15 +45,13 @@ class SubcontractorOrder extends Model
     }
 
     /** Shown before the assignment is confirmed, never after the fact. */
-    public function margin(): float
+    public function margin(): string
     {
-        return round((float) $this->sale_price - (float) $this->purchase_cost, 2);
+        return Money::sub($this->sale_price, $this->purchase_cost);
     }
 
     public function marginPercent(): ?float
     {
-        $sale = (float) $this->sale_price;
-
-        return $sale > 0 ? round($this->margin() / $sale * 100, 1) : null;
+        return Money::ratioPercent($this->margin(), $this->sale_price);
     }
 }

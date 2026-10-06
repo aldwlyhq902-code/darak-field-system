@@ -9,10 +9,10 @@ use App\Models\EmployeeProfile;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\LeaveManagementService;
+use App\Support\PrivateFiles;
 use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use RuntimeException;
@@ -24,17 +24,23 @@ class HumanResourcesController extends Controller
 
     public function index(Request $request): View
     {
-        $users = User::query()->with(['employeeProfile', 'employeeDocuments' => fn ($query) => $query->where('status', 'active')->latest('expires_on'), 'employeeLeaves' => fn ($query) => $query->latest('starts_on')->limit(10)])
+        $staff = User::query()
             ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
-            ->when($request->user()->operating_branch_id, fn ($query, $branchId) => $query->where('operating_branch_id', $branchId))
-            ->orderBy('name')->get();
+            ->when($request->user()->operating_branch_id, fn ($query, $branchId) => $query->where('operating_branch_id', $branchId));
+        $users = (clone $staff)->with(['employeeProfile', 'employeeDocuments' => fn ($query) => $query->where('status', 'active')->latest('expires_on')])
+            ->orderBy('name')->paginate(20, ['*'], 'employees_page')->withQueryString();
+        $documents = EmployeeDocument::query()->where('status', 'active')->whereNotNull('expires_on')->where('expires_on', '<=', now()->addDays(90));
 
+        // Lists page independently; the KPI counts are aggregates over all rows.
         return view('panel.human-resources', [
             'users' => $users,
-            'balances' => $users->mapWithKeys(fn (User $user) => [$user->id => $this->leaves->balance($user)]),
-            'expiringDocuments' => EmployeeDocument::with('user')->where('status', 'active')->whereNotNull('expires_on')->where('expires_on', '<=', now()->addDays(90))->orderBy('expires_on')->get(),
-            'pendingLeaves' => EmployeeLeave::with('user')->where('status', 'pending')->orderBy('starts_on')->get(),
-            'recentLeaves' => EmployeeLeave::with('user')->latest('id')->limit(30)->get(),
+            'employeeOptions' => (clone $staff)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'balances' => $users->getCollection()->mapWithKeys(fn (User $user) => [$user->id => $this->leaves->balance($user)]),
+            'expiringDocuments' => (clone $documents)->with('user')->orderBy('expires_on')->paginate(30, ['*'], 'documents_page')->withQueryString(),
+            'expiredDocumentsCount' => (clone $documents)->where('expires_on', '<', now()->startOfDay())->count(),
+            'expiringDocumentsCount' => (clone $documents)->where('expires_on', '>=', now()->startOfDay())->count(),
+            'pendingLeaves' => EmployeeLeave::with('user')->where('status', 'pending')->orderBy('starts_on')->paginate(20, ['*'], 'pending_page')->withQueryString(),
+            'recentLeaves' => EmployeeLeave::with('user')->latest('id')->paginate(30, ['*'], 'leaves_page')->withQueryString(),
         ]);
     }
 
@@ -71,7 +77,7 @@ class HumanResourcesController extends Controller
             'file' => ['nullable', 'file', 'mimes:pdf,png,jpg,jpeg,webp', 'max:5120'],
         ]);
         $file = $request->file('file');
-        $path = $file?->store('employee-documents/'.$user->id, 'local');
+        $path = $file?->store('employee-documents/'.$user->id, PrivateFiles::diskName());
         unset($data['file']);
 
         try {
@@ -85,7 +91,7 @@ class HumanResourcesController extends Controller
             $this->audit->record('employee.document_added', $document, null, $document->only(['user_id', 'type', 'expires_on', 'status']), $request->user()->id);
         } catch (\Throwable $exception) {
             if ($path) {
-                Storage::disk('local')->delete($path);
+                PrivateFiles::disk()->delete($path);
             }
             throw $exception;
         }
@@ -96,9 +102,9 @@ class HumanResourcesController extends Controller
     public function download(Request $request, EmployeeDocument $document): StreamedResponse
     {
         $this->authorizeUser($request, $document->user);
-        abort_unless($document->file_path && Storage::disk('local')->exists($document->file_path), 404);
+        abort_unless($document->file_path && PrivateFiles::disk()->exists($document->file_path), 404);
 
-        return Storage::disk('local')->download($document->file_path, $document->file_name ?? basename($document->file_path), ['X-Content-Type-Options' => 'nosniff']);
+        return PrivateFiles::disk()->download($document->file_path, $document->file_name ?? basename($document->file_path), ['X-Content-Type-Options' => 'nosniff']);
     }
 
     public function leave(Request $request): RedirectResponse

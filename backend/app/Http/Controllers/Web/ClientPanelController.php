@@ -32,10 +32,15 @@ class ClientPanelController extends Controller
 {
     public function __construct(private readonly SlaCalculator $sla, private readonly TenantAccess $tenantAccess) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
+        $search = trim((string) $request->query('q', ''));
+
         return view('panel.clients', [
-            'clients' => Client::withCount(['sites', 'contracts'])->orderBy('name')->get(),
+            'search' => $search,
+            'clients' => Client::withCount(['sites', 'contracts'])
+                ->when($search !== '', fn ($query) => $query->where('name', 'like', '%'.addcslashes($search, '%_\\').'%'))
+                ->orderBy('name')->paginate(50)->withQueryString(),
         ]);
     }
 

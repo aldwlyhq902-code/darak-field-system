@@ -8,6 +8,7 @@ use App\Models\Visit;
 use App\Services\ReworkDetector;
 use App\Services\VisitReportBuilder;
 use App\Support\ClientTime;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -108,7 +109,8 @@ class ReportController extends Controller
             $m->export_from_name,
             $m->export_to_name,
             $m->visit_id,
-            (float) $m->unit_cost,
+            // Exact two-decimal string: a float here printed 0.30000000000000004.
+            $m->unit_cost === null ? '' : Money::plain($m->unit_cost),
             $m->device_timestamp?->format('Y-m-d H:i:s'),
             $m->server_received_at?->format('Y-m-d H:i:s'),
         ]));

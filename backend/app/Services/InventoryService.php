@@ -8,6 +8,7 @@ use App\Models\StockLocation;
 use App\Models\StockMove;
 use App\Models\StockReservation;
 use App\Models\Visit;
+use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -423,15 +424,15 @@ class InventoryService
 
             $memberPrice = $move->part->member_price;
             $unitPrice = ($isMember && $memberPrice !== null)
-                ? (float) $memberPrice
-                : (float) $move->part->sale_price;
+                ? Money::of($memberPrice)
+                : Money::of($move->part->sale_price);
 
             $rows[$partId] ??= [
                 'part_id' => $partId,
                 'sku' => $move->part->sku,
                 'name' => $move->part->name,
                 'qty' => 0.0,
-                'unit_cost' => (float) $move->unit_cost,
+                'unit_cost' => Money::of($move->unit_cost),
                 'unit_price' => $unitPrice,
                 'is_member_price' => $isMember && $memberPrice !== null,
             ];

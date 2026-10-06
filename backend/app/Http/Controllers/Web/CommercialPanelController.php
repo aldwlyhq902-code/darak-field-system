@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
-use App\Models\Client;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\Payment;
@@ -12,6 +11,8 @@ use App\Services\AuditLogger;
 use App\Services\CommercialService;
 use App\Services\QuotationPricingService;
 use App\Support\BusinessReference;
+use App\Support\ClientPicker;
+use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,15 +30,14 @@ class CommercialPanelController extends Controller
         private readonly QuotationPricingService $pricing,
     ) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
         $today = now()->startOfDay();
         $openInstallments = ContractInstallment::query()
             ->whereIn('status', ['pending', 'partial', 'overdue'])
             ->whereColumn('paid_amount', '<', 'total_amount');
 
-        return view('panel.commercial', [
-            'clients' => Client::where('is_active', true)->with('sites')->orderBy('name')->get(),
+        return view('panel.commercial', ClientPicker::options($request) + [
             'quotations' => Quotation::with(['client', 'convertedContract'])
                 ->latest()->paginate(25, ['*'], 'quotations_page')->withQueryString(),
             'installments' => ContractInstallment::with('contract.client')
@@ -47,15 +47,16 @@ class CommercialPanelController extends Controller
                 ->latest('paid_on')->latest('id')
                 ->paginate(30, ['*'], 'payments_page')->withQueryString(),
             'pendingQuotationCount' => Quotation::where('status', 'sent')->count(),
-            'openInstallmentsAmount' => (float) (clone $openInstallments)
+            'openInstallmentsAmount' => Money::of((clone $openInstallments)
                 ->selectRaw('COALESCE(SUM(total_amount - paid_amount), 0) AS aggregate')
-                ->value('aggregate'),
+                ->value('aggregate')),
             'overdueInstallmentsCount' => (clone $openInstallments)
                 ->where(function ($query) use ($today): void {
                     $query->where('status', 'overdue')->orWhereDate('due_on', '<', $today);
                 })->count(),
             'contractsEnding' => Contract::with('client')->where('status', 'active')
-                ->whereBetween('ends_on', [$today, $today->copy()->addDays(60)])->orderBy('ends_on')->get(),
+                ->whereBetween('ends_on', [$today, $today->copy()->addDays(60)])->orderBy('ends_on')
+                ->paginate(20, ['*'], 'ending_page')->withQueryString(),
         ]);
     }
 
@@ -145,6 +146,20 @@ class CommercialPanelController extends Controller
         return back()->with('ok', "سُجل سند القبض {$payment->receipt_no}.");
     }
 
+    /** Owner-only: the receipt stays on record, the installment reopens, commissions inside the window are voided. */
+    public function refund(Request $request, Payment $payment): RedirectResponse
+    {
+        abort_unless($request->user()->isOwner(), 403);
+        $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
+        try {
+            $this->commercial->refundPayment($payment, $data['reason'], $request->user()->id);
+        } catch (RuntimeException $e) {
+            return back()->with('err', $e->getMessage());
+        }
+
+        return back()->with('ok', "سُجل استرداد سند القبض {$payment->receipt_no}.");
+    }
+
     private function quotationData(Request $request): array
     {
         $data = $request->validate([
@@ -162,11 +177,26 @@ class CommercialPanelController extends Controller
         // `exists` ignores the tenant scope; the scoped load is the authorization.
         Client::query()->findOrFail($data['client_id']);
 
-        $data['down_payment_amount'] = (float) ($data['down_payment_amount'] ?? 0);
+        $data['down_payment_amount'] = Money::of($data['down_payment_amount'] ?? 0);
         $data['custom_installments'] = $this->parseCustomInstallments($data['custom_installments_text'] ?? null);
 
         if ($data['billing_cycle'] === 'custom' && $data['custom_installments'] === []) {
             throw ValidationException::withMessages(['custom_installments_text' => 'أدخل دفعة مخصصة واحدة على الأقل بصيغة التاريخ|المبلغ.']);
+        }
+
+        // The schedule must add up exactly to the contract value; a mismatch is
+        // the user's to fix, never silently absorbed into the last installment.
+        $total = in_array($data['billing_cycle'], ['monthly', 'quarterly'], true)
+            ? Money::mul($data['price_amount'], (int) $data['duration_months'])
+            : Money::of($data['price_amount']);
+        if (Money::compare($data['down_payment_amount'], $total) > 0) {
+            throw ValidationException::withMessages(['down_payment_amount' => 'الدفعة المقدمة تتجاوز قيمة العقد ('.Money::format($total).' ر.س قبل الضريبة).']);
+        }
+        if ($data['billing_cycle'] === 'custom') {
+            $scheduled = Money::add($data['down_payment_amount'], Money::sum(array_column($data['custom_installments'], 'amount')));
+            if (! Money::equals($scheduled, $total)) {
+                throw ValidationException::withMessages(['custom_installments_text' => 'مجموع الدفعة المقدمة والدفعات المخصصة ('.Money::format($scheduled).') يجب أن يساوي قيمة العقد ('.Money::format($total).') قبل الضريبة.']);
+            }
         }
 
         return $data;
@@ -180,11 +210,11 @@ class CommercialPanelController extends Controller
 
         return collect(preg_split('/\r?\n/', $text) ?: [])->filter()->map(function (string $line) {
             $parts = array_map('trim', explode('|', $line));
-            if (count($parts) !== 2 || ! strtotime($parts[0]) || ! is_numeric($parts[1]) || (float) $parts[1] <= 0) {
+            if (count($parts) !== 2 || ! strtotime($parts[0]) || ! is_numeric($parts[1]) || ! Money::isPositive($parts[1])) {
                 throw ValidationException::withMessages(['custom_installments_text' => "صيغة دفعة غير صحيحة: {$line}"]);
             }
 
-            return ['due_on' => date('Y-m-d', strtotime($parts[0])), 'amount' => round((float) $parts[1], 2)];
+            return ['due_on' => date('Y-m-d', strtotime($parts[0])), 'amount' => Money::of($parts[1])];
         })->values()->all();
     }
 

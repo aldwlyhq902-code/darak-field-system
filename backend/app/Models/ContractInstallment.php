@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\ScopedToOperatingBranch;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -35,8 +36,9 @@ class ContractInstallment extends Model
         return $this->hasMany(Payment::class);
     }
 
-    public function remaining(): float
+    /** Exact outstanding amount as a money string ("0.00" when settled). */
+    public function remaining(): string
     {
-        return max(0, round((float) $this->total_amount - (float) $this->paid_amount, 2));
+        return Money::max(Money::sub($this->total_amount, $this->paid_amount), 0);
     }
 }

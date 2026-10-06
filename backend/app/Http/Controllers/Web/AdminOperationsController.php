@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Client;
-use App\Models\CommissionEntry;
 use App\Models\CommissionRule;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
@@ -41,23 +40,24 @@ class AdminOperationsController extends Controller
         abort_if(! $actor->isPlatformAdmin() && $actor->operating_company_id === null, 403);
         $companyId = $actor->operating_company_id;
 
+        $users = User::query()->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $companyId));
+
+        // Growing lists are paginated with independent page names. Contracts,
+        // visits and receipts are no longer preloaded into selects (they were
+        // silently capped at 100): the commission form takes their reference.
         return view('panel.admin-operations', [
             'companies' => OperatingCompany::with('branches')->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereKey($companyId))->get(),
             'branches' => OperatingBranch::with('company')->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $companyId))->get(),
-            'leads' => SalesLead::with(['owner', 'activities'])->latest()->limit(50)->get(),
-            'vehicles' => Vehicle::with('assignedUser')->get(), 'expenses' => VehicleExpense::with('vehicle')->latest()->limit(50)->get(),
+            'leads' => SalesLead::with(['owner', 'activities'])->latest()->paginate(25, ['*'], 'leads_page')->withQueryString(),
+            // A select needs the whole (bounded) active fleet, never a truncated slice.
+            'vehicles' => Vehicle::with('assignedUser')->where('is_active', true)->orderBy('plate')->get(),
+            'expenses' => VehicleExpense::with('vehicle')->latest()->paginate(20, ['*'], 'expenses_page')->withQueryString(),
             'rules' => CommissionRule::latest()->get(),
-            'entries' => CommissionEntry::with(['rule', 'user'])
-                ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('user', fn ($user) => $user->where('operating_company_id', $companyId)))
-                ->latest()->limit(50)->get(),
             'approvals' => FinancialApproval::with(['requester', 'firstApprover', 'secondApprover'])
                 ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('requester', fn ($user) => $user->where('operating_company_id', $companyId)))
-                ->latest()->limit(50)->get(),
-            'users' => User::query()->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $companyId))->orderBy('name')->get(),
-            'clients' => Client::orderBy('name')->get(),
-            'contracts' => Contract::latest()->limit(100)->get(), 'visits' => Visit::latest()->limit(100)->get(),
-            'payments' => Payment::latest()->limit(100)->get(), 'quotations' => Quotation::latest()->limit(100)->get(),
-            'installments' => ContractInstallment::latest()->limit(100)->get(),
+                ->latest()->paginate(20, ['*'], 'approvals_page')->withQueryString(),
+            'users' => (clone $users)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'role']),
+            'permissionUsers' => (clone $users)->orderBy('name')->paginate(25, ['*'], 'users_page')->withQueryString(),
         ]);
     }
 
@@ -248,11 +248,16 @@ class AdminOperationsController extends Controller
 
     public function commissionEntry(Request $request): RedirectResponse
     {
-        $data = $request->validate(['commission_rule_id' => ['required', 'exists:commission_rules,id'], 'user_id' => ['required', 'exists:users,id'], 'contract_id' => ['nullable', 'exists:contracts,id'], 'visit_id' => ['nullable', 'exists:visits,id'], 'payment_id' => ['nullable', 'exists:payments,id']]);
+        $data = $request->validate(['commission_rule_id' => ['required', 'exists:commission_rules,id'], 'user_id' => ['required', 'exists:users,id'], 'contract_id' => ['nullable', 'exists:contracts,id'], 'visit_id' => ['nullable', 'exists:visits,id'], 'payment_id' => ['nullable', 'exists:payments,id'], 'contract_no' => ['nullable', 'string', 'max:64'], 'receipt_no' => ['nullable', 'string', 'max:48']]);
         $targetUser = User::query()->findOrFail($data['user_id']);
         $this->tenantAccess->assertUser($request->user(), $targetUser);
+        // References typed by the user resolve through the tenant scope.
+        $contract = filled($data['contract_no'] ?? null) ? Contract::query()->where('contract_no', trim($data['contract_no']))->firstOrFail()
+            : (isset($data['contract_id']) ? Contract::find($data['contract_id']) : null);
+        $payment = filled($data['receipt_no'] ?? null) ? Payment::query()->where('receipt_no', trim($data['receipt_no']))->firstOrFail()
+            : (isset($data['payment_id']) ? Payment::find($data['payment_id']) : null);
         try {
-            $this->commissions->create(CommissionRule::findOrFail($data['commission_rule_id']), $targetUser, isset($data['contract_id']) ? Contract::find($data['contract_id']) : null, isset($data['visit_id']) ? Visit::find($data['visit_id']) : null, isset($data['payment_id']) ? Payment::find($data['payment_id']) : null);
+            $this->commissions->create(CommissionRule::findOrFail($data['commission_rule_id']), $targetUser, $contract, isset($data['visit_id']) ? Visit::find($data['visit_id']) : null, $payment);
         } catch (RuntimeException $e) {
             return back()->with('err', $e->getMessage());
         }

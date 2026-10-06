@@ -35,7 +35,7 @@
         @if($panelUser->canPanel('finance') || $panelUser->canPanel('inventory'))
             <section class="nav-section" aria-labelledby="nav-resources">
                 <h2 id="nav-resources">المالية والموارد</h2>
-                @if($panelUser->canPanel('finance'))<a href="{{ route('panel.finance') }}" class="nav-link {{ request()->routeIs('panel.finance*') ? 'active' : '' }}" @if(request()->routeIs('panel.finance*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">﷼</span><span>الربحية</span></a>@endif
+                @if($panelUser->canPanel('finance'))<a href="{{ route('panel.finance') }}" class="nav-link {{ request()->routeIs('panel.finance*') ? 'active' : '' }}" @if(request()->routeIs('panel.finance*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">﷼</span><span>الربحية</span></a><a href="{{ route('panel.invoices') }}" class="nav-link {{ request()->routeIs('panel.invoices*') ? 'active' : '' }}" @if(request()->routeIs('panel.invoices*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">▤</span><span>الفواتير</span></a>@endif
                 @if($panelUser->canPanel('inventory'))
                     <a href="{{ route('panel.inventory') }}" class="nav-link {{ request()->routeIs('panel.inventory*') ? 'active' : '' }}" @if(request()->routeIs('panel.inventory*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">□</span><span>المخزون</span></a>
                     <a href="{{ route('panel.procurement') }}" class="nav-link {{ request()->routeIs('panel.procurement*') ? 'active' : '' }}" @if(request()->routeIs('panel.procurement*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">⇄</span><span>المشتريات والحجوزات</span></a>
@@ -60,6 +60,7 @@
                 @if(config('darak.experimental_analytics') && $panelUser->canPanel('intelligence'))<a href="{{ route('panel.intelligence') }}" class="nav-link {{ request()->routeIs('panel.intelligence*') ? 'active' : '' }}" @if(request()->routeIs('panel.intelligence*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">✦</span><span>ذكاء الأعطال</span></a>@endif
                 @if($panelUser->canPanel('admin'))
                     <a href="{{ route('panel.admin-operations') }}" class="nav-link {{ request()->routeIs('panel.admin-operations') ? 'active' : '' }}" @if(request()->routeIs('panel.admin-operations')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">⚙</span><span>الإدارة وCRM</span></a>
+                    <a href="{{ route('panel.commissions') }}" class="nav-link {{ request()->routeIs('panel.commissions*') ? 'active' : '' }}" @if(request()->routeIs('panel.commissions*')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">٪</span><span>العمولات وصرفها</span></a>
                     <a href="{{ route('panel.admin.organization') }}" class="nav-link {{ request()->routeIs('panel.admin.organization') ? 'active' : '' }}" @if(request()->routeIs('panel.admin.organization')) aria-current="page" @endif><span class="nav-icon" aria-hidden="true">⌂</span><span>بيانات المؤسسة</span></a>
                 @endif
             </section>

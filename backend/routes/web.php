@@ -10,6 +10,7 @@ use App\Http\Controllers\Web\ClientPortalAuthController;
 use App\Http\Controllers\Web\ClientPortalController;
 use App\Http\Controllers\Web\ClientServiceRequestController;
 use App\Http\Controllers\Web\CommercialPanelController;
+use App\Http\Controllers\Web\CommissionPanelController;
 use App\Http\Controllers\Web\DeviceApprovalController;
 use App\Http\Controllers\Web\EmergencyReportController;
 use App\Http\Controllers\Web\FinanceInsightsController;
@@ -17,6 +18,7 @@ use App\Http\Controllers\Web\FleetController;
 use App\Http\Controllers\Web\HumanResourcesController;
 use App\Http\Controllers\Web\IntelligencePanelController;
 use App\Http\Controllers\Web\InventoryPanelController;
+use App\Http\Controllers\Web\InvoicePanelController;
 use App\Http\Controllers\Web\MaintenancePlanController;
 use App\Http\Controllers\Web\NotificationPanelController;
 use App\Http\Controllers\Web\OperationsInsightsController;
@@ -29,6 +31,7 @@ use App\Http\Controllers\Web\SubcontractorPanelController;
 use App\Http\Controllers\Web\TeamController;
 use App\Http\Controllers\Web\TwoFactorController;
 use App\Http\Controllers\Web\VisitFeedbackController;
+use App\Http\Controllers\Web\WorkPolicyController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -192,6 +195,8 @@ Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.ar
     Route::get('commercial', [CommercialPanelController::class, 'index'])->name('panel.commercial');
     Route::get('finance', [FinanceInsightsController::class, 'index'])->name('panel.finance');
     Route::post('finance/costs', [FinanceInsightsController::class, 'cost'])->name('panel.finance.cost');
+    Route::get('finance/invoices', [InvoicePanelController::class, 'index'])->name('panel.invoices');
+    Route::post('finance/invoices/{document}/manual-issue', [InvoicePanelController::class, 'record'])->name('panel.invoices.record');
 
     Route::middleware('panel.permission:hr')->prefix('human-resources')->group(function () {
         Route::get('/', [HumanResourcesController::class, 'index'])->name('panel.hr');
@@ -200,6 +205,8 @@ Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.ar
         Route::get('documents/{document}/download', [HumanResourcesController::class, 'download'])->name('panel.hr.document.download');
         Route::post('leaves', [HumanResourcesController::class, 'leave'])->name('panel.hr.leave');
         Route::post('leaves/{leave}/decision', [HumanResourcesController::class, 'leaveDecision'])->name('panel.hr.leave.decision');
+        Route::get('work-policies', [WorkPolicyController::class, 'index'])->name('panel.hr.work-policies');
+        Route::post('work-policies', [WorkPolicyController::class, 'store'])->name('panel.hr.work-policies.store');
     });
 
     Route::middleware('panel.permission:fleet')->prefix('fleet')->group(function () {
@@ -233,12 +240,15 @@ Route::middleware(['auth:web', 'panel.active', 'two-factor.confirmed', 'panel.ar
         Route::post('approvals', [AdminOperationsController::class, 'approvalRequest'])->name('panel.admin.approval');
         Route::post('approvals/{approval}/approve', [AdminOperationsController::class, 'approve'])->name('panel.admin.approval.approve');
         Route::post('users/{user}/permissions', [AdminOperationsController::class, 'permissions'])->name('panel.admin.permissions');
+        Route::get('commissions', [CommissionPanelController::class, 'index'])->name('panel.commissions');
+        Route::post('commissions/payouts', [CommissionPanelController::class, 'payout'])->name('panel.commissions.payout');
     });
     Route::post('commercial/quotations', [CommercialPanelController::class, 'storeQuotation'])->name('panel.quotation.store');
     Route::post('commercial/quotations/{quotation}/revise', [CommercialPanelController::class, 'revise'])->name('panel.quotation.revise');
     Route::post('commercial/quotations/{quotation}/send', [CommercialPanelController::class, 'send'])->name('panel.quotation.send');
     Route::post('commercial/quotations/{quotation}/convert', [CommercialPanelController::class, 'convert'])->name('panel.quotation.convert');
     Route::post('commercial/installments/{installment}/payments', [CommercialPanelController::class, 'payment'])->name('panel.installment.payment');
+    Route::post('commercial/payments/{payment}/refund', [CommercialPanelController::class, 'refund'])->name('panel.payment.refund');
 
     Route::get('inventory', [InventoryPanelController::class, 'index'])->name('panel.inventory');
     Route::post('inventory/parts', [InventoryPanelController::class, 'storePart'])->name('panel.inventory.part');

@@ -3,7 +3,10 @@
 return [
     /*
     | E-invoicing provider. Bought, never built — Darak stores a reference and a
-    | status only. 'fake' is a deterministic stand-in used in development and tests.
+    | status only. 'fake' is a deterministic stand-in used in development and tests;
+    | 'manual' parks each document for the finance team to issue in an external
+    | ZATCA-compliant tool and record here. Any other value fails on resolution
+    | (see InvoiceProviderFactory) instead of silently falling back to the fake.
     */
     'invoice_provider' => env('DARAK_INVOICE_PROVIDER', 'fake'),
 
@@ -115,6 +118,8 @@ return [
     | accident. Each was removed for a documented reason (PRD v1.2 §3):
     |   - global heat threshold: unproven; limits are per-SKU from the maker's sheet
     |   - commission clawback: cannot deduct from earned wages without legal review
+    |     (commission_clawback_days only voids commissions not yet earned, or
+    |     offsets FUTURE commissions — never wages)
     |   - banned-word engine: a word list is not legal protection
     |   - hard-coded labour-law conclusions: supplied by a qualified HR specialist
     */
@@ -265,4 +270,25 @@ return [
     */
     'map_tiles_url' => env('DARAK_MAP_TILES_URL', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
     'map_attribution' => env('DARAK_MAP_ATTRIBUTION', '© OpenStreetMap contributors'),
+
+    // data
+    /*
+    | Disk for private uploads: employee/vehicle documents, inspection and
+    | emergency photos, subcontractor documents, sales attachments, evidence
+    | media and visit reports. They never get a public URL — authorised
+    | controllers stream them. 'local' is storage/app/private (included in the
+    | local backup). An S3-compatible disk ('s3') needs
+    | `composer require league/flysystem-aws-s3-v3` and the AWS_* variables, with
+    | public access blocked on the bucket; its files are then outside the local
+    | backup. Changing the disk does not move files already stored.
+    */
+    'files_disk' => env('DARAK_FILES_DISK', 'local'),
+
+    /*
+    | Commission clawback window (PRD v1.2). An accrued commission becomes
+    | earned after this many days unless its receipt is refunded or its contract
+    | cancelled first. Commissions are never deducted from wages: a reversal
+    | after payout is a negative adjustment against FUTURE commissions only.
+    */
+    'commission_clawback_days' => (int) env('DARAK_COMMISSION_CLAWBACK_DAYS', 30),
 ];

@@ -27,6 +27,9 @@ use Illuminate\View\View;
 
 class OperationsInsightsController extends Controller
 {
+    /** Quality signals are deliberate "top N" widgets, labelled on the page. */
+    private const TOP_SIGNALS = 20;
+
     public function __construct(
         private readonly DispatchSuggestionService $dispatch,
         private readonly RoutePlanningService $routes,
@@ -47,8 +50,7 @@ class OperationsInsightsController extends Controller
             $data['serviceRequests'] = ClientServiceRequest::with(['client', 'site', 'asset', 'portalUser', 'visit'])
                 ->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
                 ->latest('id')
-                ->limit(30)
-                ->get();
+                ->paginate(30, ['*'], 'requests_page')->withQueryString();
 
             return view('panel.operations', $data);
         }
@@ -58,15 +60,14 @@ class OperationsInsightsController extends Controller
                 ->whereHas('visit')
                 ->where('is_complaint', true)
                 ->latest('id')
-                ->limit(30)
-                ->get();
+                ->paginate(20, ['*'], 'feedback_page')->withQueryString();
             $data['disputes'] = ReportDispute::with(['visit.site.client'])
                 ->whereHas('visit')
                 ->whereIn('status', ['new', 'reviewed'])
-                ->latest()
-                ->limit(30)
-                ->get();
+                ->latest()->latest('id')
+                ->paginate(20, ['*'], 'disputes_page')->withQueryString();
             $data['assetSignals'] = $this->assetSignals();
+            $data['topSignals'] = self::TOP_SIGNALS;
             $data['partSignals'] = $this->partSignals();
 
             return view('panel.operations', $data);
@@ -80,14 +81,13 @@ class OperationsInsightsController extends Controller
                 ->whereHas('user', fn ($query) => $query
                     ->when(! $request->user()->isPlatformAdmin(), fn ($user) => $user->where('operating_company_id', $request->user()->operating_company_id)))
                 ->where('ends_on', '>=', now()->toDateString())
-                ->latest()
-                ->limit(30)
-                ->get();
+                ->latest()->latest('id')
+                ->paginate(20, ['*'], 'absences_page')->withQueryString();
             $data['outages'] = VehicleOutage::with('vehicle.assignedUser')
                 ->whereHas('vehicle')
                 ->where('status', 'open')
-                ->latest()
-                ->get();
+                ->latest()->latest('id')
+                ->paginate(20, ['*'], 'outages_page')->withQueryString();
             $data['vehicles'] = Vehicle::with('assignedUser')->where('is_active', true)->get();
 
             return view('panel.operations', $data);
@@ -185,7 +185,7 @@ class OperationsInsightsController extends Controller
             ->withCount([
                 'workOrders as faults_90d' => fn ($q) => $q->whereIn('type', ['reactive', 'out_of_contract'])->where('reported_at', '>=', now()->subDays(90)),
                 'workOrders as faults_365d' => $faultsInYear,
-            ])->orderByDesc('faults_90d')->limit(30)->get()->map(function ($asset) {
+            ])->orderByDesc('faults_90d')->limit(self::TOP_SIGNALS)->get()->map(function ($asset) {
                 $asset->signal = $asset->faults_90d >= 3 ? 'critical' : ($asset->faults_365d >= 3 ? 'watch' : 'observe');
 
                 return $asset;
@@ -200,7 +200,7 @@ class OperationsInsightsController extends Controller
                 ->where('created_at', '>=', now()->subDays(90)), '>=', 2)
             ->selectSub(StockMove::query()->selectRaw('COUNT(*)')->whereColumn('stock_moves.part_id', 'parts.id')->where('move_type', StockMove::VISIT_ISSUE)->where('created_at', '>=', now()->subDays(90)), 'issues_90d')
             ->selectSub(StockMove::query()->selectRaw('COUNT(DISTINCT visit_id)')->whereColumn('stock_moves.part_id', 'parts.id')->where('move_type', StockMove::VISIT_ISSUE)->where('created_at', '>=', now()->subDays(90)), 'visits_90d')
-            ->orderByDesc('issues_90d')->limit(20)->get();
+            ->orderByDesc('issues_90d')->limit(self::TOP_SIGNALS)->get();
     }
 
     private function visibleTechnicians(Request $request)

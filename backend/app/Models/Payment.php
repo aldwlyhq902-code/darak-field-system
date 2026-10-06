@@ -18,7 +18,13 @@ class Payment extends Model
 
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2', 'paid_on' => 'date'];
+        return ['amount' => 'decimal:2', 'paid_on' => 'date', 'refunded_at' => 'datetime'];
+    }
+
+    /** A refunded receipt stays on record; it no longer counts as collected money. */
+    public function isRefunded(): bool
+    {
+        return $this->refunded_at !== null;
     }
 
     public function installment(): BelongsTo

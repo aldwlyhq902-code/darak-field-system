@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\ScopedToOperatingBranch;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -68,8 +69,8 @@ class Quotation extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function priceInclVat(): float
+    public function priceInclVat(): string
     {
-        return round((float) $this->price_amount * (1 + (float) $this->vat_rate), 2);
+        return Money::add($this->price_amount, Money::vat($this->price_amount, $this->vat_rate));
     }
 }

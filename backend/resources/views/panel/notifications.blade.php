@@ -20,7 +20,7 @@
 @endif
 
 <div class="card">
-    <div class="hd">في الطابور ({{ $queued->count() }})</div>
+    <div class="hd">في الطابور ({{ $queued->total() }})</div>
     @if ($queued->isEmpty())
         <div class="empty">لا شيء بانتظار الإرسال.</div>
     @else
@@ -57,12 +57,13 @@
             @endforeach
             </tbody>
         </table>
+        @include('partials.pager', ['paginator' => $queued, 'label' => 'صفحات رسائل الطابور'])
     @endif
 </div>
 
 @if ($dead->isNotEmpty())
     <div class="card">
-        <div class="hd" style="color:var(--red)">فشلت نهائياً ({{ $dead->count() }})</div>
+        <div class="hd" style="color:var(--red)">فشلت نهائياً ({{ $dead->total() }})</div>
         <div class="bd" style="padding-bottom:0">
             <div class="note">استنفدت محاولاتها. لا تختفي رسالة صامتة — تظهر هنا حتى يتصرف أحد.</div>
         </div>
@@ -84,11 +85,12 @@
             @endforeach
             </tbody>
         </table>
+        @include('partials.pager', ['paginator' => $dead, 'label' => 'صفحات الرسائل الفاشلة'])
     </div>
 @endif
 
 <div class="card">
-    <div class="hd">آخر ما أُرسل</div>
+    <div class="hd">ما أُرسل ({{ $sent->total() }})</div>
     @if ($sent->isEmpty())
         <div class="empty">لا شيء بعد.</div>
     @else
@@ -104,6 +106,7 @@
             @endforeach
             </tbody>
         </table>
+        @include('partials.pager', ['paginator' => $sent, 'label' => 'صفحات الرسائل المرسلة'])
     @endif
 </div>
 @endsection

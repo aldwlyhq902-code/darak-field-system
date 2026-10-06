@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Visit;
 use App\Services\AuditLogger;
 use App\Services\ProfitabilityService;
+use App\Support\Money;
 use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,13 +21,18 @@ use Mpdf\Mpdf;
 
 class FinanceInsightsController extends Controller
 {
+    private const RECENT_VISITS = 40;
+
     public function __construct(private readonly ProfitabilityService $profitability, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
     public function index(Request $request): View
     {
-        $contractModels = Contract::with(['client', 'installments'])->whereIn('status', ['active', 'ended'])->get();
-        $contractProfits = $this->profitability->forContracts($contractModels);
-        $contracts = $contractModels->map(fn ($contract) => ['contract' => $contract, 'profit' => $contractProfits[$contract->id]]);
+        // Both lists are paginated with their own page names; every figure on a
+        // row is computed for that row only, so nothing depends on the page.
+        $contractModels = Contract::with('client')->whereIn('status', ['active', 'ended'])
+            ->latest('id')->paginate(25, ['*'], 'contracts_page')->withQueryString();
+        $contractProfits = $this->profitability->forContracts($contractModels->getCollection());
+        $contracts = $contractModels->through(fn ($contract) => ['contract' => $contract, 'profit' => $contractProfits[$contract->id]]);
         $clientBalances = Client::query()
             ->leftJoin('contracts', 'contracts.client_id', '=', 'clients.id')
             ->leftJoin('contract_installments', 'contract_installments.contract_id', '=', 'contracts.id')
@@ -35,15 +41,18 @@ class FinanceInsightsController extends Controller
             ->selectRaw('COALESCE(SUM(contract_installments.paid_amount), 0) AS paid_total')
             ->selectRaw("COALESCE(SUM(CASE WHEN contract_installments.due_on < ? AND contract_installments.status != 'paid' THEN contract_installments.total_amount - contract_installments.paid_amount ELSE 0 END), 0) AS overdue_total", [today()->toDateString()])
             ->groupBy('clients.id')
-            ->get()
-            ->map(fn ($client) => [
+            ->orderBy('clients.name')
+            ->paginate(25, ['*'], 'balances_page')->withQueryString()
+            ->through(fn ($client) => [
                 'client' => $client,
-                'billed' => (float) $client->billed_total,
-                'paid' => (float) $client->paid_total,
-                'overdue' => (float) $client->overdue_total,
+                'billed' => Money::of($client->billed_total),
+                'paid' => Money::of($client->paid_total),
+                'overdue' => Money::of($client->overdue_total),
             ]);
 
-        $visitModels = Visit::with(['site.client', 'technician'])->where('state', Visit::STATE_COMPLETED)->latest('closed_at')->limit(40)->get();
+        // Deliberately a "latest 40 completed visits" widget (labelled as such),
+        // not a list: the full history lives on the visit pages.
+        $visitModels = Visit::with(['site.client', 'technician'])->where('state', Visit::STATE_COMPLETED)->latest('closed_at')->limit(self::RECENT_VISITS)->get();
         $visitProfits = $this->profitability->forVisitModels($visitModels);
         $technicianModels = User::where('role', User::ROLE_TECHNICIAN)
             ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
@@ -51,7 +60,7 @@ class FinanceInsightsController extends Controller
         $technicianProfits = $this->profitability->forTechnicians($technicianModels, now()->startOfMonth(), now()->endOfMonth());
 
         return view('panel.finance', [
-            'contracts' => $contracts, 'clientBalances' => $clientBalances,
+            'contracts' => $contracts, 'clientBalances' => $clientBalances, 'recentVisitsLimit' => self::RECENT_VISITS,
             'visits' => $visitModels->map(fn ($visit) => ['visit' => $visit, 'profit' => $visitProfits[$visit->id]]),
             'technicians' => $technicianModels->map(fn ($user) => ['user' => $user, 'profit' => $technicianProfits[$user->id]]),
         ]);
@@ -59,7 +68,13 @@ class FinanceInsightsController extends Controller
 
     public function cost(Request $request): RedirectResponse
     {
-        $data = $request->validate(['client_id' => ['nullable', 'exists:clients,id'], 'contract_id' => ['nullable', 'exists:contracts,id'], 'visit_id' => ['nullable', 'exists:visits,id'], 'user_id' => ['nullable', 'exists:users,id'], 'category' => ['required', 'in:travel,vehicle,tool,administration,other'], 'description' => ['required', 'string', 'max:190'], 'amount' => ['required', 'numeric', 'gt:0'], 'incurred_on' => ['required', 'date']]);
+        $data = $request->validate(['client_id' => ['nullable', 'exists:clients,id'], 'contract_id' => ['nullable', 'exists:contracts,id'], 'contract_no' => ['nullable', 'string', 'max:64'], 'visit_id' => ['nullable', 'exists:visits,id'], 'user_id' => ['nullable', 'exists:users,id'], 'category' => ['required', 'in:travel,vehicle,tool,administration,other'], 'description' => ['required', 'string', 'max:190'], 'amount' => ['required', 'numeric', 'gt:0'], 'incurred_on' => ['required', 'date']]);
+        // The form takes the contract number instead of a (truncated) select of every contract.
+        if (filled($data['contract_no'] ?? null)) {
+            $data['contract_id'] = Contract::query()->where('contract_no', trim($data['contract_no']))->firstOrFail()->id;
+        }
+        unset($data['contract_no']);
+        $data['amount'] = Money::of($data['amount']);
         if (isset($data['client_id'])) {
             Client::query()->findOrFail($data['client_id']);
         }

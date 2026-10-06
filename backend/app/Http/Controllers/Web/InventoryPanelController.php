@@ -20,7 +20,9 @@ class InventoryPanelController extends Controller
         $locations = StockLocation::with('vehicle')->where('is_active', true)->get();
 
         return view('panel.inventory', [
-            'parts' => Part::orderBy('name')->get(),
+            // Form selects need the whole catalogue; the catalogue TABLE pages.
+            'parts' => Part::orderBy('name')->get(['id', 'sku', 'name']),
+            'catalogue' => Part::orderBy('name')->paginate(50, ['*'], 'catalogue_page')->withQueryString(),
             'locations' => $locations->map(fn (StockLocation $l) => [
                 'location' => $l,
                 'balances' => $this->inventory->locationBalances($l->id),

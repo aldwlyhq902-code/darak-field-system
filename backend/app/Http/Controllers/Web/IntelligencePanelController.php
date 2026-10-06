@@ -20,22 +20,29 @@ use RuntimeException;
 
 class IntelligencePanelController extends Controller
 {
+    private const WORST_ASSETS = 50;
+
+    private const TOP_PREDICTIONS = 10;
+
     public function __construct(private readonly AssetIntelligenceService $intelligence, private readonly AuditLogger $audit, private readonly FaultPredictionTrainer $trainer) {}
 
     public function index(): View
     {
         return view('panel.intelligence', [
-            'assetHealth' => $this->intelligence->assetHealth()->take(50),
+            // A deliberate "worst N" widget (sorted by health), labelled as such.
+            'assetHealth' => $this->intelligence->assetHealth()->take(self::WORST_ASSETS),
+            'worstAssets' => self::WORST_ASSETS,
             'repeatParts' => $this->intelligence->repeatedClientParts(),
             'supplierFailures' => $this->intelligence->supplierFailures(),
             'readiness' => $this->intelligence->predictionReadiness(),
             'predictions' => $this->intelligence->failurePredictions(),
-            'trainedModel' => FaultPredictionModel::with(['predictions' => fn ($query) => $query->with('asset.site.client')->orderByDesc('risk_score')->limit(30)])->where('is_active', true)->latest('trained_at')->first(),
-            'articles' => KnowledgeArticle::latest()->limit(50)->get(),
+            // Top riskiest assets only (labelled); the full table stays queryable.
+            'trainedModel' => FaultPredictionModel::with(['predictions' => fn ($query) => $query->with('asset.site.client')->orderByDesc('risk_score')->limit(self::TOP_PREDICTIONS)])->where('is_active', true)->latest('trained_at')->first(),
+            'topPredictions' => self::TOP_PREDICTIONS,
+            'articles' => KnowledgeArticle::latest()->latest('id')->paginate(20, ['*'], 'articles_page')->withQueryString(),
             'parts' => Part::where('is_active', true)->orderBy('name')->get(),
-            'lots' => InventoryLot::with(['part', 'supplier'])->latest()->limit(100)->get(),
-            'assets' => Asset::with('site.client')->orderBy('name')->get(),
-            'visits' => Visit::with('site.client')->latest('scheduled_start')->limit(100)->get(),
+            // Lots, assets and visits are referenced by serial/QR/number in the
+            // failure form instead of selects that were capped at 100 rows.
         ]);
     }
 
@@ -68,17 +75,24 @@ class IntelligencePanelController extends Controller
     {
         $data = $request->validate([
             'part_id' => ['required', 'exists:parts,id'], 'inventory_lot_id' => ['nullable', 'exists:inventory_lots,id'],
+            'lot_ref' => ['nullable', 'string', 'max:96'], 'asset_ref' => ['nullable', 'string', 'max:96'],
             'visit_id' => ['nullable', 'exists:visits,id'], 'asset_id' => ['nullable', 'exists:assets,id'],
             'failure_kind' => ['required', 'string', 'max:48'], 'note' => ['nullable', 'string', 'max:2000'],
         ]);
-        // `exists` ignores the tenant scope; every referenced record is loaded scoped.
-        $lot = isset($data['inventory_lot_id']) ? InventoryLot::query()->findOrFail($data['inventory_lot_id']) : null;
+        // Typed references resolve through the tenant scopes.
+        if (filled($data['lot_ref'] ?? null)) {
+            $ref = trim($data['lot_ref']);
+            $data['inventory_lot_id'] = InventoryLot::query()->where('part_id', $data['part_id'])
+                ->where(fn ($q) => $q->where('serial_number', $ref)->orWhere('lot_number', $ref))->firstOrFail()->id;
+        }
+        if (filled($data['asset_ref'] ?? null)) {
+            $data['asset_id'] = Asset::query()->where('qr_code', trim($data['asset_ref']))->firstOrFail()->id;
+        }
         if (isset($data['visit_id'])) {
             Visit::query()->findOrFail($data['visit_id']);
         }
-        if (isset($data['asset_id'])) {
-            Asset::query()->findOrFail($data['asset_id']);
-        }
+        unset($data['lot_ref'], $data['asset_ref']);
+        $lot = isset($data['inventory_lot_id']) ? InventoryLot::query()->findOrFail($data['inventory_lot_id']) : null;
         $failure = PartFailureReport::create($data + ['supplier_id' => $lot?->supplier_id, 'reported_by' => $request->user()->id]);
         $this->audit->record('part.failure_reported', $failure, null, $failure->toArray(), $request->user()->id);
 

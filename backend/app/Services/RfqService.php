@@ -6,6 +6,7 @@ use App\Models\PurchaseOrder;
 use App\Models\RequestForQuotation;
 use App\Models\SupplierQuotation;
 use App\Support\BusinessReference;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -43,20 +44,20 @@ class RfqService
                     throw new RuntimeException('العرض يتضمن صنفًا غير موجود في طلب الأسعار.');
                 }
             }
-            $subtotal = round((float) collect($data['items'])->sum(fn ($item) => (float) $item['qty'] * (float) $item['unit_cost']), 2);
-            $vat = round($subtotal * .15, 2);
+            $subtotal = Money::sum(array_map(fn (array $item) => Money::mul($item['qty'], $item['unit_cost']), $data['items']));
+            $vat = Money::vat($subtotal, '0.15');
             $quote = SupplierQuotation::updateOrCreate(
                 ['request_for_quotation_id' => $rfq->id, 'supplier_id' => $data['supplier_id']],
                 ['supplier_reference' => $data['supplier_reference'] ?? null, 'valid_until' => $data['valid_until'] ?? null,
                     'lead_time_days' => $data['lead_time_days'], 'subtotal' => $subtotal, 'vat_amount' => $vat,
-                    'total_amount' => $subtotal + $vat, 'status' => 'received', 'note' => $data['note'] ?? null, 'recorded_by' => $actorId],
+                    'total_amount' => Money::add($subtotal, $vat), 'status' => 'received', 'note' => $data['note'] ?? null, 'recorded_by' => $actorId],
             );
             $quote->items()->delete();
             foreach ($data['items'] as $item) {
                 $quote->items()->create($item);
             }
             $rfq->forceFill(['status' => 'quotes_received'])->save();
-            $this->audit->record('rfq.supplier_quote_recorded', $quote, null, ['rfq_id' => $rfq->id, 'total' => $subtotal + $vat], $actorId);
+            $this->audit->record('rfq.supplier_quote_recorded', $quote, null, ['rfq_id' => $rfq->id, 'total' => Money::add($subtotal, $vat)], $actorId);
 
             return $quote;
         });

@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\MediaFile;
-use Illuminate\Support\Facades\Storage;
+use App\Support\PrivateFiles;
 
 /**
  * Produces the stamped derivative used in the client report: capture time,
@@ -29,8 +29,18 @@ class PhotoStamper
      */
     public function dimensionProblem(string $path): ?string
     {
-        $info = @getimagesize($path);
+        return $this->classify(@getimagesize($path));
+    }
 
+    /** Same check for bytes read through the disk API (local or S3). */
+    public function dimensionProblemForBytes(string $bytes): ?string
+    {
+        return $this->classify($bytes === '' ? false : @getimagesizefromstring($bytes));
+    }
+
+    /** @param array<int|string, mixed>|false $info */
+    private function classify(array|false $info): ?string
+    {
         if ($info === false || ($info[0] ?? 0) < 1 || ($info[1] ?? 0) < 1) {
             return self::IMAGE_UNREADABLE;
         }
@@ -60,19 +70,22 @@ class PhotoStamper
             return null;
         }
 
-        $disk = Storage::disk(config('darak.files_disk', 'local'));
-        $source = $disk->path($media->original_path);
+        // Bytes in, bytes out through the disk API — never a local path — so the
+        // stamp works the same on the local disk and on an S3-compatible bucket.
+        $disk = PrivateFiles::disk();
 
-        if (! file_exists($source) || ! function_exists('imagecreatetruecolor')) {
+        if (! function_exists('imagecreatetruecolor') || ! $disk->exists($media->original_path)) {
             return null;
         }
+
+        $bytes = (string) $disk->get($media->original_path);
 
         // Unreadable or oversized: keep the verified original, skip the stamp.
-        if ($this->dimensionProblem($source) !== null) {
+        if ($this->dimensionProblemForBytes($bytes) !== null) {
             return null;
         }
 
-        $image = $this->load($source, $media->mime);
+        $image = $this->load($bytes, $media->mime);
 
         if ($image === null) {
             return null;
@@ -97,14 +110,15 @@ class PhotoStamper
         }
 
         $target = 'media/derived/'.$media->client_media_id.'.jpg';
-        $absoluteTarget = $disk->path($target);
 
-        if (! is_dir(dirname($absoluteTarget))) {
-            mkdir(dirname($absoluteTarget), 0775, true);
-        }
-
-        imagejpeg($image, $absoluteTarget, 85);
+        ob_start();
+        imagejpeg($image, null, 85);
+        $jpeg = (string) ob_get_clean();
         imagedestroy($image);
+
+        if ($jpeg === '' || ! $disk->put($target, $jpeg)) {
+            return null;
+        }
 
         return $target;
     }
@@ -123,17 +137,14 @@ class PhotoStamper
         ];
     }
 
-    private function load(string $path, ?string $mime): ?\GdImage
+    /** GD detects PNG/JPEG/WebP from the bytes themselves; the mime is advisory. */
+    private function load(string $bytes, ?string $mime): ?\GdImage
     {
-        $image = match ($mime) {
-            'image/png' => @imagecreatefrompng($path),
-            'image/webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($path) : null,
-            default => @imagecreatefromjpeg($path),
-        };
-
-        if (! $image) {
-            $image = @imagecreatefromstring((string) file_get_contents($path));
+        if ($bytes === '' || ($mime === 'image/webp' && ! function_exists('imagecreatefromwebp'))) {
+            return null;
         }
+
+        $image = @imagecreatefromstring($bytes);
 
         return $image ?: null;
     }
