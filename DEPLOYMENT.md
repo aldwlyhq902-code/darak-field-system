@@ -144,7 +144,7 @@ DARAK_MAP_TILES_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png   # أو none
 | `LOG_ALERT_LEVEL` | `critical` | أدنى مستوى يُرسل إلى قناة التنبيه |
 | `DARAK_MAP_ATTRIBUTION` | `© OpenStreetMap contributors` | نص الإسناد تحت الخريطة |
 | `DARAK_MODULE_SALES` · `_COMMISSIONS` · `_PROCUREMENT_AUTOMATION` · `_AUTO_REASSIGN` · `_FLEET_HR_ALERTS` | `true` | تجميد المهام المجدولة لوحدة غير أساسية (الشاشات لا تتأثر) |
-| `darak.files_disk` (متغير البيئة يحدده فريق البيانات) | `local` | قرص الأدلة؛ إن كان محلياً (driver local) فالنسخ خارج الخادم إلزامي في preflight |
+| `DARAK_FILES_DISK` | `local` | قرص الملفات الخاصة والأدلة؛ إن كان محلياً (driver local) فالنسخ خارج الخادم إلزامي في preflight. `s3` يحتاج `composer require league/flysystem-aws-s3-v3` ومتغيرات `AWS_*` (preflight يتحقق)، وملفاته خارج النسخة المحلية. **في 0.3.0 رفع الأدلة المستأنف يكتب أجزاءه عبر مسار محلي فلا يعمل على `s3` — ابقَ على `local`** |
 
 ### 2.4 rclone (النسخ خارج الخادم)
 
@@ -166,19 +166,31 @@ sudo -u darak /var/www/darak/deploy/deploy.sh v0.3.0
 
 يفعل بالترتيب: وضع الصيانة ونسخة احتياطية موثقة قبل النشر → `git checkout` للوسم → `composer install --no-dev --optimize-autoloader` → `npm ci && npm run build` → **`darak:preflight` (إن فشل يعيد الإصدار السابق ويُخرج الموقع من الصيانة دون أي ترحيل)** → `migrate --force` بدور المالك → `app-grants.sql` → كاش الإعداد والمسارات والعروض → إعادة تحميل PHP-FPM → خروج من الصيانة → `darak:revoke-backoffice-tokens` **مرة واحدة فقط** في أول نشر يحوي هذا الأمر (علامة في `/var/lib/darak`). أي فشل بعد بدء الترحيل يُبقي الموقع في الصيانة عمداً: الكود القديم على مخطط جديد أسوأ من التوقف.
 
-**أول حساب في الإنتاج** (بدل بيانات البذر — لا تشغّل `DarakDemoSeeder` في الإنتاج):
+**أول حساب في الإنتاج** (بدل بيانات البذر — لا تشغّل `DarakDemoSeeder` في الإنتاج). الحساب يجب أن
+يُربط بشركة تشغيلية: عزل الشركات يفشل مغلقاً، فمالك بلا `operating_company_id` لا يرى أي سجل. وإنشاء
+الشركة من اللوحة متاح لمشرف المنصة فقط، لذلك تُنشأ هنا مع المالك:
 
 ```bash
 cd /var/www/darak/backend
 sudo -u darak php artisan tinker --execute="
+\$company = App\Models\OperatingCompany::create([
+  'name' => '<الاسم التجاري>',
+  'legal_name' => '<الاسم النظامي>',
+  'country' => 'SA',
+  'currency' => 'SAR',
+  'is_active' => true,
+]);
 App\Models\User::create([
   'name' => 'المالك',
   'email' => 'owner@darak.sa',
   'password' => Illuminate\Support\Facades\Hash::make('<كلمة قوية>'),
   'role' => App\Models\User::ROLE_OWNER,
+  'operating_company_id' => \$company->id,
   'is_active' => true,
 ]);"
 ```
+
+بقية بيانات المؤسسة (السجل، الرقم الضريبي، الشعار) تُكمل من صفحة «بيانات المؤسسة» بعد الدخول وإعداد TOTP.
 
 ### 2.6 `darak:preflight` — حاجز النشر
 
@@ -186,7 +198,7 @@ App\Models\User::create([
 
 | يفشل (FAIL) | يحذّر (WARN) |
 |---|---|
-| البيئة ليست production · `APP_DEBUG` · رابط غير HTTPS · غياب `APP_KEY` · Cookie جلسة غير آمن أو غير مشفر · عمر رمز الجهاز · غير PostgreSQL أو بلا SSL · السجل معطل أو بمستوى debug · نسخ غير مشفرة أو داخل مجلد النشر · منصة مؤقتة (Vercel) · قرارات الخصوصية ومدد الاحتفاظ ناقصة · مزود الفوترة `fake` أو فارغ · البريد `log`/`array` · أدلة على قرص محلي بلا `DARAK_BACKUP_RCLONE_REMOTE` · `pg_dump` غير موجود · rclone غير موجود مع remote مضبوط · دور قاعدة البيانات superuser (أو تعذر التحقق) · غياب `DARAK_AUDIT_HMAC_KEY` أو قِصره عن 32 حرفاً | `APP_TIMEZONE` غير `Asia/Riyadh` · نبض المجدول أقدم من 5 دقائق أو غائب (طبيعي في أول نشر قبل أن يبدأ cron) |
+| البيئة ليست production · `APP_DEBUG` · رابط غير HTTPS · غياب `APP_KEY` · Cookie جلسة غير آمن أو غير مشفر · عمر رمز الجهاز · غير PostgreSQL أو بلا SSL · السجل معطل أو بمستوى debug · نسخ غير مشفرة أو داخل مجلد النشر · منصة مؤقتة (Vercel) · قرارات الخصوصية ومدد الاحتفاظ ناقصة · مزود الفوترة `fake` أو فارغ · البريد `log`/`array` · أدلة على قرص محلي بلا `DARAK_BACKUP_RCLONE_REMOTE` · `pg_dump` غير موجود · rclone غير موجود مع remote مضبوط · دور قاعدة البيانات superuser (أو تعذر التحقق) · غياب `DARAK_AUDIT_HMAC_KEY` أو قِصره عن 32 حرفاً · امتداد `bcmath` غير محمّل · قرص `DARAK_FILES_DISK` غير معرّف، أو `s3` بلا `league/flysystem-aws-s3-v3` أو bucket | `APP_TIMEZONE` غير `Asia/Riyadh` · نبض المجدول أقدم من 5 دقائق أو غائب (طبيعي في أول نشر قبل أن يبدأ cron) |
 
 > **Vercel للعرض غير الإنتاجي فقط.** نقطة `api/index.php` ترفض التشغيل إلا عند `DARAK_VERCEL_EPHEMERAL_DEMO=true` مع `APP_ENV` غير production، **وترفض أيضاً إن كان `APP_DEBUG` مفعّلاً**، وتفرض `APP_DEBUG=false` قبل الإقلاع. `.vercelignore` يستبعد ملفات `.env*` والنسخ والأدلة والسجلات وقواعد SQLite. لا تضع بيانات عميل أو أدلة حقيقية هناك.
 
@@ -348,7 +360,7 @@ sudo -u darak php artisan darak:restore /var/backups/darak/darak-backup-YYYYMMDD
 - [ ] لا أسرار في `.env.example` ولا في المستودع
 - [ ] اعتماد جدول الخصوصية والاحتفاظ ونص الإشعار في `PRIVACY_AND_RETENTION.md`، ومراجعة تقرير `darak:retention-purge` قبل تفعيل الإتلاف
 - [ ] تنفيذ دورة هاتف حقيقية كاملة: كاميرا + QR + توقيع + موقع + وضع طيران + عودة الشبكة
-- [ ] تثبيت 0.2.0 فوق نسخة تحمل قاعدة قديمة، والتحقق ميدانياً من بقاء الزيارات والطابور بعد ترحيل SQLCipher
+- [ ] تثبيت 0.3.0 فوق جهاز يحمل 0.2.0 بطابور غير مُزامَن، والتحقق من بقاء الزيارات والطابور بعد ترقية المخطط v3 وتشفير الصور القديمة
 - [ ] بناء APK/AAB من نفس commit المنشور والتحقق من بصمة توقيعهما وSHA-256
 - [ ] نجاح CI على commit الإصدار ووسمه بإصدار غير قابل للتغيير
 
@@ -389,4 +401,7 @@ flutter build appbundle --release --dart-define=DARAK_API=https://panel.darak.sa
 يُوزَّع APK مباشرة على أجهزة الشركة، أو AAB عبر قناة Play داخلية. لا تُنقل حزمة
 مبنية لبيئة اختبار إلى الإنتاج: عنوان API جزء من البناء.
 
-**قبل التوزيع اختبر على جهاز حقيقي:** الكاميرا، التوقيع، مسح QR، أذونات الموقع، ودورة زيارة كاملة في وضع الطيران ثم مزامنة. **هذا لم يُختبر على جهاز بعد.**
+الحزم المنشورة وبصماتها، وأوامر إعادة بنائها لنطاق آخر (مع `GRADLE_USER_HOME` على جهاز البناء)، في
+[`RELEASES/0.3.0.md`](RELEASES/0.3.0.md).
+
+**قبل التوزيع اختبر على جهاز حقيقي:** الكاميرا، التوقيع، مسح QR، أذونات الموقع، ودورة زيارة كاملة في وضع الطيران ثم مزامنة. **هذا لم يُختبر على هاتف حقيقي بعد** — نجح السيناريو بلا شبكة على محاكي Android 15 فقط، والقائمة الكاملة لما ينتظر الهاتف في `RELEASES/0.3.0.md`.

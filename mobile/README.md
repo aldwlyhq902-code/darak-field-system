@@ -34,7 +34,12 @@ flutter test integration_test/offline_scenario_test.dart -d <device-id>
 flutter build apk --release --split-per-abi \
   --dart-define=DARAK_API=https://panel.darak.sa \
   --dart-define=DARAK_PINS=<البصمة الحالية>,<بصمة المفتاح الاحتياطي>
+flutter build appbundle --release --dart-define=DARAK_API=https://panel.darak.sa
 ```
+
+`DARAK_API` يُدمج في الحزمة ولا يُغيَّر بعد البناء: حزمة لنطاق لا تتصل بغيره. حزم 0.3.0 المنشورة
+مبنية لـ`https://panel.darak.sa` بلا `DARAK_PINS`؛ بصماتها وأوامر إعادة بنائها لنطاق آخر (مع
+`GRADLE_USER_HOME` على D: في جهاز البناء الحالي) في [`../RELEASES/0.3.0.md`](../RELEASES/0.3.0.md).
 
 ## تثبيت الشهادة (Certificate pinning)
 

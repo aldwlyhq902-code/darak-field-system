@@ -29,7 +29,11 @@ keytool -list -v -keystore darak-release.p12 -storepass <كلمة السر>
 ```bash
 cd mobile
 flutter build apk --release --split-per-abi --dart-define=DARAK_API=https://panel.darak.sa
+flutter build appbundle --release --dart-define=DARAK_API=https://panel.darak.sa
 ```
+
+استبدل النطاق بنطاق الإنتاج المؤكد. بصمة الشهادة أعلاه هي نفسها في حزم 0.1.0 و0.2.0 و0.3.0
+(تحقق منها في `RELEASES/`)؛ أي بصمة مختلفة تعني أن الحزمة لن تُثبَّت فوق النسخة الموجودة.
 
 بناء الإصدار (`release`) **يفشل عمداً** إن لم يجد `android/key.properties`، أو
 نقص فيه أحد الحقول (`keyAlias`, `keyPassword`, `storeFile`, `storePassword`)، أو
