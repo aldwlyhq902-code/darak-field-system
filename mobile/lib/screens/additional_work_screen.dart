@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 
 import '../app_state.dart';
-import '../core/api_client.dart';
+import '../core/action_outbox.dart';
+import '../core/error_messages.dart';
+import '../core/sync_engine.dart';
+import 'action_feedback.dart';
 
 class AdditionalWorkScreen extends StatefulWidget {
   const AdditionalWorkScreen({
@@ -56,20 +59,40 @@ class _AdditionalWorkScreenState extends State<AdditionalWorkScreen> {
     }
     setState(() => busy = true);
     try {
-      await widget.state.api.createAdditionalWork(
-        visitId: widget.visitId,
-        title: title.text.trim(),
-        description: description.text.trim(),
-        items: items,
+      final attempt = await widget.state.performAction(
+        ActionRequest.additionalWork(
+          visitId: widget.visitId,
+          title: title.text.trim(),
+          description: description.text.trim(),
+          items: List<Map<String, dynamic>>.of(items),
+        ),
       );
-      if (mounted) {
+      if (!mounted) return;
+      if (attempt.kind == ActionAttemptKind.done) {
+        // The visit screen confirms "sent to the client".
         Navigator.pop(context, true);
+        return;
       }
-    } on ApiException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: LText(
+            actionMessage(
+              attempt,
+              done: '',
+              queued:
+                  'حُفظ الطلب على الجهاز وسيُرسل للعميل عند توفر الشبكة. لا تبدأ التنفيذ قبل موافقته.',
+            ),
+          ),
+        ),
+      );
+      if (actionKept(attempt)) Navigator.pop(context, false);
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: LText(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: LText(friendlyError(e, context: 'additional work')),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => busy = false);

@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 
 import '../app_state.dart';
+import '../core/action_outbox.dart';
 import '../core/api_client.dart';
+import '../core/error_messages.dart';
+import 'action_feedback.dart';
 
 class DiagnosisScreen extends StatefulWidget {
   const DiagnosisScreen({
@@ -40,11 +43,21 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
       if (mounted) {
         setState(() => suggestions = list);
       }
-    } on ApiException catch (e) {
+    } catch (e) {
+      // Suggestions come from the server's history and knowledge base, so
+      // they are online-only by nature. Say so plainly; the diagnosis itself
+      // can still be typed and saved offline below.
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: LText(e.message)));
+        final offline = e is ApiException && e.isConnectivity;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: LText(
+              offline
+                  ? 'الاقتراحات تحتاج اتصالاً بالشبكة. يمكنك كتابة التشخيص وحفظه الآن وسيُرسل لاحقاً.'
+                  : friendlyError(e, context: 'diagnosis suggestions'),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => busy = false);
@@ -55,20 +68,26 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
     if (fault.text.trim().isEmpty || diagnosis.text.trim().isEmpty) return;
     setState(() => busy = true);
     try {
-      await widget.state.api.recordDiagnosis(
-        visitId: widget.visitId,
-        faultCode: fault.text.trim(),
-        diagnosisCode: diagnosis.text.trim(),
-        summary: summary.text.trim(),
+      final attempt = await widget.state.performAction(
+        ActionRequest.recordDiagnosis(
+          visitId: widget.visitId,
+          faultCode: fault.text.trim(),
+          diagnosisCode: diagnosis.text.trim(),
+          summary: summary.text.trim(),
+        ),
       );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: LText(actionMessage(attempt, done: 'اعتُمد التشخيص.')),
+        ),
+      );
+      if (actionKept(attempt)) Navigator.pop(context, true);
+    } catch (e) {
       if (mounted) {
-        Navigator.pop(context, true);
-      }
-    } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: LText(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: LText(friendlyError(e, context: 'diagnosis'))),
+        );
       }
     } finally {
       if (mounted) setState(() => busy = false);

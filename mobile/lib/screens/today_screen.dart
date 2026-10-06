@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import 'package:intl/intl.dart';
 
 import '../app_state.dart';
+import '../core/action_outbox.dart';
 import '../core/event_queue.dart';
 import 'sync_screen.dart';
 import 'field_tools_screen.dart';
@@ -27,6 +28,8 @@ class _TodayScreenState extends State<TodayScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialWork());
   }
 
+  /// Pushes queued work BEFORE refreshing. Pulling first, on every open, rolled
+  /// offline progress back to the server's older state.
   Future<void> _loadInitialWork() async {
     try {
       await widget.state.pullWork();
@@ -37,6 +40,74 @@ class _TodayScreenState extends State<TodayScreen> {
     }
   }
 
+  /// Sign-out is refused while anything is unsynced: signing out wipes the
+  /// device, and that work exists nowhere else.
+  Future<void> _signOut() async {
+    final state = widget.state;
+    final unsynced = await state.unsyncedWork();
+    if (!mounted) return;
+
+    if (!unsynced.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const LText('لا يمكن تسجيل الخروج الآن'),
+          content: LText(
+            'على الجهاز ${unsynced.total} عنصر لم يُرسل بعد '
+            '(${unsynced.events} عملية، ${unsynced.media} ملف، ${unsynced.actions} إجراء). '
+            'تسجيل الخروج يمسح بيانات الجهاز، فزامن أولاً من شاشة المزامنة.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const LText('حسناً'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.of(this.context).push(
+                  MaterialPageRoute(builder: (_) => SyncScreen(state: state)),
+                );
+              },
+              child: const LText('حالة المزامنة'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const LText('تسجيل الخروج؟'),
+        content: const LText(
+          'ستُمسح زيارات اليوم وبياناتها من هذا الجهاز، ويلزم تسجيل الدخول والاتصال بالشبكة للعودة.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const LText('تراجع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const LText('تسجيل الخروج'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final done = await state.signOut();
+    if (!done && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: LText('ظهر عمل غير مُزامَن للتو. زامن ثم أعد المحاولة.'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
@@ -44,8 +115,18 @@ class _TodayScreenState extends State<TodayScreen> {
     return AnimatedBuilder(
       animation: state,
       builder: (context, _) {
-        final pending = state.queueCounts[QueuedStatus.pending] ?? 0;
-        final failed = state.queueCounts[QueuedStatus.failed] ?? 0;
+        final pending =
+            (state.queueCounts[QueuedStatus.pending] ?? 0) +
+            state.pendingUploads +
+            state.outstandingActions
+                .where((a) => a.status == ActionStatus.pending)
+                .length;
+        final failed =
+            (state.queueCounts[QueuedStatus.failed] ?? 0) +
+            state.outstandingActions
+                .where((a) => a.status == ActionStatus.failed)
+                .length;
+        final drift = state.clockDrift;
 
         return Scaffold(
           appBar: AppBar(
@@ -77,6 +158,28 @@ class _TodayScreenState extends State<TodayScreen> {
                   child: const Icon(Icons.sync),
                 ),
               ),
+              PopupMenuButton<String>(
+                tooltip: context.tr('المزيد'),
+                onSelected: (value) {
+                  if (value == 'sign_out') _signOut();
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'sign_out',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.logout, size: 20),
+                        const SizedBox(width: 10),
+                        LText(
+                          state.technicianName?.isNotEmpty == true
+                              ? 'تسجيل الخروج (${state.technicianName})'
+                              : 'تسجيل الخروج',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           body: RefreshIndicator(
@@ -84,8 +187,23 @@ class _TodayScreenState extends State<TodayScreen> {
             child: Column(
               children: [
                 _ConnectionBanner(state: state),
+                // A phone clock far from the server's makes every timestamp
+                // look tampered with. Say so where it can be fixed.
+                if (drift != null && drift.abs() > const Duration(minutes: 5))
+                  Container(
+                    width: double.infinity,
+                    color: const Color(0xFFFFF7ED),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: LText(
+                      'ساعة الجهاز تختلف عن توقيت الخادم بنحو ${drift.inMinutes.abs()} دقيقة. فعّل الضبط التلقائي للوقت من الإعدادات.',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
                 Expanded(
-                  child: _initialLoad && state.visits.isEmpty
+                  child: (_initialLoad || state.syncing) && state.visits.isEmpty
                       ? const Center(child: CircularProgressIndicator())
                       : state.visits.isEmpty
                       ? const _EmptyState()

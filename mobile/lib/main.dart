@@ -4,6 +4,7 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'app_state.dart';
 import 'core/api_config.dart';
+import 'core/device_platform.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/login_screen.dart';
 import 'screens/today_screen.dart';
@@ -13,6 +14,9 @@ import 'screens/today_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final apiBase = resolveApiBase();
+  // Customer premises, signatures and addresses must not end up in screenshots
+  // or in the recent-apps thumbnail. On by default in release builds.
+  await const DevicePlatform().setSecureScreen(resolveSecureScreen());
   await initializeDateFormatting('ar');
   await initializeDateFormatting('en');
   runApp(DarakApp(apiBase: apiBase));
@@ -29,13 +33,27 @@ class DarakApp extends StatefulWidget {
 
 class _DarakAppState extends State<DarakApp> {
   late final AppState state = AppState(baseUrl: widget.apiBase);
+  final _navigator = GlobalKey<NavigatorState>();
   Object? _initializationError;
   bool _initializing = true;
+  bool _wasAuthenticated = false;
 
   @override
   void initState() {
     super.initState();
+    state.addListener(_onSessionChange);
     _initialize();
+  }
+
+  /// A dead session or a wiped device must not leave a visit or the sync
+  /// screen open on top of the login screen, still reading a database that
+  /// may no longer exist.
+  void _onSessionChange() {
+    final authenticated = state.ready && state.isAuthenticated;
+    if (_wasAuthenticated && !authenticated) {
+      _navigator.currentState?.popUntil((route) => route.isFirst);
+    }
+    _wasAuthenticated = authenticated;
   }
 
   Future<void> _initialize() async {
@@ -59,6 +77,7 @@ class _DarakAppState extends State<DarakApp> {
 
   @override
   void dispose() {
+    state.removeListener(_onSessionChange);
     state.dispose();
     super.dispose();
   }
@@ -71,6 +90,7 @@ class _DarakAppState extends State<DarakApp> {
     );
 
     return MaterialApp(
+      navigatorKey: _navigator,
       onGenerateTitle: (context) => context.tr('دارك — تطبيق الفني'),
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -153,15 +173,12 @@ class _DarakAppState extends State<DarakApp> {
             );
           }
 
-          // A revoked or expired token drops the technician back to the login
-          // screen instead of leaving the app retrying forever with a dead token.
-          // Nothing queued is lost — it syncs after signing in again.
+          // An expired token drops the technician back to the login screen
+          // with the queue intact; a revoked device arrives here wiped. The
+          // notice says which.
           return state.isAuthenticated
               ? TodayScreen(state: state)
-              : LoginScreen(
-                  state: state,
-                  notice: state.sessionExpired ? state.lastSyncMessage : null,
-                );
+              : LoginScreen(state: state, notice: state.loginNotice);
         },
       ),
     );
