@@ -11,9 +11,11 @@ use App\Models\CommissionRule;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\FaultPredictionModel;
+use App\Models\InventoryLot;
 use App\Models\KnowledgeArticle;
 use App\Models\OperatingBranch;
 use App\Models\OperatingCompany;
+use App\Models\PartFailureReport;
 use App\Models\Payment;
 use App\Models\PurchaseOrder;
 use App\Models\Quotation;
@@ -283,6 +285,33 @@ class TenancyGapsTest extends DarakTestCase
         ])->assertNotFound();
         $this->assertEqualsWithDelta(33.5, (float) $supplier->parts()->sole()->pivot->last_price, .001);
         $this->assertSame(0, PurchaseOrder::withoutGlobalScopes()->count());
+    }
+
+    public function test_part_failure_reports_and_supplier_quality_stay_inside_the_company(): void
+    {
+        $foreign = $this->foreignTenant();
+        $foreignAsset = Asset::withoutGlobalScopes()->create([
+            'site_id' => $foreign['site']->id, 'type' => 'split_ac', 'name' => 'Foreign Split', 'qr_code' => 'ASSET-FRN-PF',
+        ]);
+        $supplier = Supplier::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'Our Failing Supplier', 'is_active' => true]);
+        InventoryLot::create([
+            'part_id' => $this->part->id, 'supplier_id' => $supplier->id, 'stock_location_id' => $this->warehouse->id,
+            'lot_number' => 'LOT-FAIL', 'qty_received' => 5, 'qty_remaining' => 5, 'unit_cost' => 38,
+        ]);
+        $this->actingAs($this->owner, 'web')->post(route('panel.intelligence.failure'), [
+            'part_id' => $this->part->id, 'lot_ref' => 'LOT-FAIL', 'asset_id' => $this->asset->id, 'failure_kind' => 'burnt',
+        ])->assertSessionHas('ok');
+        $this->assertSame($this->operatingCompany->id, (int) PartFailureReport::withoutGlobalScopes()->sole()->operating_company_id);
+        $this->get(route('panel.intelligence'))->assertOk()->assertSee('Our Failing Supplier');
+
+        $this->actingAs($foreign['owner'], 'web')->get(route('panel.intelligence'))
+            ->assertOk()->assertDontSee('Our Failing Supplier');
+        // Another company's asset cannot be named by id either.
+        $this->post(route('panel.intelligence.failure'), [
+            'part_id' => $this->part->id, 'asset_id' => $this->asset->id, 'failure_kind' => 'burnt',
+        ])->assertNotFound();
+        $this->assertSame(1, PartFailureReport::withoutGlobalScopes()->count());
+        $this->assertNotNull($foreignAsset);
     }
 
     private function delegate(string $email): ClientPortalUser

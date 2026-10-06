@@ -111,9 +111,16 @@ class IntelligencePanelController extends Controller
         if (isset($data['visit_id'])) {
             Visit::query()->findOrFail($data['visit_id']);
         }
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        if (isset($data['asset_id'])) {
+            Asset::query()->findOrFail($data['asset_id']);
+        }
         unset($data['lot_ref'], $data['asset_ref']);
         $lot = isset($data['inventory_lot_id']) ? InventoryLot::query()->findOrFail($data['inventory_lot_id']) : null;
-        $failure = PartFailureReport::create($data + ['supplier_id' => $lot?->supplier_id, 'reported_by' => $request->user()->id]);
+        $failure = PartFailureReport::create($data + [
+            'operating_company_id' => $request->user()->operating_company_id,
+            'supplier_id' => $lot?->supplier_id, 'reported_by' => $request->user()->id,
+        ]);
         $this->audit->record('part.failure_reported', $failure, null, $failure->toArray(), $request->user()->id);
 
         return back()->with('ok', 'سُجل فشل القطعة وربط بالمورد والدفعة عند توفرهما.');
