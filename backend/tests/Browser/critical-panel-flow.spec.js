@@ -64,6 +64,10 @@ test('owner completes MFA and critical RTL mobile interactions stay accessible',
     await expect(page.locator('[data-sidebar-open]')).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('[data-sidebar-open]')).toBeFocused();
 
+    await page.goto('/commercial');
+    await expect(page.getByRole('heading', { name: 'العروض والتحصيل' })).toBeVisible();
+    expect(await hasHorizontalOverflow(page)).toBe(false);
+
     await page.goto('/sales/app');
     expect(await hasHorizontalOverflow(page)).toBe(false);
     const openLead = page.locator('[data-open-modal="lead-modal"]').first();

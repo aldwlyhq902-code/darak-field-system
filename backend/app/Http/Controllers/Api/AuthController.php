@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\TwoFactorService;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -20,7 +21,11 @@ use Illuminate\Validation\ValidationException;
  */
 class AuthController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly TenantAccess $tenantAccess,
+        private readonly TwoFactorService $twoFactor,
+    ) {}
 
     public function login(Request $request): JsonResponse
     {
@@ -31,6 +36,7 @@ class AuthController extends Controller
             'platform' => ['nullable', 'string', 'max:32'],
             'label' => ['nullable', 'string', 'max:120'],
             'app_version' => ['nullable', 'string', 'max:32'],
+            'mfa_code' => ['nullable', 'string', 'max:32'],
         ]);
 
         $user = User::where('email', $data['email'])->first();
@@ -41,6 +47,31 @@ class AuthController extends Controller
 
         if (! $user->is_active) {
             return response()->json(['code' => 'USER_INACTIVE', 'message' => 'This account is disabled.'], 403);
+        }
+
+        // Panel accounts can perform privileged API actions. Issuing them a
+        // bearer token from a password alone would bypass the MFA enforced by
+        // the web panel, so every new device token needs a fresh second factor.
+        if (! $user->isTechnician()) {
+            if (! $user->hasConfirmedTwoFactor()) {
+                return response()->json([
+                    'code' => 'TWO_FACTOR_SETUP_REQUIRED',
+                    'message' => 'أكمل إعداد التحقق بخطوتين من لوحة الإدارة أولاً.',
+                ], 403);
+            }
+
+            $mfaCode = (string) ($data['mfa_code'] ?? '');
+            $validSecondFactor = $mfaCode !== '' && (
+                $this->twoFactor->verify($user, $mfaCode)
+                || $this->twoFactor->consumeRecoveryCode($user, $mfaCode)
+            );
+
+            if (! $validSecondFactor) {
+                return response()->json([
+                    'code' => 'TWO_FACTOR_REQUIRED',
+                    'message' => 'رمز التحقق أو الاسترداد مطلوب لإصدار رمز API إداري.',
+                ], 422);
+            }
         }
 
         $device = Device::firstOrNew(['device_uuid' => $data['device_uuid']]);

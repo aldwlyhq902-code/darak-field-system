@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\MediaFile;
 use App\Models\StockMove;
+use App\Models\User;
 use App\Models\Visit;
 use App\Models\WorkOrder;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\DarakTestCase;
@@ -16,6 +18,52 @@ use Tests\DarakTestCase;
  */
 class ApiAuthorizationTest extends DarakTestCase
 {
+    public function test_restricted_admin_cannot_bypass_panel_permissions_through_api(): void
+    {
+        $admin = User::create([
+            'name' => 'Clients only',
+            'email' => 'clients-api@test.local',
+            'password' => Hash::make('Strong-Test9!'),
+            'role' => User::ROLE_ADMIN,
+            'permissions' => ['clients'],
+            'operating_company_id' => $this->operatingCompany->id,
+            'operating_branch_id' => $this->operatingBranch->id,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->getJson("/api/v1/inventory/locations/{$this->warehouse->id}/balances")
+            ->assertForbidden();
+        $this->actingAs($admin)
+            ->postJson('/api/v1/inventory/receipt', [
+                'idempotency_key' => (string) Str::uuid(),
+                'part_id' => $this->part->id,
+                'qty' => 1,
+                'to_location_id' => $this->warehouse->id,
+            ])->assertForbidden();
+        $this->actingAs($admin)->get('/api/v1/reports/visits.csv')->assertForbidden();
+
+        $this->assertSame(0, StockMove::count());
+    }
+
+    public function test_admin_with_matching_permission_retains_api_access(): void
+    {
+        $admin = User::create([
+            'name' => 'Inventory admin',
+            'email' => 'inventory-api@test.local',
+            'password' => Hash::make('Strong-Test9!'),
+            'role' => User::ROLE_ADMIN,
+            'permissions' => ['inventory'],
+            'operating_company_id' => $this->operatingCompany->id,
+            'operating_branch_id' => $this->operatingBranch->id,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->getJson("/api/v1/inventory/locations/{$this->warehouse->id}/balances")
+            ->assertOk();
+    }
+
     public function test_technician_cannot_create_warehouse_stock(): void
     {
         // Phantom stock inflates balances, reorder signals and every margin

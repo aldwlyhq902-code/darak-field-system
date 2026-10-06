@@ -80,6 +80,48 @@ class CommercialOperationsTest extends DarakTestCase
         $this->actingAs($this->owner, 'web')->get(route('panel.operations'))->assertOk()->assertSee('تقويم الفنيين الأسبوعي');
     }
 
+    public function test_commercial_kpis_include_overdue_and_partial_balances_from_all_rows(): void
+    {
+        ContractInstallment::create([
+            'contract_id' => $this->contract->id, 'installment_no' => 1,
+            'due_on' => now()->subDay(), 'amount' => 100, 'vat_amount' => 0,
+            'total_amount' => 100, 'paid_amount' => 0, 'status' => 'overdue',
+        ]);
+        ContractInstallment::create([
+            'contract_id' => $this->contract->id, 'installment_no' => 2,
+            'due_on' => now()->subDays(2), 'amount' => 100, 'vat_amount' => 0,
+            'total_amount' => 100, 'paid_amount' => 25, 'status' => 'partial',
+        ]);
+
+        $this->actingAs($this->owner, 'web')->get(route('panel.commercial'))
+            ->assertOk()
+            ->assertViewHas('openInstallmentsAmount', 175.0)
+            ->assertViewHas('overdueInstallmentsCount', 2);
+    }
+
+    public function test_commercial_installments_are_paginated_newest_first_without_changing_kpis(): void
+    {
+        for ($number = 1; $number <= 101; $number++) {
+            ContractInstallment::create([
+                'contract_id' => $this->contract->id,
+                'installment_no' => $number,
+                'due_on' => now()->addDays($number),
+                'amount' => 100, 'vat_amount' => 0, 'total_amount' => 100,
+                'paid_amount' => $number <= 100 ? 100 : 0,
+                'status' => $number <= 100 ? 'paid' : 'pending',
+            ]);
+        }
+
+        $response = $this->actingAs($this->owner, 'web')->get(route('panel.commercial'))
+            ->assertOk()
+            ->assertViewHas('openInstallmentsAmount', 100.0);
+        $installments = $response->viewData('installments');
+
+        $this->assertSame(101, $installments->total());
+        $this->assertSame(101, $installments->first()->installment_no);
+        $this->assertStringContainsString('installments_page=2', $response->getContent());
+    }
+
     private function quoteData(): array
     {
         return ['series_uuid' => (string) Str::uuid(), 'version' => 1, 'quote_no' => 'QT-TEST-1', 'client_id' => $this->client->id, 'title' => 'Annual maintenance', 'package_code' => 'basic', 'price_amount' => 1000, 'vat_rate' => .15, 'billing_cycle' => 'quarterly', 'duration_months' => 12, 'starts_on' => now()->addWeek()->toDateString(), 'valid_until' => now()->addMonth()->toDateString(), 'service_window_start' => '07:00', 'service_window_end' => '23:00', 'sla_minutes' => 240, 'status' => 'draft', 'created_by' => $this->owner->id];

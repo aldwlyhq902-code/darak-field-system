@@ -64,7 +64,7 @@ Route::prefix('v1')->group(function () {
 
         // Inventory — back office only. A field device has no business creating
         // warehouse receipts or reading the whole company's stock.
-        Route::middleware('role.backoffice')->group(function () {
+        Route::middleware(['role.backoffice', 'panel.permission:inventory'])->group(function () {
             Route::get('inventory/locations/{location}/balances', [InventoryController::class, 'balances']);
             Route::post('inventory/receipt', [InventoryController::class, 'receipt']);
             Route::post('inventory/vehicle-load', [InventoryController::class, 'vehicleLoad']);
@@ -75,9 +75,13 @@ Route::prefix('v1')->group(function () {
         // company-wide data and stay back office.
         Route::get('visits/{visit}/report.pdf', [ReportController::class, 'visitPdf']);
 
-        Route::middleware('role.backoffice')->group(function () {
+        Route::middleware(['role.backoffice', 'panel.permission:operations'])->group(function () {
             Route::get('reports/visits.csv', [ReportController::class, 'visitsCsv']);
+        });
+        Route::middleware(['role.backoffice', 'panel.permission:inventory'])->group(function () {
             Route::get('reports/stock-moves.csv', [ReportController::class, 'stockMovesCsv']);
+        });
+        Route::middleware(['role.backoffice', 'panel.permission:performance'])->group(function () {
             Route::get('reports/first-time-fix', [ReportController::class, 'firstTimeFix']);
         });
     });

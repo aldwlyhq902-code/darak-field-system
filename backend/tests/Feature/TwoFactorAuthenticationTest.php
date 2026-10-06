@@ -6,10 +6,43 @@ use App\Models\User;
 use App\Services\TwoFactorService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Tests\DarakTestCase;
 
 class TwoFactorAuthenticationTest extends DarakTestCase
 {
+    public function test_backoffice_api_login_requires_a_fresh_second_factor(): void
+    {
+        $payload = [
+            'email' => $this->owner->email,
+            'password' => 'secret',
+            'device_uuid' => (string) Str::uuid(),
+        ];
+
+        $this->postJson('/api/v1/auth/login', $payload)
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'TWO_FACTOR_REQUIRED');
+
+        $this->postJson('/api/v1/auth/login', $payload + ['mfa_code' => '000000'])
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'TWO_FACTOR_REQUIRED');
+
+        $this->postJson('/api/v1/auth/login', $payload + [
+            'mfa_code' => app(TwoFactorService::class)->currentCode($this->owner),
+        ])->assertOk()->assertJsonStructure(['token']);
+    }
+
+    public function test_backoffice_api_login_refuses_an_account_without_mfa_setup(): void
+    {
+        $admin = $this->unconfirmedAdmin();
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => $admin->email,
+            'password' => 'Strong-Test9!',
+            'device_uuid' => (string) Str::uuid(),
+        ])->assertForbidden()->assertJsonPath('code', 'TWO_FACTOR_SETUP_REQUIRED');
+    }
+
     public function test_first_panel_login_requires_two_factor_enrollment(): void
     {
         $admin = $this->unconfirmedAdmin();

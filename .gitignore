@@ -82,3 +82,7 @@ desktop.ini
 
 # APKs are release artefacts, not source. dist/ holds the built files.
 dist/
+
+# Large media and marketing material — kept outside the code repository
+videos/
+marketing/

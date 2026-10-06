@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Device;
+use App\Models\User;
 use App\Models\Visit;
 use App\Models\WorkOrder;
+use App\Services\TwoFactorService;
 use Illuminate\Support\Str;
 use Tests\DarakTestCase;
 
@@ -159,10 +161,15 @@ class AuthorizationTest extends DarakTestCase
 
     private function loginToken(string $email): string
     {
+        $user = User::where('email', $email)->firstOrFail();
+
         return $this->postJson('/api/v1/auth/login', [
             'email' => $email,
             'password' => 'secret',
             'device_uuid' => (string) Str::uuid(),
+            ...($user->isTechnician() ? [] : [
+                'mfa_code' => app(TwoFactorService::class)->currentCode($user),
+            ]),
         ])->assertOk()->json('token');
     }
 

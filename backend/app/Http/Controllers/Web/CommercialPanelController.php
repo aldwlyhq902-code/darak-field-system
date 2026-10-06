@@ -30,12 +30,28 @@ class CommercialPanelController extends Controller
     public function index(): View
     {
         $today = now()->startOfDay();
+        $openInstallments = ContractInstallment::query()
+            ->whereIn('status', ['pending', 'partial', 'overdue'])
+            ->whereColumn('paid_amount', '<', 'total_amount');
 
         return view('panel.commercial', [
             'clients' => Client::where('is_active', true)->with('sites')->orderBy('name')->get(),
-            'quotations' => Quotation::with(['client', 'convertedContract'])->latest()->limit(40)->get(),
-            'installments' => ContractInstallment::with('contract.client')->orderBy('due_on')->limit(100)->get(),
-            'payments' => Payment::with(['client', 'installment.contract'])->latest('paid_on')->limit(30)->get(),
+            'quotations' => Quotation::with(['client', 'convertedContract'])
+                ->latest()->paginate(25, ['*'], 'quotations_page')->withQueryString(),
+            'installments' => ContractInstallment::with('contract.client')
+                ->orderByDesc('due_on')->orderByDesc('id')
+                ->paginate(50, ['*'], 'installments_page')->withQueryString(),
+            'payments' => Payment::with(['client', 'installment.contract'])
+                ->latest('paid_on')->latest('id')
+                ->paginate(30, ['*'], 'payments_page')->withQueryString(),
+            'pendingQuotationCount' => Quotation::where('status', 'sent')->count(),
+            'openInstallmentsAmount' => (float) (clone $openInstallments)
+                ->selectRaw('COALESCE(SUM(total_amount - paid_amount), 0) AS aggregate')
+                ->value('aggregate'),
+            'overdueInstallmentsCount' => (clone $openInstallments)
+                ->where(function ($query) use ($today): void {
+                    $query->where('status', 'overdue')->orWhereDate('due_on', '<', $today);
+                })->count(),
             'contractsEnding' => Contract::with('client')->where('status', 'active')
                 ->whereBetween('ends_on', [$today, $today->copy()->addDays(60)])->orderBy('ends_on')->get(),
         ]);
