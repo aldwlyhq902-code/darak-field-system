@@ -122,7 +122,7 @@ class SalesPortalController extends Controller
             'pushConfigured' => $this->push->configured(), 'pushPublicKey' => config('sales.vapid.public_key'),
             'pushSubscribed' => $user->webPushSubscriptions()->exists(),
             'stageLabels' => $this->stageLabels(),
-            'targets' => PerformanceMetricSetting::query()->where('category', 'marketers')->pluck('target', 'metric_key'),
+            'targets' => PerformanceMetricSetting::effectiveFor($user->operating_company_id)->where('category', 'marketers')->pluck('target', 'metric_key'),
             'kpis' => [
                 'active' => $leads->whereIn('stage', self::ACTIVE_STAGES)->count(),
                 'pipeline_value' => Money::sum($leads->whereIn('stage', self::ACTIVE_STAGES)->pluck('estimated_value')),

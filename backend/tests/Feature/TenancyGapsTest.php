@@ -17,6 +17,7 @@ use App\Models\OperatingBranch;
 use App\Models\OperatingCompany;
 use App\Models\PartFailureReport;
 use App\Models\Payment;
+use App\Models\PerformanceMetricSetting;
 use App\Models\PurchaseOrder;
 use App\Models\Quotation;
 use App\Models\ReplenishmentRequest;
@@ -312,6 +313,31 @@ class TenancyGapsTest extends DarakTestCase
         ])->assertNotFound();
         $this->assertSame(1, PartFailureReport::withoutGlobalScopes()->count());
         $this->assertNotNull($foreignAsset);
+    }
+
+    public function test_performance_weights_and_targets_are_set_per_company(): void
+    {
+        $foreign = $this->foreignTenant();
+        $payload = PerformanceMetricSetting::where('category', 'technicians')->get()
+            ->mapWithKeys(fn (PerformanceMetricSetting $setting) => [$setting->id => [
+                'weight' => (float) $setting->weight,
+                'target' => $setting->metric_key === 'sla_rate' ? 97 : (float) $setting->target,
+                'minimum_sample' => $setting->minimum_sample,
+            ]])->all();
+
+        $this->actingAs($this->owner, 'web')->put(route('panel.performance.settings'), [
+            'category' => 'technicians', 'settings' => $payload,
+        ])->assertSessionHas('ok');
+
+        $slaTarget = fn (float $expected) => fn ($settings) => (float) $settings['technicians']->firstWhere('metric_key', 'sla_rate')->target === $expected;
+        $this->get(route('panel.performance'))->assertOk()->assertViewHas('settings', $slaTarget(97.0));
+        // The other company keeps the platform default and cannot touch ours.
+        $this->actingAs($foreign['owner'], 'web')->get(route('panel.performance'))->assertOk()->assertViewHas('settings', $slaTarget(95.0));
+        $ours = PerformanceMetricSetting::where('operating_company_id', $this->operatingCompany->id)->where('metric_key', 'sla_rate')->sole();
+        $this->put(route('panel.performance.settings'), [
+            'category' => 'technicians', 'settings' => [$ours->id => ['weight' => 100, 'target' => 1, 'minimum_sample' => 1]],
+        ])->assertStatus(422);
+        $this->assertEqualsWithDelta(97, (float) $ours->fresh()->target, .001);
     }
 
     private function delegate(string $email): ClientPortalUser
