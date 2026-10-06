@@ -80,7 +80,12 @@ class IntelligencePanelController extends Controller
             'diagnosis' => ['required', 'string', 'max:8000'], 'solution' => ['required', 'string', 'max:8000'],
             'suggested_part_ids' => ['nullable', 'array'], 'suggested_part_ids.*' => ['exists:parts,id'],
         ]);
-        $article = KnowledgeArticle::create($data + ['is_published' => true, 'created_by' => $request->user()->id]);
+        // Filed in the author's company knowledge base (company-less only for a
+        // company-less platform admin, and then visible to platform admins only).
+        $article = KnowledgeArticle::create($data + [
+            'operating_company_id' => $request->user()->operating_company_id,
+            'is_published' => true, 'created_by' => $request->user()->id,
+        ]);
         $this->audit->record('knowledge.created', $article, null, $article->toArray(), $request->user()->id);
 
         return back()->with('ok', 'أُضيف الحل إلى قاعدة المعرفة وأصبح متاحًا للاقتراح التشخيصي.');

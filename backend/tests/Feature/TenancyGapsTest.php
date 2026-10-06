@@ -11,6 +11,7 @@ use App\Models\CommissionRule;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\FaultPredictionModel;
+use App\Models\KnowledgeArticle;
 use App\Models\OperatingBranch;
 use App\Models\OperatingCompany;
 use App\Models\Payment;
@@ -21,6 +22,7 @@ use App\Models\SubcontractorOrder;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\WorkOrder;
+use App\Services\AssetIntelligenceService;
 use App\Services\CommissionService;
 use App\Services\SubcontractorService;
 use Carbon\CarbonImmutable;
@@ -221,6 +223,28 @@ class TenancyGapsTest extends DarakTestCase
         $this->actingAs($unrestricted, 'client')->get(route('client.contract', $contract))->assertOk();
         $this->actingAs($unrestricted, 'client')->get(route('client.home'))->assertOk()
             ->assertSee('QT-NO-SITES')->assertSee('DK-NO-SITES')->assertSee('RC-NO-SITES');
+    }
+
+    public function test_knowledge_base_articles_stay_inside_the_authoring_company(): void
+    {
+        $foreign = $this->foreignTenant();
+        $foreignAsset = Asset::withoutGlobalScopes()->create([
+            'site_id' => $foreign['site']->id, 'type' => $this->asset->type, 'name' => 'Foreign Split', 'qr_code' => 'ASSET-FRN-KB',
+        ]);
+        $this->actingAs($this->owner, 'web')->post(route('panel.intelligence.article'), [
+            'fault_code' => 'E01', 'asset_type' => $this->asset->type, 'title' => 'Our compressor recipe',
+            'diagnosis' => 'Our private diagnosis', 'solution' => 'Our private fix',
+        ])->assertRedirect()->assertSessionHas('ok');
+        $article = KnowledgeArticle::withoutGlobalScopes()->sole();
+        $this->assertSame($this->operatingCompany->id, (int) $article->operating_company_id);
+
+        // Our technician gets it; the other company's technician and panel do not.
+        $this->actingAs($this->technician, 'web');
+        $this->assertContains('Our compressor recipe', app(AssetIntelligenceService::class)->diagnosisSuggestions($this->asset, 'E01')->pluck('title')->all());
+        $this->actingAs($foreign['technician'], 'web');
+        $this->assertNotContains('Our compressor recipe', app(AssetIntelligenceService::class)->diagnosisSuggestions($foreignAsset, 'E01')->pluck('title')->all());
+        $this->actingAs($foreign['owner'], 'web')->get(route('panel.intelligence'))
+            ->assertOk()->assertDontSee('Our compressor recipe');
     }
 
     private function delegate(string $email): ClientPortalUser

@@ -97,7 +97,7 @@ class GrowthOperationsTest extends DarakTestCase
 
     public function test_technician_receives_knowledge_based_diagnosis_suggestions(): void
     {
-        KnowledgeArticle::create(['fault_code' => 'E01', 'asset_type' => $this->asset->type, 'title' => 'Sensor fault', 'diagnosis' => 'Check sensor', 'solution' => 'Replace sensor', 'suggested_part_ids' => [$this->part->id], 'is_published' => true]);
+        KnowledgeArticle::create(['operating_company_id' => $this->operatingCompany->id, 'fault_code' => 'E01', 'asset_type' => $this->asset->type, 'title' => 'Sensor fault', 'diagnosis' => 'Check sensor', 'solution' => 'Replace sensor', 'suggested_part_ids' => [$this->part->id], 'is_published' => true]);
         $token = $this->technician->createToken('device:'.$this->device->device_uuid)->plainTextToken;
 
         $this->asToken($token)->getJson('/api/v1/visits/'.$this->visit->id.'/diagnosis-suggestions?fault_code=E01')
