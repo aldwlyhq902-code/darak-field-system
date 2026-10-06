@@ -38,7 +38,7 @@ class CompletionPackTest extends DarakTestCase
         $owner = $this->owner;
         $warehouse = $this->warehouse;
         $part = $this->part;
-        $supplier = Supplier::create(['name' => 'مورد الاختبار', 'lead_time_days' => 2, 'is_active' => true]);
+        $supplier = Supplier::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'مورد الاختبار', 'lead_time_days' => 2, 'is_active' => true]);
         $service = app(RfqService::class);
         $rfq = $service->create(['destination_location_id' => $warehouse->id, 'response_due_on' => today()->addWeek(), 'items' => [['part_id' => $part->id, 'qty' => 4]]], $owner->id);
         $quote = $service->recordSupplierQuotation($rfq, ['supplier_id' => $supplier->id, 'lead_time_days' => 2, 'items' => [['part_id' => $part->id, 'qty' => 4, 'unit_cost' => 50]]], $owner->id);
@@ -94,6 +94,6 @@ class CompletionPackTest extends DarakTestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('لا يمكن تدريب النموذج قبل توفر 500 عينة زمنية');
 
-        app(FaultPredictionTrainer::class)->train();
+        app(FaultPredictionTrainer::class)->train($this->operatingCompany->id);
     }
 }

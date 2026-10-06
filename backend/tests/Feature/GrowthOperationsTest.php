@@ -60,7 +60,7 @@ class GrowthOperationsTest extends DarakTestCase
     public function test_critical_part_receipt_tracks_lot_warranty_and_vehicle_location(): void
     {
         $this->part->forceFill(['critical_tracking' => true, 'default_warranty_months' => 12])->save();
-        $supplier = Supplier::create(['name' => 'Tracked Supplier', 'lead_time_days' => 1, 'is_active' => true]);
+        $supplier = Supplier::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'Tracked Supplier', 'lead_time_days' => 1, 'is_active' => true]);
         $order = PurchaseOrder::create(['po_number' => 'PO-LOT', 'supplier_id' => $supplier->id, 'destination_location_id' => $this->warehouse->id, 'ordered_on' => now(), 'status' => 'ordered', 'subtotal' => 76, 'vat_amount' => 11.4, 'total_amount' => 87.4, 'created_by' => $this->owner->id]);
         $item = $order->items()->create(['part_id' => $this->part->id, 'qty_ordered' => 2, 'unit_cost' => 38]);
         app(ProcurementService::class)->receivePurchaseItem($item, 2, $this->owner->id, ['lot_number' => 'LOT-2026']);
@@ -97,7 +97,7 @@ class GrowthOperationsTest extends DarakTestCase
 
     public function test_technician_receives_knowledge_based_diagnosis_suggestions(): void
     {
-        KnowledgeArticle::create(['fault_code' => 'E01', 'asset_type' => $this->asset->type, 'title' => 'Sensor fault', 'diagnosis' => 'Check sensor', 'solution' => 'Replace sensor', 'suggested_part_ids' => [$this->part->id], 'is_published' => true]);
+        KnowledgeArticle::create(['operating_company_id' => $this->operatingCompany->id, 'fault_code' => 'E01', 'asset_type' => $this->asset->type, 'title' => 'Sensor fault', 'diagnosis' => 'Check sensor', 'solution' => 'Replace sensor', 'suggested_part_ids' => [$this->part->id], 'is_published' => true]);
         $token = $this->technician->createToken('device:'.$this->device->device_uuid)->plainTextToken;
 
         $this->asToken($token)->getJson('/api/v1/visits/'.$this->visit->id.'/diagnosis-suggestions?fault_code=E01')
@@ -106,7 +106,7 @@ class GrowthOperationsTest extends DarakTestCase
 
     public function test_admin_operations_page_and_commission_generator_are_available(): void
     {
-        CommissionRule::create(['name' => 'Visit fixed', 'applies_to_role' => User::ROLE_TECHNICIAN, 'basis' => 'completed_visit', 'rate' => 0, 'fixed_amount' => 25, 'is_active' => true]);
+        CommissionRule::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'Visit fixed', 'applies_to_role' => User::ROLE_TECHNICIAN, 'basis' => 'completed_visit', 'rate' => 0, 'fixed_amount' => 25, 'is_active' => true]);
         $this->visit->forceFill(['state' => 'completed', 'closed_at' => now()])->save();
 
         $this->artisan('darak:commissions-generate')->assertSuccessful();

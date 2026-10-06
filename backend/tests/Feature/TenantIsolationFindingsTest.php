@@ -140,7 +140,7 @@ class TenantIsolationFindingsTest extends DarakTestCase
     {
         $foreign = $this->foreignTenant();
         CommissionRule::create([
-            'name' => 'Per visit', 'applies_to_role' => User::ROLE_TECHNICIAN, 'basis' => 'completed_visit',
+            'operating_company_id' => $this->operatingCompany->id, 'name' => 'Per visit', 'applies_to_role' => User::ROLE_TECHNICIAN, 'basis' => 'completed_visit',
             'rate' => 0, 'fixed_amount' => 10, 'is_active' => true,
         ]);
         $this->visit->forceFill(['state' => Visit::STATE_COMPLETED, 'closed_at' => now()])->save();

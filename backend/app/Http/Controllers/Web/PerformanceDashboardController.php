@@ -28,7 +28,7 @@ class PerformanceDashboardController extends Controller
 
         return view('panel.performance', [
             'dashboard' => $this->scores->dashboard($request->user(), $from, $to),
-            'settings' => PerformanceMetricSetting::query()->orderBy('category')->orderBy('id')->get()->groupBy('category'),
+            'settings' => PerformanceMetricSetting::effectiveFor($request->user()->operating_company_id)->groupBy('category'),
             'categoryLabels' => PerformanceScoreService::CATEGORY_LABELS,
             'period' => $period, 'reference' => $reference,
             'selectedCategory' => $request->string('category')->toString() ?: 'technicians',
@@ -37,7 +37,12 @@ class PerformanceDashboardController extends Controller
 
     public function updateSettings(Request $request): RedirectResponse
     {
-        abort_unless($request->user()->isOwner(), 403);
+        $actor = $request->user();
+        abort_unless($actor->isOwner(), 403);
+        // An owner sets their own company's scoring; only a company-less platform
+        // admin edits the platform defaults every other company inherits.
+        $companyId = $actor->operating_company_id;
+        abort_if($companyId === null && ! $actor->isPlatformAdmin(), 403);
         $data = $request->validate([
             'category' => ['required', 'in:technicians,supervisors,branches,marketers'],
             'settings' => ['required', 'array', 'min:1'],
@@ -45,8 +50,8 @@ class PerformanceDashboardController extends Controller
             'settings.*.target' => ['required', 'numeric', 'min:0', 'max:999999999999'],
             'settings.*.minimum_sample' => ['required', 'integer', 'min:1', 'max:10000'],
         ]);
-        $models = PerformanceMetricSetting::query()->where('category', $data['category'])
-            ->whereIn('id', array_keys($data['settings']))->get()->keyBy('id');
+        $effective = fn () => PerformanceMetricSetting::effectiveFor($companyId)->where('category', $data['category'])->keyBy('id');
+        $models = $effective()->toBase()->only(array_map('intval', array_keys($data['settings'])));
         abort_unless($models->count() === count($data['settings']), 422);
         $weight = collect($data['settings'])->sum(fn (array $row) => (float) $row['weight']);
         if (abs($weight - 100) > 0.01) {
@@ -54,13 +59,20 @@ class PerformanceDashboardController extends Controller
         }
 
         $before = $models->map->only(['id', 'weight', 'target', 'minimum_sample'])->values()->all();
-        DB::transaction(function () use ($models, $data): void {
+        DB::transaction(function () use ($models, $data, $companyId): void {
             foreach ($data['settings'] as $id => $row) {
-                $models[(int) $id]->update($row);
+                $setting = $models[(int) $id];
+                if ($companyId !== null && $setting->operating_company_id === null) {
+                    // Copy on write: the company's own row; the default stays.
+                    PerformanceMetricSetting::create($row + $setting->only(['category', 'metric_key', 'label_ar', 'direction', 'is_active'])
+                        + ['operating_company_id' => $companyId]);
+                } else {
+                    $setting->update($row);
+                }
             }
         });
-        $after = $models->map(fn (PerformanceMetricSetting $model) => $model->fresh()->only(['id', 'weight', 'target', 'minimum_sample']))->values()->all();
-        $this->audit->record('performance.settings_updated', null, $before, ['category' => $data['category'], 'settings' => $after], $request->user()->id);
+        $after = $effective()->map(fn (PerformanceMetricSetting $model) => $model->only(['id', 'weight', 'target', 'minimum_sample']))->values()->all();
+        $this->audit->record('performance.settings_updated', null, $before, ['category' => $data['category'], 'operating_company_id' => $companyId, 'settings' => $after], $request->user()->id);
 
         return back()->with('ok', 'حُفظت أوزان وأهداف التقييم، وستُطبق على النتائج فورًا.');
     }

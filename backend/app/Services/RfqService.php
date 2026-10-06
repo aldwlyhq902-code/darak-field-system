@@ -7,12 +7,13 @@ use App\Models\RequestForQuotation;
 use App\Models\SupplierQuotation;
 use App\Support\BusinessReference;
 use App\Support\Money;
+use App\Support\TenantAccess;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 class RfqService
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
 
     public function create(array $data, int $actorId): RequestForQuotation
     {
@@ -35,6 +36,12 @@ class RfqService
     {
         if (! in_array($rfq->status, ['sent', 'quotes_received'], true)) {
             throw new RuntimeException('لا يمكن إضافة عرض مورد إلى طلب مغلق.');
+        }
+
+        // A supplier quotes only for its own company's requests, whoever records it.
+        $supplierCompany = DB::table('suppliers')->where('id', $data['supplier_id'])->value('operating_company_id');
+        if ($supplierCompany === null || (int) $supplierCompany !== $this->tenantAccess->locationCompanyId((int) $rfq->destination_location_id)) {
+            throw new RuntimeException('المورد لا يتبع شركة طلب الأسعار.');
         }
 
         return DB::transaction(function () use ($rfq, $data, $actorId): SupplierQuotation {

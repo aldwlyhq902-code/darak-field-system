@@ -138,6 +138,7 @@ class QueryPerformanceTest extends DarakTestCase
             ]);
         }
         $model = FaultPredictionModel::create([
+            'operating_company_id' => $this->operatingCompany->id,
             'coefficients' => [0, 0, 0, 0, 0],
             'feature_scaling' => [],
             'training_samples' => 500,

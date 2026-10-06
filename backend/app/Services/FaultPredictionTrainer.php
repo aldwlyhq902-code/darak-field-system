@@ -5,19 +5,48 @@ namespace App\Services;
 use App\Models\Asset;
 use App\Models\AssetFaultPrediction;
 use App\Models\FaultPredictionModel;
+use App\Models\OperatingCompany;
+use App\Models\Scopes\OperatingBranchScope;
 use App\Models\Visit;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
+/**
+ * One model per company: trained only on that company's history (the sample
+ * threshold applies per company), stored against it, and scoring only its
+ * assets. Queries drop the branch scope and constrain by company explicitly, so
+ * the nightly run (no user) and a panel run (any branch) learn the same thing.
+ */
 class FaultPredictionTrainer
 {
     private const FEATURES = 4;
 
-    public function train(): FaultPredictionModel
+    /**
+     * Trains every active company that has enough history.
+     *
+     * @return array<int, FaultPredictionModel|string> company id => model, or why it was skipped
+     */
+    public function trainAll(): array
     {
-        $rows = $this->samples();
+        $results = [];
+        foreach (OperatingCompany::query()->where('is_active', true)->orderBy('id')->pluck('id') as $companyId) {
+            try {
+                $results[(int) $companyId] = $this->train((int) $companyId);
+            } catch (RuntimeException $e) {
+                $results[(int) $companyId] = $e->getMessage();
+            }
+        }
+
+        return $results;
+    }
+
+    public function train(int $companyId): FaultPredictionModel
+    {
+        $rows = $this->samples($companyId);
         $minimum = (int) config('darak.prediction.minimum_samples', 500);
         if ($rows->count() < $minimum) {
             throw new RuntimeException("لا يمكن تدريب النموذج قبل توفر {$minimum} عينة زمنية؛ المتوفر {$rows->count()}.");
@@ -43,10 +72,12 @@ class FaultPredictionTrainer
         }
         $metrics = $this->metrics($validation, $weights);
 
-        return DB::transaction(function () use ($weights, $training, $validation, $metrics): FaultPredictionModel {
-            FaultPredictionModel::where('is_active', true)->update(['is_active' => false]);
+        return DB::transaction(function () use ($companyId, $weights, $training, $validation, $metrics): FaultPredictionModel {
+            // Only this company's previous model is retired.
+            FaultPredictionModel::withoutGlobalScope(OperatingBranchScope::class)
+                ->where('operating_company_id', $companyId)->where('is_active', true)->update(['is_active' => false]);
             $model = FaultPredictionModel::create([
-                'coefficients' => $weights, 'feature_scaling' => ['age_years' => 20, 'faults_90d' => 5, 'faults_365d' => 20, 'days_since_fault' => 180],
+                'operating_company_id' => $companyId, 'coefficients' => $weights, 'feature_scaling' => ['age_years' => 20, 'faults_90d' => 5, 'faults_365d' => 20, 'days_since_fault' => 180],
                 'training_samples' => $training->count(), 'validation_samples' => $validation->count(),
                 'accuracy' => $metrics['accuracy'], 'precision' => $metrics['precision'], 'recall' => $metrics['recall'],
                 'trained_at' => now(), 'is_active' => true,
@@ -58,10 +89,15 @@ class FaultPredictionTrainer
     }
 
     /** @return Collection<int, array{features:array<int,float>,label:int}> */
-    private function samples(): Collection
+    private function samples(int $companyId): Collection
     {
-        $visits = Visit::with('workOrder.asset')->where('state', Visit::STATE_COMPLETED)
-            ->whereHas('workOrder', fn ($query) => $query->whereNotNull('asset_id')->whereNotNull('fault_code'))
+        $visits = $this->completedVisits()
+            ->whereIn('work_order_id', DB::table('work_orders')
+                ->join('clients', 'clients.id', '=', 'work_orders.client_id')
+                ->where('clients.operating_company_id', $companyId)
+                ->whereIn('work_orders.asset_id', $this->companyAssets($companyId)->select('id'))
+                ->whereNotNull('work_orders.fault_code')
+                ->select('work_orders.id'))
             ->orderBy('scheduled_start')->get()->groupBy(fn ($visit) => $visit->workOrder->asset_id);
         $rows = collect();
         foreach ($visits as $assetVisits) {
@@ -99,12 +135,12 @@ class FaultPredictionTrainer
     private function generatePredictions(FaultPredictionModel $model): void
     {
         $weights = $model->coefficients;
-        Asset::with('site')->where('status', '!=', 'retired')->chunkById(100, function ($assets) use ($model, $weights): void {
-            $histories = Visit::with('workOrder')
-                ->whereHas('workOrder', fn ($query) => $query
+        $this->companyAssets((int) $model->operating_company_id)->where('status', '!=', 'retired')->chunkById(100, function ($assets) use ($model, $weights): void {
+            $histories = $this->completedVisits()
+                ->whereIn('work_order_id', DB::table('work_orders')
                     ->whereIn('asset_id', $assets->modelKeys())
-                    ->whereNotNull('fault_code'))
-                ->where('state', Visit::STATE_COMPLETED)
+                    ->whereNotNull('fault_code')
+                    ->select('id'))
                 ->orderBy('scheduled_start')
                 ->get()
                 ->groupBy(fn (Visit $visit) => $visit->workOrder->asset_id);
@@ -134,6 +170,29 @@ class FaultPredictionTrainer
                 ['risk_score', 'feature_snapshot', 'horizon_ends_on', 'generated_at', 'updated_at'],
             );
         });
+    }
+
+    /** @return Builder<Asset> */
+    private function companyAssets(int $companyId): Builder
+    {
+        return Asset::withoutGlobalScope(OperatingBranchScope::class)
+            ->whereIn('site_id', $this->companySites($companyId));
+    }
+
+    private function companySites(int $companyId): QueryBuilder
+    {
+        return DB::table('sites')->join('clients', 'clients.id', '=', 'sites.client_id')
+            ->where('clients.operating_company_id', $companyId)->select('sites.id');
+    }
+
+    /** @return Builder<Visit> */
+    private function completedVisits(): Builder
+    {
+        $unscoped = fn ($query) => $query->withoutGlobalScope(OperatingBranchScope::class);
+
+        return Visit::withoutGlobalScope(OperatingBranchScope::class)
+            ->with(['workOrder' => fn ($query) => $unscoped($query)->with(['asset' => $unscoped])])
+            ->where('state', Visit::STATE_COMPLETED);
     }
 
     private function metrics(Collection $rows, array $weights): array

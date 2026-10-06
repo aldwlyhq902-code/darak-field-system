@@ -52,7 +52,7 @@ class PerformanceScoreService
     /** @return array<string, mixed>|null */
     public function marketerScore(User $actor, CarbonImmutable $from, CarbonImmutable $to): ?array
     {
-        $settings = PerformanceMetricSetting::query()->where('category', 'marketers')->where('is_active', true)->get();
+        $settings = $this->settingsFor($actor)->where('category', 'marketers')->values();
 
         return collect($this->marketers($actor, $from, $to, $settings))->firstWhere('id', $actor->id);
     }
@@ -60,7 +60,7 @@ class PerformanceScoreService
     /** @return array<int, array<string, mixed>> */
     public function marketerScores(User $actor, CarbonImmutable $from, CarbonImmutable $to): array
     {
-        $settings = PerformanceMetricSetting::query()->where('category', 'marketers')->where('is_active', true)->get();
+        $settings = $this->settingsFor($actor)->where('category', 'marketers')->values();
 
         return $this->marketers($actor, $from, $to, $settings);
     }
@@ -71,7 +71,7 @@ class PerformanceScoreService
         $days = $from->diffInDays($to) + 1;
         $previousTo = $from->subSecond();
         $previousFrom = $previousTo->subDays($days)->addSecond();
-        $settings = PerformanceMetricSetting::query()->where('is_active', true)->get()->groupBy('category');
+        $settings = $this->settingsFor($actor)->groupBy('category');
 
         $current = $this->calculateAll($actor, $from, $to, $settings);
         $previous = $this->calculateAll($actor, $previousFrom, $previousTo, $settings);
@@ -394,6 +394,17 @@ class PerformanceScoreService
         }
 
         return $query->when($actor->operating_branch_id, fn (Builder $q, int $id) => $q->where('operating_branch_id', $id));
+    }
+
+    /**
+     * The actor company's own weights and targets (platform defaults where it
+     * has none); a company-less platform admin sees the defaults.
+     *
+     * @return Collection<int, PerformanceMetricSetting>
+     */
+    private function settingsFor(User $actor): Collection
+    {
+        return PerformanceMetricSetting::effectiveFor($this->actorCompanyId($actor))->where('is_active', true)->values();
     }
 
     private function actorCompanyId(User $actor): ?int

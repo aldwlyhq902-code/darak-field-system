@@ -97,11 +97,11 @@ class FinanceInsightsController extends Controller
     {
         abort_unless($payment->client_id === $request->user('client')->client_id, 404);
         $payment->load(['client', 'installment.contract']);
-        $allowed = $request->user('client')->allowedSites()->pluck('sites.id');
-        if ($allowed->isNotEmpty()) {
-            $contractSites = $payment->installment?->contract?->sites()->pluck('sites.id') ?? collect();
-            abort_if($contractSites->diff($allowed)->isNotEmpty(), 403);
-        }
+        // Same rule as the contract it pays: a restricted delegate never sees a
+        // receipt of a site-less (or contract-less) document.
+        abort_unless($request->user('client')->canAccessDocumentSites(
+            $payment->installment?->contract?->sites()->pluck('sites.id') ?? collect(),
+        ), 403);
         $html = view('reports.receipt', compact('payment'))->render();
         $pdf = new Mpdf(['mode' => 'utf-8', 'directionality' => 'rtl', 'default_font' => 'xbriyaz', 'useOTL' => 0xFF]);
         $pdf->WriteHTML($html);

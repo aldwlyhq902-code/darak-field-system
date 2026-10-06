@@ -6,6 +6,7 @@ use App\Models\Asset;
 use App\Models\KnowledgeArticle;
 use App\Models\OperationalCost;
 use App\Models\PartFailureReport;
+use App\Models\StockLocation;
 use App\Models\StockMove;
 use App\Models\Visit;
 use App\Models\WorkOrder;
@@ -76,11 +77,14 @@ class AssetIntelligenceService
     /** @return Collection<int, object> */
     public function supplierFailures(): Collection
     {
-        return PartFailureReport::query()->from('part_failure_reports as f')->join('suppliers as s', 's.id', '=', 'f.supplier_id')
+        // Failures are company-scoped (global scope on the unaliased table), and
+        // the denominator counts only lots received into locations the actor sees.
+        return PartFailureReport::query()->join('suppliers as s', 's.id', '=', 'part_failure_reports.supplier_id')
             ->leftJoin('inventory_lots as l', function ($join) {
-                $join->on('l.supplier_id', '=', 's.id')->where('l.created_at', '>=', now()->subYear());
-            })->where('f.created_at', '>=', now()->subYear())
-            ->selectRaw('s.id supplier_id, s.name supplier_name, COUNT(DISTINCT f.id) failures, COUNT(DISTINCT l.id) received_lots')
+                $join->on('l.supplier_id', '=', 's.id')->where('l.created_at', '>=', now()->subYear())
+                    ->whereIn('l.stock_location_id', StockLocation::query()->select('stock_locations.id'));
+            })->where('part_failure_reports.created_at', '>=', now()->subYear())
+            ->selectRaw('s.id supplier_id, s.name supplier_name, COUNT(DISTINCT part_failure_reports.id) failures, COUNT(DISTINCT l.id) received_lots')
             ->groupBy('s.id', 's.name')->orderByDesc('failures')->get()
             ->map(function ($row) {
                 $row->failure_rate = $row->received_lots > 0 ? round($row->failures / $row->received_lots * 100, 1) : null;

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\OperatingBranch;
 use App\Models\Part;
 use App\Models\ReplenishmentRequest;
 use App\Models\StockLocation;
@@ -18,6 +19,10 @@ class ReplenishmentService
         $created = collect();
         $parts = Part::with('suppliers')->where('is_active', true)->where('reorder_level', '>', 0)->get();
         $warehouses = StockLocation::where('type', StockLocation::TYPE_WAREHOUSE)->where('is_active', true)->get();
+        // The scan runs with no signed-in user: a warehouse is only ever offered
+        // its own company's suppliers.
+        $branchCompanies = OperatingBranch::query()->whereIn('id', $warehouses->pluck('operating_branch_id')->filter()->unique())
+            ->pluck('operating_company_id', 'id');
         $balances = $this->inventory->availableBalances($parts->modelKeys(), $warehouses->modelKeys());
 
         foreach ($warehouses as $location) {
@@ -26,7 +31,10 @@ class ReplenishmentService
                 if ($current >= (float) $part->reorder_level) {
                     continue;
                 }
-                $supplier = $part->suppliers->sortByDesc(fn ($supplier) => (int) $supplier->pivot->is_preferred)
+                $companyId = $branchCompanies->get($location->operating_branch_id);
+                $supplier = $part->suppliers
+                    ->filter(fn ($supplier) => $companyId !== null && (int) $supplier->operating_company_id === (int) $companyId)
+                    ->sortByDesc(fn ($supplier) => (int) $supplier->pivot->is_preferred)
                     ->sortBy(fn ($supplier) => (float) $supplier->pivot->last_price)->first();
                 $target = max((float) $part->reorder_level * 2, (float) $part->reorder_level + 1);
                 $request = ReplenishmentRequest::firstOrCreate(

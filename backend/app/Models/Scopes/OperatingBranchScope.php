@@ -77,6 +77,13 @@ class OperatingBranchScope implements Scope
 
             return;
         }
+        // Company-wide records shared by every branch of the owning company. A
+        // row with no company is a platform default only platform admins see.
+        if (in_array($table, ['commission_rules', 'subcontractors', 'fault_prediction_models', 'knowledge_articles', 'suppliers', 'part_failure_reports'], true)) {
+            $builder->where($column('operating_company_id'), $companyId);
+
+            return;
+        }
         if ($table === 'clients') {
             $builder->where($column('operating_company_id'), $companyId)
                 ->when($branchId !== null, fn ($query) => $query->where($column('operating_branch_id'), $branchId));
@@ -219,7 +226,13 @@ class OperatingBranchScope implements Scope
                             ->when($branchId !== null, fn ($q) => $q->where('tenant_clients.operating_branch_id', $branchId));
                     });
             });
+
+            return;
         }
+
+        // Fail closed: a model that opts into the scope without a rule here
+        // must never fall through to "every tenant's rows".
+        $builder->whereRaw('1 = 0');
     }
 
     private function throughBranch(Builder $builder, string $branchColumn, int $companyId, ?int $branchId): void

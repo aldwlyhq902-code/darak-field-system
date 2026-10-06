@@ -69,7 +69,7 @@ class ListPaginationTest extends DarakTestCase
         $this->assertCount(50, $clients->viewData('clients')->items());
         $this->get(route('panel.clients', ['q' => 'Client 05']))->assertOk()->assertSee('Client 055')->assertDontSee('Client 044');
 
-        $supplier = Supplier::create(['name' => 'Paged Supplier', 'lead_time_days' => 1, 'is_active' => true]);
+        $supplier = Supplier::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'Paged Supplier', 'lead_time_days' => 1, 'is_active' => true]);
         for ($i = 1; $i <= 45; $i++) {
             PurchaseOrder::create(['po_number' => 'PO-PAGE-'.$i, 'supplier_id' => $supplier->id, 'destination_location_id' => $this->warehouse->id, 'ordered_on' => now(), 'status' => 'ordered', 'subtotal' => 1, 'vat_amount' => 0, 'total_amount' => 1, 'created_by' => $this->owner->id]);
         }

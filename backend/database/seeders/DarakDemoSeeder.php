@@ -170,6 +170,7 @@ class DarakDemoSeeder extends Seeder
         ]);
 
         Subcontractor::create([
+            'operating_company_id' => $company->id,
             'name' => 'شريك تنظيف الهود',
             'specialties' => ['hood'],
             'contact_name' => 'مسؤول العمليات',
@@ -179,6 +180,7 @@ class DarakDemoSeeder extends Seeder
         ]);
 
         Subcontractor::create([
+            'operating_company_id' => $company->id,
             'name' => 'مقاول غاز معتمد',
             'specialties' => ['gas'],
             'phone' => '0550000000',

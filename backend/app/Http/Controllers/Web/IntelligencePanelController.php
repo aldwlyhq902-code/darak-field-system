@@ -26,8 +26,10 @@ class IntelligencePanelController extends Controller
 
     public function __construct(private readonly AssetIntelligenceService $intelligence, private readonly AuditLogger $audit, private readonly FaultPredictionTrainer $trainer) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
+        $companyId = $request->user()->operating_company_id;
+
         return view('panel.intelligence', [
             // A deliberate "worst N" widget (sorted by health), labelled as such.
             'assetHealth' => $this->intelligence->assetHealth()->take(self::WORST_ASSETS),
@@ -37,7 +39,11 @@ class IntelligencePanelController extends Controller
             'readiness' => $this->intelligence->predictionReadiness(),
             'predictions' => $this->intelligence->failurePredictions(),
             // Top riskiest assets only (labelled); the full table stays queryable.
-            'trainedModel' => FaultPredictionModel::with(['predictions' => fn ($query) => $query->with('asset.site.client')->orderByDesc('risk_score')->limit(self::TOP_PREDICTIONS)])->where('is_active', true)->latest('trained_at')->first(),
+            // The actor company's own model (global scope; a platform admin with a
+            // company sees that company's), and only assets the actor may see.
+            'trainedModel' => FaultPredictionModel::with(['predictions' => fn ($query) => $query->whereHas('asset')->with('asset.site.client')->orderByDesc('risk_score')->limit(self::TOP_PREDICTIONS)])
+                ->when($companyId, fn ($query, $id) => $query->where('operating_company_id', $id))
+                ->where('is_active', true)->latest('trained_at')->first(),
             'topPredictions' => self::TOP_PREDICTIONS,
             'articles' => KnowledgeArticle::latest()->latest('id')->paginate(20, ['*'], 'articles_page')->withQueryString(),
             'parts' => Part::where('is_active', true)->orderBy('name')->get(),
@@ -46,10 +52,19 @@ class IntelligencePanelController extends Controller
         ]);
     }
 
-    public function train(): RedirectResponse
+    public function train(Request $request): RedirectResponse
     {
+        $actor = $request->user();
+        // Each company trains on, and scores, its own history only. A platform
+        // admin with no company runs the per-company nightly job instead.
+        if ($actor->operating_company_id === null) {
+            abort_unless($actor->isPlatformAdmin(), 403);
+            $trained = collect($this->trainer->trainAll())->filter(fn ($result) => $result instanceof FaultPredictionModel)->count();
+
+            return back()->with('ok', "دُرّبت نماذج {$trained} شركة لديها عينة كافية؛ كل نموذج على بيانات شركته فقط.");
+        }
         try {
-            $model = $this->trainer->train();
+            $model = $this->trainer->train((int) $actor->operating_company_id);
         } catch (RuntimeException $e) {
             return back()->with('err', $e->getMessage());
         }
@@ -65,7 +80,12 @@ class IntelligencePanelController extends Controller
             'diagnosis' => ['required', 'string', 'max:8000'], 'solution' => ['required', 'string', 'max:8000'],
             'suggested_part_ids' => ['nullable', 'array'], 'suggested_part_ids.*' => ['exists:parts,id'],
         ]);
-        $article = KnowledgeArticle::create($data + ['is_published' => true, 'created_by' => $request->user()->id]);
+        // Filed in the author's company knowledge base (company-less only for a
+        // company-less platform admin, and then visible to platform admins only).
+        $article = KnowledgeArticle::create($data + [
+            'operating_company_id' => $request->user()->operating_company_id,
+            'is_published' => true, 'created_by' => $request->user()->id,
+        ]);
         $this->audit->record('knowledge.created', $article, null, $article->toArray(), $request->user()->id);
 
         return back()->with('ok', 'أُضيف الحل إلى قاعدة المعرفة وأصبح متاحًا للاقتراح التشخيصي.');
@@ -91,9 +111,16 @@ class IntelligencePanelController extends Controller
         if (isset($data['visit_id'])) {
             Visit::query()->findOrFail($data['visit_id']);
         }
+        // `exists` ignores the tenant scope; the scoped load is the authorization.
+        if (isset($data['asset_id'])) {
+            Asset::query()->findOrFail($data['asset_id']);
+        }
         unset($data['lot_ref'], $data['asset_ref']);
         $lot = isset($data['inventory_lot_id']) ? InventoryLot::query()->findOrFail($data['inventory_lot_id']) : null;
-        $failure = PartFailureReport::create($data + ['supplier_id' => $lot?->supplier_id, 'reported_by' => $request->user()->id]);
+        $failure = PartFailureReport::create($data + [
+            'operating_company_id' => $request->user()->operating_company_id,
+            'supplier_id' => $lot?->supplier_id, 'reported_by' => $request->user()->id,
+        ]);
         $this->audit->record('part.failure_reported', $failure, null, $failure->toArray(), $request->user()->id);
 
         return back()->with('ok', 'سُجل فشل القطعة وربط بالمورد والدفعة عند توفرهما.');

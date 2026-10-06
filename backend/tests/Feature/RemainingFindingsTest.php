@@ -123,7 +123,7 @@ class RemainingFindingsTest extends DarakTestCase
 
     public function test_a_partner_with_history_cannot_be_erased(): void
     {
-        $partner = Subcontractor::create(['name' => 'شريك الهود', 'is_active' => true]);
+        $partner = Subcontractor::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'شريك الهود', 'is_active' => true]);
 
         app(SubcontractorService::class)
             ->assign($partner, $this->visit->workOrder, 600, 1000, $this->visit);
@@ -134,7 +134,7 @@ class RemainingFindingsTest extends DarakTestCase
 
     public function test_subcontractor_order_numbers_follow_their_own_id(): void
     {
-        $partner = Subcontractor::create(['name' => 'شريك', 'is_active' => true]);
+        $partner = Subcontractor::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'شريك', 'is_active' => true]);
         $service = app(SubcontractorService::class);
 
         $first = $service->assign($partner, $this->visit->workOrder, 100, 200, $this->visit);

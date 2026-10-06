@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 
 class ClientPortalUser extends Authenticatable
 {
@@ -59,6 +60,22 @@ class ClientPortalUser extends Authenticatable
         $permissions = $this->permissions ?? self::DEFAULT_PERMISSIONS;
 
         return in_array('*', $permissions, true) || in_array($permission, $permissions, true);
+    }
+
+    /**
+     * Whether a commercial document (quotation, contract and its receipts)
+     * spanning these sites is visible. The main account and unrestricted
+     * delegates see everything. A site-restricted delegate sees only documents
+     * that name at least one of their sites and none outside them: a legacy
+     * document with no sites belongs to no site of theirs.
+     *
+     * @param  Collection<int, int>  $siteIds
+     */
+    public function canAccessDocumentSites(Collection $siteIds): bool
+    {
+        $allowed = $this->allowedSites()->pluck('sites.id');
+
+        return $allowed->isEmpty() || ($siteIds->isNotEmpty() && $siteIds->diff($allowed)->isEmpty());
     }
 
     public function canAccessSite(int $siteId): bool

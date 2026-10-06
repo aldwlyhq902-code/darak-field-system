@@ -21,7 +21,7 @@ class ProcurementAndApprovalsTest extends DarakTestCase
 {
     public function test_purchase_order_receipt_adds_stock_and_updates_cost(): void
     {
-        $supplier = Supplier::create(['name' => 'Parts Co', 'lead_time_days' => 2, 'is_active' => true]);
+        $supplier = Supplier::create(['operating_company_id' => $this->operatingCompany->id, 'name' => 'Parts Co', 'lead_time_days' => 2, 'is_active' => true]);
         $order = PurchaseOrder::create(['po_number' => 'PO-TEST-1', 'supplier_id' => $supplier->id, 'destination_location_id' => $this->warehouse->id, 'ordered_on' => now(), 'status' => 'ordered', 'subtotal' => 400, 'vat_amount' => 60, 'total_amount' => 460, 'created_by' => $this->owner->id]);
         $item = $order->items()->create(['part_id' => $this->part->id, 'qty_ordered' => 10, 'unit_cost' => 40]);
         app(ProcurementService::class)->receivePurchaseItem($item, 4, $this->owner->id);

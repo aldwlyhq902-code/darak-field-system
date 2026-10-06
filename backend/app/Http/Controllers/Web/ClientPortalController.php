@@ -35,14 +35,18 @@ class ClientPortalController extends Controller
         $restricted = $allowedSiteIds->isNotEmpty();
         if ($restricted) {
             $client->setRelation('sites', $client->sites->whereIn('id', $allowedSiteIds));
-            $client->setRelation('contracts', $client->contracts->filter(fn ($contract) => $contract->sites->pluck('id')->diff($allowedSiteIds)->isEmpty()));
+            // A restricted delegate sees documents naming at least one of their
+            // sites and none outside them; legacy site-less documents are not theirs.
+            $client->setRelation('contracts', $client->contracts->filter(fn ($contract) => $contract->sites->isNotEmpty()
+                && $contract->sites->pluck('id')->diff($allowedSiteIds)->isEmpty()));
         }
         $allowedContractIds = $client->contracts->pluck('id');
 
         // Growing histories are queried and paged in the database (named pages)
         // with the delegate's site restriction applied in SQL, instead of loading
         // every record of the client and slicing the first N in the view.
-        $onlyAllowedSites = fn ($query) => $query->whereDoesntHave('sites', fn ($sites) => $sites->whereNotIn('sites.id', $allowedSiteIds));
+        $onlyAllowedSites = fn ($query) => $query->whereHas('sites', fn ($sites) => $sites->whereIn('sites.id', $allowedSiteIds))
+            ->whereDoesntHave('sites', fn ($sites) => $sites->whereNotIn('sites.id', $allowedSiteIds));
 
         return view('client.home', [
             'client' => $client,
@@ -192,12 +196,9 @@ class ClientPortalController extends Controller
 
     private function ensurePortalCanAccessSites(Request $request, $siteIds): void
     {
-        $portal = $request->user('client');
-        $restricted = $portal->allowedSites()->pluck('sites.id');
-        if ($restricted->isNotEmpty()) {
-            // A commercial document can span multiple sites. Partial overlap must
-            // not reveal or authorise the portions belonging to restricted sites.
-            abort_if($siteIds->diff($restricted)->isNotEmpty(), 403);
-        }
+        // A commercial document can span multiple sites. Partial overlap must
+        // not reveal or authorise the portions belonging to restricted sites,
+        // and a site-less legacy document belongs to none of them.
+        abort_unless($request->user('client')->canAccessDocumentSites(collect($siteIds)), 403);
     }
 }

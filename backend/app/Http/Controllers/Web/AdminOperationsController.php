@@ -52,7 +52,8 @@ class AdminOperationsController extends Controller
             // A select needs the whole (bounded) active fleet, never a truncated slice.
             'vehicles' => Vehicle::with('assignedUser')->where('is_active', true)->orderBy('plate')->get(),
             'expenses' => VehicleExpense::with('vehicle')->latest()->paginate(20, ['*'], 'expenses_page')->withQueryString(),
-            'rules' => CommissionRule::latest()->get(),
+            // Company-owned (global scope); company-less platform defaults only reach platform admins.
+            'rules' => CommissionRule::with('company')->latest()->get(),
             'approvals' => FinancialApproval::with(['requester', 'firstApprover', 'secondApprover'])
                 ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('requester', fn ($user) => $user->where('operating_company_id', $companyId)))
                 ->latest()->paginate(20, ['*'], 'approvals_page')->withQueryString(),
@@ -240,8 +241,19 @@ class AdminOperationsController extends Controller
 
     public function commissionRule(Request $request): RedirectResponse
     {
-        abort_unless($request->user()->isPlatformAdmin(), 403);
-        CommissionRule::create($request->validate(['name' => ['required', 'string', 'max:190'], 'applies_to_role' => ['required', 'in:owner_supervisor,admin,technician'], 'basis' => ['required', 'in:contract_value,collected_payment,completed_visit'], 'rate' => ['required', 'numeric', 'min:0', 'max:100'], 'fixed_amount' => ['required', 'numeric', 'min:0']]) + ['is_active' => true]);
+        $actor = $request->user();
+        // A policy belongs to one company and pays only its people. A company-wide
+        // owner files policies for their own company; only a platform admin may
+        // file one for another company.
+        abort_unless($actor->isPlatformAdmin() || ($actor->isOwner() && $actor->operating_company_id !== null && $actor->operating_branch_id === null), 403);
+        $data = $request->validate(['name' => ['required', 'string', 'max:190'], 'applies_to_role' => ['required', 'in:owner_supervisor,admin,technician'], 'basis' => ['required', 'in:contract_value,collected_payment,completed_visit'], 'rate' => ['required', 'numeric', 'min:0', 'max:100'], 'fixed_amount' => ['required', 'numeric', 'min:0'], 'operating_company_id' => ['nullable', 'integer', 'exists:operating_companies,id']]);
+        $companyId = $actor->isPlatformAdmin() ? ($data['operating_company_id'] ?? $actor->operating_company_id) : $actor->operating_company_id;
+        if ($companyId === null) {
+            return back()->with('err', 'اختر الشركة التي تتبعها سياسة العمولة.');
+        }
+        unset($data['operating_company_id']);
+        $rule = CommissionRule::create($data + ['operating_company_id' => (int) $companyId, 'is_active' => true]);
+        $this->audit->record('commission_rule.created', $rule, null, $rule->only(['operating_company_id', 'name', 'applies_to_role', 'basis', 'rate', 'fixed_amount']), $actor->id);
 
         return back()->with('ok', 'أُضيفت سياسة العمولة.');
     }
@@ -256,8 +268,12 @@ class AdminOperationsController extends Controller
             : (isset($data['contract_id']) ? Contract::find($data['contract_id']) : null);
         $payment = filled($data['receipt_no'] ?? null) ? Payment::query()->where('receipt_no', trim($data['receipt_no']))->firstOrFail()
             : (isset($data['payment_id']) ? Payment::find($data['payment_id']) : null);
+        // Company-owned policies and visits resolve through the tenant scope too;
+        // resolved outside the try so a foreign id is a 404, not a flash message.
+        $rule = CommissionRule::query()->findOrFail($data['commission_rule_id']);
+        $visit = isset($data['visit_id']) ? Visit::query()->findOrFail($data['visit_id']) : null;
         try {
-            $this->commissions->create(CommissionRule::findOrFail($data['commission_rule_id']), $targetUser, $contract, isset($data['visit_id']) ? Visit::find($data['visit_id']) : null, $payment);
+            $this->commissions->create($rule, $targetUser, $contract, $visit, $payment);
         } catch (RuntimeException $e) {
             return back()->with('err', $e->getMessage());
         }
