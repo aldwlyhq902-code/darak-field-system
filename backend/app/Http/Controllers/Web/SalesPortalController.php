@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\PerformanceScoreService;
 use App\Services\SalesPushService;
+use App\Support\PrivateFiles;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -209,11 +210,11 @@ class SalesPortalController extends Controller
         $file = $data['file'];
         $mime = (string) $file->getMimeType();
         $kind = str_starts_with($mime, 'audio/') ? 'audio' : (str_starts_with($mime, 'image/') ? 'image' : 'document');
-        $path = $file->store("sales-leads/{$lead->id}", 'local');
+        $path = $file->store("sales-leads/{$lead->id}", PrivateFiles::diskName());
         abort_if($path === false, 500, 'تعذر حفظ المرفق.');
         $attachment = SalesLeadAttachment::create([
             'sales_lead_id' => $lead->id, 'uploaded_by' => $request->user()->id,
-            'kind' => $kind, 'disk' => 'local', 'path' => $path,
+            'kind' => $kind, 'disk' => PrivateFiles::diskName(), 'path' => $path,
             'original_name' => Str::limit($file->getClientOriginalName(), 190, ''),
             'mime_type' => $mime, 'size_bytes' => $file->getSize(),
         ]);

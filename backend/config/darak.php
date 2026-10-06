@@ -127,4 +127,17 @@ return [
         'banned_word_engine',
         'hardcoded_labour_rules',
     ],
+
+    // data
+    /*
+    | Disk for private uploads: employee/vehicle documents, inspection and
+    | emergency photos, subcontractor documents, sales attachments, evidence
+    | media and visit reports. They never get a public URL — authorised
+    | controllers stream them. 'local' is storage/app/private (included in the
+    | local backup). An S3-compatible disk ('s3') needs
+    | `composer require league/flysystem-aws-s3-v3` and the AWS_* variables, with
+    | public access blocked on the bucket; its files are then outside the local
+    | backup. Changing the disk does not move files already stored.
+    */
+    'files_disk' => env('DARAK_FILES_DISK', 'local'),
 ];

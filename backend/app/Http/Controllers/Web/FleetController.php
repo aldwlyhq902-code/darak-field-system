@@ -13,11 +13,11 @@ use App\Models\VehicleInspection;
 use App\Models\VehicleMaintenanceOrder;
 use App\Services\AuditLogger;
 use App\Services\FleetManagementService;
+use App\Support\PrivateFiles;
 use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -78,7 +78,7 @@ class FleetController extends Controller
             'notes' => ['nullable', 'string', 'max:2000'], 'file' => ['nullable', 'file', 'mimes:pdf,png,jpg,jpeg,webp', 'max:5120'],
         ]);
         $file = $request->file('file');
-        $path = $file?->store('vehicle-documents/'.$vehicle->id, 'local');
+        $path = $file?->store('vehicle-documents/'.$vehicle->id, PrivateFiles::diskName());
         unset($data['file']);
         try {
             VehicleDocument::where('vehicle_id', $vehicle->id)->where('type', $data['type'])->where('status', 'active')->update(['status' => 'superseded']);
@@ -90,7 +90,7 @@ class FleetController extends Controller
             $this->audit->record('fleet.document_added', $document, null, $document->only(['vehicle_id', 'type', 'expires_on']), $request->user()->id);
         } catch (\Throwable $exception) {
             if ($path) {
-                Storage::disk('local')->delete($path);
+                PrivateFiles::disk()->delete($path);
             }
             throw $exception;
         }
@@ -100,9 +100,9 @@ class FleetController extends Controller
 
     public function download(VehicleDocument $document): StreamedResponse
     {
-        abort_unless($document->file_path && Storage::disk('local')->exists($document->file_path), 404);
+        abort_unless($document->file_path && PrivateFiles::disk()->exists($document->file_path), 404);
 
-        return Storage::disk('local')->download($document->file_path, $document->file_name ?? basename($document->file_path), ['X-Content-Type-Options' => 'nosniff']);
+        return PrivateFiles::disk()->download($document->file_path, $document->file_name ?? basename($document->file_path), ['X-Content-Type-Options' => 'nosniff']);
     }
 
     public function maintenance(Request $request, Vehicle $vehicle): RedirectResponse
@@ -159,7 +159,7 @@ class FleetController extends Controller
         ]);
         $checklist = collect(['tires', 'brakes', 'lights', 'fluids', 'body', 'cleanliness'])->mapWithKeys(fn (string $item) => [$item => $request->boolean($item)])->all();
         $file = $request->file('photo');
-        $path = $file?->store('vehicle-inspections/'.$vehicle->id, 'local');
+        $path = $file?->store('vehicle-inspections/'.$vehicle->id, PrivateFiles::diskName());
         try {
             $result = $this->fleet->recordInspection($vehicle, $request->user(), (float) $data['odometer_km'], $checklist, $data['defects'] ?? null, [
                 'photo_path' => $path ?: null, 'photo_name' => $file?->getClientOriginalName(),
@@ -167,7 +167,7 @@ class FleetController extends Controller
             ]);
         } catch (\Throwable $exception) {
             if ($path) {
-                Storage::disk('local')->delete($path);
+                PrivateFiles::disk()->delete($path);
             }
             throw $exception;
         }
@@ -178,9 +178,9 @@ class FleetController extends Controller
 
     public function inspectionPhoto(VehicleInspection $inspection): StreamedResponse
     {
-        abort_unless($inspection->photo_path && Storage::disk('local')->exists($inspection->photo_path), 404);
+        abort_unless($inspection->photo_path && PrivateFiles::disk()->exists($inspection->photo_path), 404);
 
-        return Storage::disk('local')->response($inspection->photo_path, $inspection->photo_name, ['Content-Disposition' => 'inline', 'X-Content-Type-Options' => 'nosniff']);
+        return PrivateFiles::disk()->response($inspection->photo_path, $inspection->photo_name, ['Content-Disposition' => 'inline', 'X-Content-Type-Options' => 'nosniff']);
     }
 
     public function expense(Request $request, Vehicle $vehicle): RedirectResponse

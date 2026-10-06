@@ -13,6 +13,7 @@ use App\Services\AuditLogger;
 use App\Services\NotificationService;
 use App\Services\SlaCalculator;
 use App\Support\BusinessReference;
+use App\Support\PrivateFiles;
 use Carbon\CarbonImmutable;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Color\Color;
@@ -24,7 +25,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -73,7 +73,7 @@ class EmergencyReportController extends Controller
             $photo = $request->file('photo');
             $photoMime = $photo->getMimeType();
             $photoSha = hash_file('sha256', $photo->getRealPath());
-            $photoPath = $photo->store('emergency-reports', 'local');
+            $photoPath = $photo->store('emergency-reports', PrivateFiles::diskName());
         }
 
         $report = EmergencyReport::create([
@@ -157,9 +157,9 @@ class EmergencyReportController extends Controller
 
     public function photo(EmergencyReport $emergency)
     {
-        abort_if($emergency->photo_path === null || ! Storage::disk('local')->exists($emergency->photo_path), 404);
+        abort_if($emergency->photo_path === null || ! PrivateFiles::disk()->exists($emergency->photo_path), 404);
 
-        return Storage::disk('local')->response($emergency->photo_path, null, [
+        return PrivateFiles::disk()->response($emergency->photo_path, null, [
             'Content-Type' => $emergency->photo_mime ?? 'application/octet-stream',
             'Cache-Control' => 'private, no-store',
         ]);

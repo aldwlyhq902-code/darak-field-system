@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\Visit;
-use Illuminate\Support\Facades\Storage;
+use App\Support\PrivateFiles;
 use Illuminate\Support\Facades\View;
 use Mpdf\Mpdf;
 
@@ -81,7 +81,7 @@ class VisitReportBuilder
     public function store(Visit $visit): string
     {
         $path = "reports/visits/visit-{$visit->id}.pdf";
-        Storage::disk('local')->put($path, $this->render($visit));
+        PrivateFiles::disk()->put($path, $this->render($visit));
 
         return $path;
     }
@@ -92,7 +92,7 @@ class VisitReportBuilder
             return null;
         }
 
-        $disk = Storage::disk('local');
+        $disk = PrivateFiles::disk();
 
         if (! $disk->exists($storagePath)) {
             return null;

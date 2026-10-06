@@ -8,9 +8,9 @@ use App\Models\SubcontractorOrder;
 use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Services\SubcontractorService;
+use App\Support\PrivateFiles;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class SubcontractorPanelController extends Controller
@@ -102,7 +102,7 @@ class SubcontractorPanelController extends Controller
             'issued_on' => ['nullable', 'date'],
         ]);
 
-        $path = $request->file('file')->store("subcontractor-docs/{$order->id}", 'local');
+        $path = $request->file('file')->store("subcontractor-docs/{$order->id}", PrivateFiles::diskName());
 
         $this->service->attachDocument(
             $order,
@@ -123,9 +123,9 @@ class SubcontractorPanelController extends Controller
 
         $path = $documents[$index]['path'];
 
-        abort_unless(Storage::disk('local')->exists($path), 404);
+        abort_unless(PrivateFiles::disk()->exists($path), 404);
 
-        return Storage::disk('local')->download($path);
+        return PrivateFiles::disk()->download($path);
     }
 
     public function markDelivered(SubcontractorOrder $order): RedirectResponse

@@ -9,10 +9,10 @@ use App\Models\EmployeeProfile;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\LeaveManagementService;
+use App\Support\PrivateFiles;
 use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use RuntimeException;
@@ -71,7 +71,7 @@ class HumanResourcesController extends Controller
             'file' => ['nullable', 'file', 'mimes:pdf,png,jpg,jpeg,webp', 'max:5120'],
         ]);
         $file = $request->file('file');
-        $path = $file?->store('employee-documents/'.$user->id, 'local');
+        $path = $file?->store('employee-documents/'.$user->id, PrivateFiles::diskName());
         unset($data['file']);
 
         try {
@@ -85,7 +85,7 @@ class HumanResourcesController extends Controller
             $this->audit->record('employee.document_added', $document, null, $document->only(['user_id', 'type', 'expires_on', 'status']), $request->user()->id);
         } catch (\Throwable $exception) {
             if ($path) {
-                Storage::disk('local')->delete($path);
+                PrivateFiles::disk()->delete($path);
             }
             throw $exception;
         }
@@ -96,9 +96,9 @@ class HumanResourcesController extends Controller
     public function download(Request $request, EmployeeDocument $document): StreamedResponse
     {
         $this->authorizeUser($request, $document->user);
-        abort_unless($document->file_path && Storage::disk('local')->exists($document->file_path), 404);
+        abort_unless($document->file_path && PrivateFiles::disk()->exists($document->file_path), 404);
 
-        return Storage::disk('local')->download($document->file_path, $document->file_name ?? basename($document->file_path), ['X-Content-Type-Options' => 'nosniff']);
+        return PrivateFiles::disk()->download($document->file_path, $document->file_name ?? basename($document->file_path), ['X-Content-Type-Options' => 'nosniff']);
     }
 
     public function leave(Request $request): RedirectResponse
