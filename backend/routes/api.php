@@ -26,32 +26,32 @@ Route::prefix('v1')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::post('devices/{device}/revoke', [AuthController::class, 'revokeDevice']);
         Route::get('custodies', [CustodyController::class, 'index']);
-        Route::post('custodies/{custody}/accept', [CustodyController::class, 'accept']);
+        Route::post('custodies/{custody}/accept', [CustodyController::class, 'accept'])->middleware('idempotent');
         Route::get('fleet/vehicle', [FleetController::class, 'current']);
-        Route::post('fleet/vehicle/inspection', [FleetController::class, 'inspection'])->middleware('throttle:10,1');
+        Route::post('fleet/vehicle/inspection', [FleetController::class, 'inspection'])->middleware(['throttle:10,1', 'idempotent']);
 
         // Offline sync
         Route::get('sync/bootstrap', [SyncController::class, 'bootstrap']);
         Route::post('sync/events', [SyncController::class, 'events'])->middleware('throttle:sync-events');
 
-        // Visits
+        // Visits. Mutations the app retries carry an Idempotency-Key (C2).
         Route::get('visits', [VisitController::class, 'index']);
         Route::get('visits/{visit}', [VisitController::class, 'show']);
         Route::get('visits/{visit}/close-blockers', [VisitController::class, 'closeBlockers']);
-        Route::post('visits/{visit}/transition', [VisitController::class, 'transition']);
+        Route::post('visits/{visit}/transition', [VisitController::class, 'transition'])->middleware('idempotent');
         Route::post('visits/{visit}/assign', [VisitController::class, 'assign']);
         Route::post('visits/{visit}/rework-override', [VisitController::class, 'overrideRework']);
         Route::get('visits/{visit}/diagnosis-suggestions', [VisitController::class, 'diagnosisSuggestions']);
-        Route::post('visits/{visit}/diagnosis', [VisitController::class, 'recordDiagnosis']);
-        Route::post('visits/{visit}/additional-work', [VisitController::class, 'createAdditionalWork']);
+        Route::post('visits/{visit}/diagnosis', [VisitController::class, 'recordDiagnosis'])->middleware('idempotent');
+        Route::post('visits/{visit}/additional-work', [VisitController::class, 'createAdditionalWork'])->middleware('idempotent');
         Route::post('visits/{visit}/location', [VisitController::class, 'updateLocation'])->middleware('throttle:30,1');
         Route::get('inventory/vehicle-transfers', [InventoryController::class, 'pendingVehicleTransfers']);
         Route::get('inventory/vehicle-transfer-releases', [InventoryController::class, 'pendingVehicleTransferReleases']);
-        Route::post('inventory/vehicle-transfers/{transfer}/release', [InventoryController::class, 'releaseVehicleTransfer']);
-        Route::post('inventory/vehicle-transfers/{transfer}/accept', [InventoryController::class, 'acceptVehicleTransfer']);
+        Route::post('inventory/vehicle-transfers/{transfer}/release', [InventoryController::class, 'releaseVehicleTransfer'])->middleware('idempotent');
+        Route::post('inventory/vehicle-transfers/{transfer}/accept', [InventoryController::class, 'acceptVehicleTransfer'])->middleware('idempotent');
         Route::get('inventory/stocktakes', [InventoryController::class, 'stocktakes']);
-        Route::post('inventory/stocktakes/{session}/scan', [InventoryController::class, 'scanStocktake']);
-        Route::post('inventory/stocktakes/{session}/complete', [InventoryController::class, 'completeStocktake']);
+        Route::post('inventory/stocktakes/{session}/scan', [InventoryController::class, 'scanStocktake'])->middleware('idempotent');
+        Route::post('inventory/stocktakes/{session}/complete', [InventoryController::class, 'completeStocktake'])->middleware('idempotent');
 
         // Evidence — resumable upload
         Route::middleware('throttle:60,1')->group(function () {

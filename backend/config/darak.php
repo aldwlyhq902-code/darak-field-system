@@ -146,6 +146,8 @@ return [
         // Per device token. Generous: a phone back from a dead zone flushes its
         // queue in batches of up to 200 events.
         'sync_events_per_minute' => (int) env('DARAK_SYNC_EVENTS_PER_MINUTE', 120),
+        // Idempotency-Key responses are replayable for this long, then pruned.
+        'idempotency_ttl_hours' => (int) env('DARAK_IDEMPOTENCY_TTL_HOURS', 48),
     ],
     // Evidence images are inspected (header only) before GD decodes them.
     'media' => [

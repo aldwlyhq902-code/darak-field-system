@@ -5,6 +5,7 @@ use App\Http\Middleware\EnforcePanelAreaPermission;
 use App\Http\Middleware\EnsureBackOfficeRole;
 use App\Http\Middleware\EnsureClientPortalUserIsActive;
 use App\Http\Middleware\EnsureDeviceIsActive;
+use App\Http\Middleware\EnsureIdempotency;
 use App\Http\Middleware\EnsurePanelPermission;
 use App\Http\Middleware\EnsurePanelUserIsActive;
 use App\Http\Middleware\EnsureTwoFactorConfirmed;
@@ -51,6 +52,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'panel.area' => EnforcePanelAreaPermission::class,
             'two-factor.confirmed' => EnsureTwoFactorConfirmed::class,
             'client.active' => EnsureClientPortalUserIsActive::class,
+            'idempotent' => EnsureIdempotency::class,
         ]);
 
         // Two surfaces, two behaviours. A guest on the panel belongs at the login
