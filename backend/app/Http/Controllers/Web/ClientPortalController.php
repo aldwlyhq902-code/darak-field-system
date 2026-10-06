@@ -8,6 +8,7 @@ use App\Models\Contract;
 use App\Models\Quotation;
 use App\Models\ReportDispute;
 use App\Models\Visit;
+use App\Services\ApproximateTechnicianLocation;
 use App\Services\AuditLogger;
 use App\Services\VisitReportBuilder;
 use Illuminate\Http\RedirectResponse;
@@ -128,7 +129,12 @@ class ClientPortalController extends Controller
         $visit->load(['workOrder', 'site', 'technician', 'checklistInstances.asset', 'feedback']);
         $disputes = ReportDispute::where('visit_id', $visit->id)->where('client_portal_user_id', $request->user('client')->id)->latest()->get();
 
-        return view('client.visit', ['visit' => $visit, 'disputes' => $disputes]);
+        // Approximate (~100 m), en route only; the view never sees full precision.
+        return view('client.visit', [
+            'visit' => $visit->makeHidden(['technician_lat', 'technician_lng']),
+            'disputes' => $disputes,
+            'approximateLocation' => app(ApproximateTechnicianLocation::class)->forClient($visit),
+        ]);
     }
 
     public function dispute(Request $request, Visit $visit): RedirectResponse

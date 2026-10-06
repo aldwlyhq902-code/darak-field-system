@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\ApproximateTechnicianLocation;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\View;
@@ -24,10 +25,12 @@ class SecurityHeaders
         // image input. No other browser surface needs camera access.
         $cameraPolicy = $request->is('report/*') ? 'camera=(self)' : 'camera=()';
         $response->headers->set('Permissions-Policy', "{$cameraPolicy}, microphone=(), geolocation=()");
+        // Map tiles are the only third-party content (none when DARAK_MAP_TILES_URL=none).
+        $tiles = ApproximateTechnicianLocation::tileOrigin();
         $response->headers->set(
             'Content-Security-Policy',
             "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; "
-            ."object-src 'none'; frame-src https://www.openstreetmap.org; img-src 'self' data:; font-src 'self' data:; "
+            ."object-src 'none'; frame-src 'none'; img-src 'self' data:".($tiles ? ' '.$tiles : '')."; font-src 'self' data:; "
             ."style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{$nonce}'",
         );
 

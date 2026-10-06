@@ -15,6 +15,10 @@ class TrafficRouteProvider
         if (config('darak.routing.provider') !== 'mapbox' || blank(config('darak.routing.mapbox_token'))) {
             return null;
         }
+        // Mapbox is optional cross-border processing (see PRIVACY_AND_RETENTION.md):
+        // the technician's position leaves the platform at ~100 m precision only.
+        $lat1 = round($lat1, ApproximateTechnicianLocation::DECIMALS);
+        $lng1 = round($lng1, ApproximateTechnicianLocation::DECIMALS);
         $key = 'route:'.implode(':', array_map(fn ($v) => round((float) $v, 4), [$lat1, $lng1, $lat2, $lng2])).':'.($at ?? now())->format('YmdHi');
 
         return Cache::remember($key, now()->addMinutes(5), function () use ($lat1, $lng1, $lat2, $lng2): ?array {

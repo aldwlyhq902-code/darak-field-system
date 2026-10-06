@@ -203,4 +203,13 @@ return [
         'auto_reassign' => (bool) env('DARAK_MODULE_AUTO_REASSIGN', true),
         'fleet_hr_alerts' => (bool) env('DARAK_MODULE_FLEET_HR_ALERTS', true),
     ],
+
+    /*
+    | Client-portal map while a technician is en route (position rounded to about
+    | 100 m). An https XYZ tile template with {z}/{x}/{y}; "none" draws no map and
+    | sends nothing to a third party (text-only ETA). The OpenStreetMap default is
+    | a cross-border recipient — see PRIVACY_AND_RETENTION.md.
+    */
+    'map_tiles_url' => env('DARAK_MAP_TILES_URL', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
+    'map_attribution' => env('DARAK_MAP_ATTRIBUTION', '© OpenStreetMap contributors'),
 ];
