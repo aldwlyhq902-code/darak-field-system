@@ -24,6 +24,7 @@ use App\Services\RfqService;
 use App\Services\StocktakeService;
 use App\Services\VehicleLoadSuggestionService;
 use App\Support\BusinessReference;
+use App\Support\Money;
 use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -128,9 +129,9 @@ class ProcurementPanelController extends Controller
         abort_unless(Supplier::findOrFail($data['supplier_id'])->is_active, 422);
         abort_unless(StockLocation::findOrFail($data['destination_location_id'])->type === StockLocation::TYPE_WAREHOUSE, 422);
         $order = DB::transaction(function () use ($data, $request) {
-            $subtotal = round($data['qty'] * $data['unit_cost'], 2);
-            $vat = round($subtotal * .15, 2);
-            $order = PurchaseOrder::create(['po_number' => BusinessReference::make('PO'), 'supplier_id' => $data['supplier_id'], 'destination_location_id' => $data['destination_location_id'], 'ordered_on' => now(), 'expected_on' => $data['expected_on'] ?? null, 'status' => 'ordered', 'subtotal' => $subtotal, 'vat_amount' => $vat, 'total_amount' => $subtotal + $vat, 'note' => $data['note'] ?? null, 'created_by' => $request->user()->id]);
+            $subtotal = Money::mul($data['qty'], $data['unit_cost']);
+            $vat = Money::vat($subtotal, '0.15');
+            $order = PurchaseOrder::create(['po_number' => BusinessReference::make('PO'), 'supplier_id' => $data['supplier_id'], 'destination_location_id' => $data['destination_location_id'], 'ordered_on' => now(), 'expected_on' => $data['expected_on'] ?? null, 'status' => 'ordered', 'subtotal' => $subtotal, 'vat_amount' => $vat, 'total_amount' => Money::add($subtotal, $vat), 'note' => $data['note'] ?? null, 'created_by' => $request->user()->id]);
             $order->items()->create(['part_id' => $data['part_id'], 'qty_ordered' => $data['qty'], 'unit_cost' => $data['unit_cost']]);
             $this->audit->record('purchase.ordered', $order, null, $order->only(['supplier_id', 'total_amount']), $request->user()->id);
 

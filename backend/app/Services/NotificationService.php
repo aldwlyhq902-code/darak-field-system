@@ -119,7 +119,7 @@ class NotificationService
         $client = $installment->contract->client;
         $days = now()->startOfDay()->diffInDays($installment->due_on, false);
         $timing = $days < 0 ? 'متأخرة '.abs($days).' يوم' : ($days === 0 ? 'مستحقة اليوم' : "تستحق بعد {$days} أيام");
-        $body = "دفعة {$installment->contract->contract_no} — {$client->name}: {$timing}. المتبقي ".number_format($installment->remaining(), 2).' ر.س.';
+        $body = "دفعة {$installment->contract->contract_no} — {$client->name}: {$timing}. المتبقي ".Money::format($installment->remaining()).' ر.س.';
 
         $message = $this->queue(
             type: NotificationMessage::TYPE_INSTALLMENT_DUE,

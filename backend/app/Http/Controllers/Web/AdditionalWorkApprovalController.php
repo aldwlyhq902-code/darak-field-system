@@ -19,7 +19,7 @@ class AdditionalWorkApprovalController extends Controller
     {
         $visit->loadMissing('workOrder');
         $data = $request->validate(['title' => ['required', 'string', 'max:190'], 'description' => ['required', 'string', 'max:1500'], 'amount' => ['required', 'numeric', 'min:0']]);
-        $this->additionalWork->create($visit, $data['title'], $data['description'], [], $request->user()->id, 'panel', (float) $data['amount']);
+        $this->additionalWork->create($visit, $data['title'], $data['description'], [], $request->user()->id, 'panel', $data['amount']);
 
         return back()->with('ok', 'أُرسل طلب اعتماد العمل الإضافي للعميل.');
     }

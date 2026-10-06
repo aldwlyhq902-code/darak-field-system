@@ -154,8 +154,8 @@
             <tr>
                 <td style="font-size:13px">{{ $part->sku }}</td>
                 <td>{{ $part->name }}</td>
-                <td>{{ number_format($part->purchase_cost, 2) }}</td>
-                <td>{{ number_format($part->sale_price, 2) }}</td>
+                <td>{{ \App\Support\Money::format($part->purchase_cost) }}</td>
+                <td>{{ \App\Support\Money::format($part->sale_price) }}</td>
                 <td>
                     @if ($margin !== null)
                         <span class="pill {{ $margin >= 40 ? 'green' : ($margin >= 20 ? 'amber' : 'red') }}">{{ $margin }}%</span>

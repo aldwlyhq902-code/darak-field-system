@@ -9,6 +9,7 @@ use App\Models\PartFailureReport;
 use App\Models\StockMove;
 use App\Models\Visit;
 use App\Models\WorkOrder;
+use App\Support\Money;
 use Illuminate\Support\Collection;
 
 class AssetIntelligenceService
@@ -49,13 +50,12 @@ class AssetIntelligenceService
             $ageYears = $asset->installed_on?->diffInYears(now()) ?? 0;
             $faults90 = (int) ($faults->get($asset->id)?->faults_90 ?? 0);
             $faults365 = (int) ($faults->get($asset->id)?->faults_365 ?? 0);
-            $partCost = (float) ($partCosts->get($asset->id) ?? 0);
-            $otherCost = (float) ($otherCosts->get($asset->id) ?? 0);
-            $cost = round(max(0, $partCost + $otherCost), 2);
-            $costPenalty = $asset->replacement_value && (float) $asset->replacement_value > 0
-                ? min(35, (int) round($cost / (float) $asset->replacement_value * 100)) : min(20, (int) floor($cost / 1000));
+            $cost = Money::max(Money::add($partCosts->get($asset->id), $otherCosts->get($asset->id)), 0);
+            $replacementValue = Money::of($asset->replacement_value);
+            $costPenalty = Money::isPositive($replacementValue)
+                ? min(35, (int) round(Money::ratioPercent($cost, $replacementValue))) : min(20, (int) floor((float) $cost / 1000));
             $health = max(0, 100 - min(25, $ageYears * 2) - min(30, $faults90 * 10) - $costPenalty);
-            $replace = $asset->replacement_value && $cost >= (float) $asset->replacement_value * .5;
+            $replace = Money::isPositive($replacementValue) && Money::compare($cost, Money::percent($replacementValue, 50)) >= 0;
 
             return compact('asset', 'ageYears', 'faults90', 'faults365', 'cost', 'health', 'replace');
         })->sortBy('health')->values();

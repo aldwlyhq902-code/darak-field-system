@@ -6,6 +6,7 @@ use App\Models\Subcontractor;
 use App\Models\SubcontractorOrder;
 use App\Models\Visit;
 use App\Models\WorkOrder;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -27,15 +28,17 @@ class SubcontractorService
      * after the fact that a partner charges more than the client pays is exactly
      * the failure this prevents.
      *
-     * @return array{purchase_cost: float, sale_price: float, margin: float, margin_percent: ?float, warning: ?string}
+     * @return array{purchase_cost: string, sale_price: string, margin: string, margin_percent: ?float, warning: ?string}
      */
-    public function preview(float $purchaseCost, float $salePrice): array
+    public function preview(int|float|string $purchaseCost, int|float|string $salePrice): array
     {
-        $margin = round($salePrice - $purchaseCost, 2);
-        $percent = $salePrice > 0 ? round($margin / $salePrice * 100, 1) : null;
+        $purchaseCost = Money::of($purchaseCost);
+        $salePrice = Money::of($salePrice);
+        $margin = Money::sub($salePrice, $purchaseCost);
+        $percent = Money::ratioPercent($margin, $salePrice);
 
         $warning = match (true) {
-            $margin < 0 => 'هذا الأمر يخسر: تكلفة الشريك أعلى من سعر البيع.',
+            Money::isNegative($margin) => 'هذا الأمر يخسر: تكلفة الشريك أعلى من سعر البيع.',
             $percent !== null && $percent < 20 => 'الهامش أقل من 20% — راجع السعر قبل التأكيد.',
             default => null,
         };
@@ -52,8 +55,8 @@ class SubcontractorService
     public function assign(
         Subcontractor $partner,
         WorkOrder $workOrder,
-        float $purchaseCost,
-        float $salePrice,
+        int|float|string $purchaseCost,
+        int|float|string $salePrice,
         ?Visit $visit = null,
         ?string $scheduledFor = null,
         ?string $note = null,
@@ -62,7 +65,9 @@ class SubcontractorService
             throw new RuntimeException('هذا الشريك غير نشط.');
         }
 
-        if ($purchaseCost < 0 || $salePrice < 0) {
+        $purchaseCost = Money::of($purchaseCost);
+        $salePrice = Money::of($salePrice);
+        if (Money::isNegative($purchaseCost) || Money::isNegative($salePrice)) {
             throw new RuntimeException('القيم لا يمكن أن تكون سالبة.');
         }
 
@@ -155,17 +160,17 @@ class SubcontractorService
     }
 
     /** Cancelled orders carry no cost — they never happened. */
-    public function costForVisit(Visit $visit): float
+    public function costForVisit(Visit $visit): string
     {
-        return (float) SubcontractorOrder::where('visit_id', $visit->id)
+        return Money::of(SubcontractorOrder::where('visit_id', $visit->id)
             ->where('status', '!=', 'cancelled')
-            ->sum('purchase_cost');
+            ->sum('purchase_cost'));
     }
 
-    public function revenueForVisit(Visit $visit): float
+    public function revenueForVisit(Visit $visit): string
     {
-        return (float) SubcontractorOrder::where('visit_id', $visit->id)
+        return Money::of(SubcontractorOrder::where('visit_id', $visit->id)
             ->where('status', '!=', 'cancelled')
-            ->sum('sale_price');
+            ->sum('sale_price'));
     }
 }

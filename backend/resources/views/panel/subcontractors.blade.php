@@ -85,12 +85,12 @@
                             {{ $order->workOrder?->wo_number }} — {{ $order->workOrder?->client?->name }}
                         </span>
                     </td>
-                    <td>{{ number_format($order->purchase_cost, 2) }}</td>
-                    <td>{{ number_format($order->sale_price, 2) }}</td>
+                    <td>{{ \App\Support\Money::format($order->purchase_cost) }}</td>
+                    <td>{{ \App\Support\Money::format($order->sale_price) }}</td>
                     <td>
                         @php $pct = $order->marginPercent(); @endphp
-                        <span class="pill {{ $order->margin() < 0 ? 'red' : (($pct ?? 0) < 20 ? 'amber' : 'green') }}">
-                            {{ number_format($order->margin(), 2) }}@if ($pct !== null) · {{ $pct }}%@endif
+                        <span class="pill {{ \App\Support\Money::isNegative($order->margin()) ? 'red' : (($pct ?? 0) < 20 ? 'amber' : 'green') }}">
+                            {{ \App\Support\Money::format($order->margin()) }}@if ($pct !== null) · {{ $pct }}%@endif
                         </span>
                     </td>
                     <td>

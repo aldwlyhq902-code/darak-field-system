@@ -8,6 +8,7 @@ use App\Models\SubcontractorOrder;
 use App\Models\Visit;
 use App\Models\WorkOrder;
 use App\Services\SubcontractorService;
+use App\Support\Money;
 use App\Support\PrivateFiles;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -63,11 +64,11 @@ class SubcontractorPanelController extends Controller
             'confirm_negative_margin' => ['nullable', 'boolean'],
         ]);
 
-        $preview = $this->service->preview((float) $data['purchase_cost'], (float) $data['sale_price']);
+        $preview = $this->service->preview($data['purchase_cost'], $data['sale_price']);
 
         // A loss-making assignment is possible but never accidental — it takes a
         // deliberate second confirmation.
-        if ($preview['margin'] < 0 && ! $request->boolean('confirm_negative_margin')) {
+        if (Money::isNegative($preview['margin']) && ! $request->boolean('confirm_negative_margin')) {
             return back()->with('err', $preview['warning'].' فعّل تأكيد الهامش السالب إن كنت متعمداً.');
         }
 
@@ -75,8 +76,8 @@ class SubcontractorPanelController extends Controller
             $order = $this->service->assign(
                 Subcontractor::findOrFail($data['subcontractor_id']),
                 WorkOrder::findOrFail($data['work_order_id']),
-                (float) $data['purchase_cost'],
-                (float) $data['sale_price'],
+                $data['purchase_cost'],
+                $data['sale_price'],
                 // A nullable rule that is not submitted leaves the key absent
                 // entirely, not present-and-null.
                 isset($data['visit_id']) ? Visit::find($data['visit_id']) : null,
@@ -87,7 +88,7 @@ class SubcontractorPanelController extends Controller
             return back()->with('err', $e->getMessage());
         }
 
-        $margin = number_format($order->margin(), 2);
+        $margin = Money::format($order->margin());
         $percent = $order->marginPercent();
 
         return back()->with('ok', "أُسند {$order->order_no} — الهامش {$margin} ريال ({$percent}%).");

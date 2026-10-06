@@ -127,9 +127,9 @@
                         <td>{{ $contract->contract_no }}</td>
                         <td>{{ $contract->package_code === 'basic' ? 'أساسي' : 'شامل' }}</td>
                         <td>
-                            {{ number_format($contract->price_amount, 0) }}
+                            {{ \App\Support\Money::format($contract->price_amount, 0) }}
                             <span style="font-size:11px;color:var(--muted)">قبل الضريبة</span><br>
-                            <span style="font-size:12px;color:var(--muted)">{{ number_format($contract->priceInclVat(), 2) }} شاملة</span>
+                            <span style="font-size:12px;color:var(--muted)">{{ \App\Support\Money::format($contract->priceInclVat()) }} شاملة</span>
                         </td>
                         <td>{{ $contract->sla_minutes }} د<br>
                             <span style="font-size:11px;color:var(--muted)">

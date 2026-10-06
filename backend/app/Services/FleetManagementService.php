@@ -8,6 +8,7 @@ use App\Models\VehicleExpense;
 use App\Models\VehicleInspection;
 use App\Models\VehicleMaintenanceOrder;
 use App\Models\VehicleOutage;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -57,7 +58,7 @@ class FleetManagementService
             }
 
             if ($status === 'completed') {
-                $actualCost = (float) ($data['actual_cost'] ?? 0);
+                $actualCost = Money::of($data['actual_cost'] ?? 0);
                 $completedOn = $data['completed_on'] ?? now()->toDateString();
                 $order->forceFill([
                     'status' => $status, 'actual_cost' => $actualCost, 'completed_on' => $completedOn,

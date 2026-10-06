@@ -46,9 +46,9 @@ class CommercialPanelController extends Controller
                 ->latest('paid_on')->latest('id')
                 ->paginate(30, ['*'], 'payments_page')->withQueryString(),
             'pendingQuotationCount' => Quotation::where('status', 'sent')->count(),
-            'openInstallmentsAmount' => (float) (clone $openInstallments)
+            'openInstallmentsAmount' => Money::of((clone $openInstallments)
                 ->selectRaw('COALESCE(SUM(total_amount - paid_amount), 0) AS aggregate')
-                ->value('aggregate'),
+                ->value('aggregate')),
             'overdueInstallmentsCount' => (clone $openInstallments)
                 ->where(function ($query) use ($today): void {
                     $query->where('status', 'overdue')->orWhereDate('due_on', '<', $today);

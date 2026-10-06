@@ -9,14 +9,22 @@ use App\Models\StockMove;
 use App\Models\SubcontractorOrder;
 use App\Models\User;
 use App\Models\Visit;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
+/**
+ * Revenue/cost/profit per visit, contract and technician. Amounts are exact
+ * Money strings (rounded to halalas once per component); only the margin
+ * percentage is a float.
+ */
 class ProfitabilityService
 {
+    private const COMPONENTS = ['parts', 'labor', 'subcontractors', 'other'];
+
     /** @param array<int, int> $visitIds
-     * @param  array<int, float|int>  $revenues
-     * @return array<int, array{revenue:float,parts:float,labor:float,subcontractors:float,other:float,cost:float,profit:float,margin_percent:?float}>
+     * @param  array<int, float|int|string>  $revenues
+     * @return array<int, array{revenue:string,parts:string,labor:string,subcontractors:string,other:string,cost:string,profit:string,margin_percent:?float}>
      */
     public function forVisitIds(array $visitIds, array $revenues = []): array
     {
@@ -42,26 +50,19 @@ class ProfitabilityService
 
         $result = [];
         foreach ($visitIds as $visitId) {
-            $revenue = round((float) ($revenues[$visitId] ?? 0), 2);
-            $partCost = (float) ($parts->get($visitId) ?? 0);
-            $laborCost = (float) ($labor->get($visitId) ?? 0);
-            $subcontractorCost = (float) ($subcontractors->get($visitId) ?? 0);
-            $otherCost = (float) ($other->get($visitId) ?? 0);
-            $cost = round($partCost + $laborCost + $subcontractorCost + $otherCost, 2);
-            $profit = round($revenue - $cost, 2);
-            $result[$visitId] = [
-                'revenue' => $revenue, 'parts' => $partCost, 'labor' => $laborCost,
-                'subcontractors' => $subcontractorCost, 'other' => $otherCost,
-                'cost' => $cost, 'profit' => $profit,
-                'margin_percent' => $revenue > 0 ? round($profit / $revenue * 100, 1) : null,
-            ];
+            $result[$visitId] = $this->summary(Money::of($revenues[$visitId] ?? 0), [
+                'parts' => Money::of($parts->get($visitId)),
+                'labor' => Money::of($labor->get($visitId)),
+                'subcontractors' => Money::of($subcontractors->get($visitId)),
+                'other' => Money::of($other->get($visitId)),
+            ]);
         }
 
         return $result;
     }
 
     /** @param Collection<int, Visit> $visits
-     * @return array<int, array<string, float|null>>
+     * @return array<int, array<string, string|float|null>>
      */
     public function forVisitModels(Collection $visits): array
     {
@@ -75,14 +76,14 @@ class ProfitabilityService
             ->select('visit_id')->selectRaw('SUM(sale_price) AS total')->groupBy('visit_id')->pluck('total', 'visit_id');
         $revenues = [];
         foreach ($ids as $id) {
-            $revenues[$id] = (float) ($additional->get($id) ?? 0) + (float) ($subcontractorSales->get($id) ?? 0);
+            $revenues[$id] = Money::add($additional->get($id), $subcontractorSales->get($id));
         }
 
         return $this->forVisitIds($ids, $revenues);
     }
 
     /** @param Collection<int, Contract> $contracts
-     * @return array<int, array<string, float|null>>
+     * @return array<int, array<string, string|float|null>>
      */
     public function forContracts(Collection $contracts): array
     {
@@ -96,34 +97,32 @@ class ProfitabilityService
         $visitCosts = $this->forVisitIds($visits->pluck('id')->all());
         $contractOnlyCosts = OperationalCost::query()->whereIn('contract_id', $contractIds)->whereNull('visit_id')
             ->select('contract_id')->selectRaw('SUM(amount) AS total')->groupBy('contract_id')->pluck('total', 'contract_id');
+        $revenueByContract = Contract::query()->whereIn('contracts.id', $contractIds)
+            ->join('contract_installments', 'contract_installments.contract_id', '=', 'contracts.id')
+            ->select('contracts.id')->selectRaw('SUM(contract_installments.amount) AS total')
+            ->groupBy('contracts.id')->pluck('total', 'contracts.id');
         $visitsByContract = $visits->groupBy('contract_id');
         $result = [];
 
         foreach ($contracts as $contract) {
-            $summary = ['parts' => 0.0, 'labor' => 0.0, 'subcontractors' => 0.0, 'other' => (float) ($contractOnlyCosts->get($contract->id) ?? 0)];
+            $components = ['parts' => Money::zero(), 'labor' => Money::zero(), 'subcontractors' => Money::zero(), 'other' => Money::of($contractOnlyCosts->get($contract->id))];
             foreach ($visitsByContract->get($contract->id, collect()) as $visit) {
                 $cost = $visitCosts[$visit->id] ?? null;
                 if ($cost === null) {
                     continue;
                 }
-                foreach (array_keys($summary) as $key) {
-                    $summary[$key] += (float) $cost[$key];
+                foreach (self::COMPONENTS as $key) {
+                    $components[$key] = Money::add($components[$key], $cost[$key]);
                 }
             }
-            $revenue = (float) $contract->installments->sum('amount');
-            $totalCost = round(array_sum($summary), 2);
-            $profit = round($revenue - $totalCost, 2);
-            $result[$contract->id] = [
-                'revenue' => $revenue, ...$summary, 'cost' => $totalCost, 'profit' => $profit,
-                'margin_percent' => $revenue > 0 ? round($profit / $revenue * 100, 1) : null,
-            ];
+            $result[$contract->id] = $this->summary(Money::of($revenueByContract->get($contract->id)), $components);
         }
 
         return $result;
     }
 
     /** @param Collection<int, User> $users
-     * @return array<int, array<string, float|null>>
+     * @return array<int, array<string, string|float|null>>
      */
     public function forTechnicians(Collection $users, \DateTimeInterface $from, \DateTimeInterface $to): array
     {
@@ -132,57 +131,52 @@ class ProfitabilityService
         $costs = $this->forVisitIds($visits->pluck('id')->all());
 
         return $users->mapWithKeys(function (User $user) use ($visits, $costs): array {
-            $summary = ['revenue' => 0.0, 'parts' => 0.0, 'labor' => 0.0, 'subcontractors' => 0.0, 'other' => 0.0];
+            $components = array_fill_keys(self::COMPONENTS, Money::zero());
             foreach ($visits->where('assigned_user_id', $user->id) as $visit) {
-                foreach (['parts', 'labor', 'subcontractors', 'other'] as $key) {
-                    $summary[$key] += (float) ($costs[$visit->id][$key] ?? 0);
+                foreach (self::COMPONENTS as $key) {
+                    $components[$key] = Money::add($components[$key], $costs[$visit->id][$key] ?? 0);
                 }
             }
-            $cost = round($summary['parts'] + $summary['labor'] + $summary['subcontractors'] + $summary['other'], 2);
+            $summary = $this->summary(Money::zero(), $components);
 
-            return [$user->id => $summary + ['cost' => $cost, 'profit' => -$cost, 'margin_percent' => null]];
+            return [$user->id => ['margin_percent' => null] + $summary];
         })->all();
     }
 
-    /** @return array{revenue:float,parts:float,labor:float,subcontractors:float,other:float,cost:float,profit:float,margin_percent:?float} */
-    public function forVisits(Builder $visits, float $revenue): array
+    /** @return array{revenue:string,parts:string,labor:string,subcontractors:string,other:string,cost:string,profit:string,margin_percent:?float} */
+    public function forVisits(Builder $visits, int|float|string $revenue): array
     {
-        $ids = (clone $visits)->pluck('visits.id');
-        $parts = (float) StockMove::query()->whereIn('visit_id', $ids)
-            ->selectRaw("COALESCE(SUM(CASE WHEN move_type = 'VISIT_ISSUE' THEN qty * unit_cost WHEN move_type = 'VISIT_RETURN' THEN -qty * unit_cost ELSE 0 END), 0) AS total")
-            ->value('total');
-        $labor = (float) Visit::query()->whereIn('visits.id', $ids)
-            ->leftJoin('users', 'users.id', '=', 'visits.assigned_user_id')
-            ->selectRaw('COALESCE(SUM((visits.on_site_seconds / 3600.0) * COALESCE(users.hourly_cost, 0)), 0) AS total')
-            ->value('total');
-        $subcontractors = (float) SubcontractorOrder::whereIn('visit_id', $ids)->where('status', '!=', 'cancelled')->sum('purchase_cost');
-        $other = (float) OperationalCost::whereIn('visit_id', $ids)->sum('amount');
-        $cost = round($parts + $labor + $subcontractors + $other, 2);
-        $revenue = round($revenue, 2);
-        $profit = round($revenue - $cost, 2);
+        $ids = (clone $visits)->select('visits.id');
 
-        return compact('revenue', 'parts', 'labor', 'subcontractors', 'other', 'cost', 'profit') + [
-            'margin_percent' => $revenue > 0 ? round($profit / $revenue * 100, 1) : null,
-        ];
+        return $this->summary(Money::of($revenue), [
+            'parts' => Money::of(StockMove::query()->whereIn('visit_id', $ids)
+                ->selectRaw("COALESCE(SUM(CASE WHEN move_type = 'VISIT_ISSUE' THEN qty * unit_cost WHEN move_type = 'VISIT_RETURN' THEN -qty * unit_cost ELSE 0 END), 0) AS total")
+                ->value('total')),
+            'labor' => Money::of(Visit::query()->whereIn('visits.id', $ids)
+                ->leftJoin('users', 'users.id', '=', 'visits.assigned_user_id')
+                ->selectRaw('COALESCE(SUM((visits.on_site_seconds / 3600.0) * COALESCE(users.hourly_cost, 0)), 0) AS total')
+                ->value('total')),
+            'subcontractors' => Money::of(SubcontractorOrder::whereIn('visit_id', $ids)->where('status', '!=', 'cancelled')->sum('purchase_cost')),
+            'other' => Money::of(OperationalCost::whereIn('visit_id', $ids)->sum('amount')),
+        ]);
     }
 
     public function contract(Contract $contract): array
     {
-        $revenue = (float) $contract->installments()->sum('amount');
         $visits = Visit::query()->whereHas('workOrder', fn ($q) => $q->where('contract_id', $contract->id));
-        $result = $this->forVisits($visits, $revenue);
-        $result['other'] += (float) OperationalCost::where('contract_id', $contract->id)->whereNull('visit_id')->sum('amount');
-        $result['cost'] = round($result['parts'] + $result['labor'] + $result['subcontractors'] + $result['other'], 2);
-        $result['profit'] = round($result['revenue'] - $result['cost'], 2);
-        $result['margin_percent'] = $result['revenue'] > 0 ? round($result['profit'] / $result['revenue'] * 100, 1) : null;
+        $result = $this->forVisits($visits, $contract->installments()->sum('amount'));
+        $components = array_intersect_key($result, array_flip(self::COMPONENTS));
+        $components['other'] = Money::add($components['other'], OperationalCost::where('contract_id', $contract->id)->whereNull('visit_id')->sum('amount'));
 
-        return $result;
+        return $this->summary($result['revenue'], $components);
     }
 
     public function visit(Visit $visit): array
     {
-        $revenue = (float) $visit->additionalWorkApprovals()->where('status', 'approved')->sum('amount')
-            + (float) SubcontractorOrder::where('visit_id', $visit->id)->where('status', '!=', 'cancelled')->sum('sale_price');
+        $revenue = Money::add(
+            $visit->additionalWorkApprovals()->where('status', 'approved')->sum('amount'),
+            SubcontractorOrder::where('visit_id', $visit->id)->where('status', '!=', 'cancelled')->sum('sale_price'),
+        );
 
         return $this->forVisits(Visit::query()->whereKey($visit->id), $revenue);
     }
@@ -192,5 +186,18 @@ class ProfitabilityService
         $visits = Visit::query()->where('assigned_user_id', $user->id)->whereBetween('scheduled_start', [$from, $to]);
 
         return $this->forVisits($visits, 0);
+    }
+
+    /**
+     * @param  array<string, string>  $components  parts/labor/subcontractors/other
+     * @return array{revenue:string,parts:string,labor:string,subcontractors:string,other:string,cost:string,profit:string,margin_percent:?float}
+     */
+    private function summary(string $revenue, array $components): array
+    {
+        $cost = Money::sum($components);
+        $profit = Money::sub($revenue, $cost);
+
+        return ['revenue' => $revenue, ...$components, 'cost' => $cost, 'profit' => $profit,
+            'margin_percent' => Money::isPositive($revenue) ? Money::ratioPercent($profit, $revenue) : null];
     }
 }
