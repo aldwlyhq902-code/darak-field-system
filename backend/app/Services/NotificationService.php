@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Client;
 use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\EmergencyReport;
 use App\Models\ExternalDocument;
 use App\Models\NotificationMessage;
+use App\Models\OperatingBranch;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\VisitFeedback;
@@ -109,7 +111,7 @@ class NotificationService
             recipientKind: 'supervisor',
             key: "emergency.reported:{$report->id}",
             body: "بلاغ طارئ جديد: {$client} — {$site}. المبلّغ: {$report->reporter_name} ({$report->reporter_phone}).",
-            context: ['emergency_report_id' => $report->id, 'severity' => $report->severity],
+            context: ['emergency_report_id' => $report->id, 'severity' => $report->severity] + $this->tenantContext($report->site?->client),
         );
     }
 
@@ -127,7 +129,7 @@ class NotificationService
             recipientKind: 'supervisor',
             key: "installment.due:{$installment->id}:".now()->toDateString(),
             body: $body,
-            context: ['installment_id' => $installment->id, 'days' => $days],
+            context: ['installment_id' => $installment->id, 'days' => $days] + $this->tenantContext($client),
         );
 
         $phone = $client->portalUsers->firstWhere('is_active', true)?->phone;
@@ -139,7 +141,7 @@ class NotificationService
                 key: "installment.client:{$installment->id}:".now()->toDateString(),
                 body: $body,
                 phone: $phone,
-                context: ['installment_id' => $installment->id],
+                context: ['installment_id' => $installment->id] + $this->tenantContext($client),
             );
         }
 
@@ -157,7 +159,7 @@ class NotificationService
             recipientKind: 'supervisor',
             key: "contract.expiring:{$contract->id}:{$days}",
             body: "العقد {$contract->contract_no} للعميل {$contract->client->name} ينتهي بعد {$days} أيام ({$contract->ends_on->format('Y-m-d')}).",
-            context: ['contract_id' => $contract->id, 'days' => $days],
+            context: ['contract_id' => $contract->id, 'days' => $days] + $this->tenantContext($contract->client),
         );
     }
 
@@ -196,10 +198,7 @@ class NotificationService
             body: "مطلوب إصدار {$kind} يدويًا للعميل {$client}: ".Money::format($document->amount).' ر.س + ضريبة '
                 .Money::format($document->vat_amount).' ر.س. سجّل رقمه وتاريخه في صفحة الفواتير بعد إصداره.',
             visitId: $document->visit_id,
-            context: [
-                'external_document_id' => $document->id,
-                'operating_branch_id' => $document->client?->operating_branch_id,
-            ],
+            context: ['external_document_id' => $document->id] + $this->tenantContext($document->client),
         );
     }
 
@@ -211,7 +210,7 @@ class NotificationService
             recipientKind: 'supervisor',
             key: $key,
             body: $body,
-            context: $context,
+            context: $this->withCompany($context),
         );
     }
 
@@ -231,6 +230,38 @@ class NotificationService
             userId: $subjectUserId,
             context: $context,
         );
+    }
+
+    /**
+     * Supervisor messages carry no recipient user, so the panel decides who may
+     * read them from the tenant recorded here. A message without it is visible
+     * only to platform administrators — which is how emergency reports and
+     * installment reminders used to vanish from the owner's inbox.
+     *
+     * @return array<string, int>
+     */
+    private function tenantContext(?Client $client): array
+    {
+        return array_filter([
+            'operating_company_id' => $client?->operating_company_id === null ? null : (int) $client->operating_company_id,
+            'operating_branch_id' => $client?->operating_branch_id === null ? null : (int) $client->operating_branch_id,
+        ], fn ($value) => $value !== null);
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function withCompany(array $context): array
+    {
+        if (! isset($context['operating_company_id']) && isset($context['operating_branch_id'])) {
+            $companyId = OperatingBranch::query()->withoutGlobalScopes()->whereKey($context['operating_branch_id'])->value('operating_company_id');
+            if ($companyId !== null) {
+                $context['operating_company_id'] = (int) $companyId;
+            }
+        }
+
+        return $context;
     }
 
     /** Idempotent: the same key never produces a second message. */

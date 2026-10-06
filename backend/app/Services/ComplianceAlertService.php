@@ -26,7 +26,7 @@ class ComplianceAlertService
                     NotificationMessage::TYPE_EMPLOYEE_DOCUMENT_EXPIRING,
                     $key,
                     "{$label} للموظف {$document->user->name} {$timing}.",
-                    ['employee_document_id' => $document->id, 'operating_branch_id' => $document->operating_branch_id, 'days' => $days],
+                    ['employee_document_id' => $document->id, 'operating_branch_id' => $document->operating_branch_id, 'operating_company_id' => $document->user?->operating_company_id, 'days' => $days],
                 );
                 $count += ! $exists && $message ? 1 : 0;
             });

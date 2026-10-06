@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\NotificationMessage;
 use App\Models\OperatingBranch;
+use App\Models\OperatingCompany;
 use App\Services\NotificationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -72,12 +73,22 @@ class NotificationPanelController extends Controller
             ->when($actor->operating_branch_id, fn ($branches, $branchId) => $branches->whereKey($branchId))
             ->pluck('id');
 
-        return $query->where(function (Builder $visible) use ($actor, $branchIds): void {
+        $companyWide = $actor->operating_branch_id === null;
+        // Messages written before supervisor notifications carried their tenant
+        // have none. With a single company they can only be that company's, so
+        // its management sees them; with several they stay platform-admin only.
+        $singleCompany = $companyWide && OperatingCompany::query()->count() === 1;
+
+        return $query->where(function (Builder $visible) use ($actor, $branchIds, $companyWide, $singleCompany): void {
             $visible->whereHas('user', fn ($user) => $user
                 ->where('operating_company_id', $actor->operating_company_id)
                 ->when($actor->operating_branch_id, fn ($users, $branchId) => $users->where('operating_branch_id', $branchId)))
                 ->orWhereHas('visit')
-                ->orWhereIn('context->operating_branch_id', $branchIds);
+                ->orWhereIn('context->operating_branch_id', $branchIds)
+                ->when($companyWide, fn (Builder $company) => $company->orWhere('context->operating_company_id', $actor->operating_company_id))
+                ->when($singleCompany, fn (Builder $legacy) => $legacy->orWhere(fn (Builder $untagged) => $untagged
+                    ->whereNull('user_id')->whereNull('visit_id')
+                    ->whereNull('context->operating_company_id')->whereNull('context->operating_branch_id')));
         });
     }
 
