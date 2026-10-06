@@ -525,7 +525,7 @@ class BackupService
         }
     }
 
-    private function pgDumpBinary(): string
+    public function pgDumpBinary(): string
     {
         $configured = config('darak.pg_dump_path');
 
