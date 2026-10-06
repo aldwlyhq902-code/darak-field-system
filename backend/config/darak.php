@@ -124,4 +124,18 @@ return [
         'banned_word_engine',
         'hardcoded_labour_rules',
     ],
+
+    // auth & api
+    /*
+    | Per-account lockouts sit on top of the per-IP throttles. A botnet rotating
+    | addresses still meets the account counter; a typo-prone owner still gets
+    | back in after the window. Password counters are keyed by the submitted
+    | email, so an unknown address locks exactly like a real one (no enumeration).
+    */
+    'auth' => [
+        'password_max_attempts' => (int) env('DARAK_PASSWORD_MAX_ATTEMPTS', 5),
+        'password_lockout_minutes' => (int) env('DARAK_PASSWORD_LOCKOUT_MINUTES', 15),
+        'mfa_max_attempts' => (int) env('DARAK_MFA_MAX_ATTEMPTS', 5),
+        'mfa_lockout_minutes' => (int) env('DARAK_MFA_LOCKOUT_MINUTES', 15),
+    ],
 ];

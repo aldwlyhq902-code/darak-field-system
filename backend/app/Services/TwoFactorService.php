@@ -15,6 +15,66 @@ use OTPHP\TOTP;
 
 class TwoFactorService
 {
+    public function __construct(
+        private readonly AccountLockout $lockout,
+        private readonly NotificationService $notifications,
+    ) {}
+
+    /**
+     * The only entry point for a second-factor ATTEMPT (panel challenge, API
+     * login, recovery-code regeneration). Failures count against the account,
+     * not the IP: the password has already been proven, so repeated wrong codes
+     * mean either a confused owner or a stolen password — both worth stopping
+     * and both worth telling the owner about.
+     *
+     * @return array{valid: bool, locked_for: int}
+     */
+    public function attempt(User $user, string $code, bool $allowRecoveryCode = true): array
+    {
+        $identity = (string) $user->getKey();
+        $lockedFor = $this->lockout->lockedFor(AccountLockout::SCOPE_MFA, $identity);
+
+        if ($lockedFor > 0) {
+            return ['valid' => false, 'locked_for' => $lockedFor];
+        }
+
+        $valid = $code !== '' && (
+            $this->verify($user, $code)
+            || ($allowRecoveryCode && $this->consumeRecoveryCode($user, $code))
+        );
+
+        if ($valid) {
+            $this->lockout->clear(AccountLockout::SCOPE_MFA, $identity);
+
+            return ['valid' => true, 'locked_for' => 0];
+        }
+
+        $minutes = (int) config('darak.auth.mfa_lockout_minutes', 15);
+        $attempts = (int) config('darak.auth.mfa_max_attempts', 5);
+
+        if (! $this->lockout->recordFailure(AccountLockout::SCOPE_MFA, $identity, $attempts, $minutes)) {
+            return ['valid' => false, 'locked_for' => 0];
+        }
+
+        $this->notifications->securityAlert(
+            'security.mfa_lockout:'.$user->id.':'.time(),
+            "قُفل التحقق بخطوتين مؤقتًا ({$minutes} دقيقة) للحساب {$user->name} ({$user->email}) بعد {$attempts} رموز خاطئة. "
+                .'كلمة المرور أُدخلت صحيحة — إن لم يكن صاحب الحساب فغيّرها فورًا.',
+            $user->id,
+            ['reason' => 'mfa_lockout', 'operating_branch_id' => $user->operating_branch_id],
+        );
+
+        return ['valid' => false, 'locked_for' => $minutes * 60];
+    }
+
+    /** Arabic, user-facing. */
+    public static function lockedMessage(int $seconds): string
+    {
+        $minutes = max(1, (int) ceil($seconds / 60));
+
+        return "أُوقف التحقق بخطوتين مؤقتًا بعد محاولات خاطئة متكررة. حاول بعد {$minutes} دقيقة.";
+    }
+
     public function generateSecret(): string
     {
         return TOTP::generate(secretSize: 20)->getSecret();
@@ -46,11 +106,63 @@ class TwoFactorService
         return $this->totp($user)->now();
     }
 
+    /**
+     * Verify AND consume a TOTP code.
+     *
+     * A code stays valid for its whole 30-second step (plus 15 s leeway), so a
+     * code read over a shoulder or relayed by a phishing page could open a second
+     * session inside that window. The step a code belongs to is recorded per user
+     * and only a strictly later step is ever accepted again. The compare-and-set
+     * runs in the database, so two concurrent submissions of one code cannot
+     * both succeed.
+     */
     public function verify(User $user, string $code): bool
     {
         $normalised = preg_replace('/\D/', '', $code) ?? '';
 
-        return strlen($normalised) === 6 && $this->totp($user)->verify($normalised, leeway: 15);
+        if (strlen($normalised) !== 6) {
+            return false;
+        }
+
+        $step = $this->matchingStep($user, $normalised);
+
+        if ($step === null) {
+            return false;
+        }
+
+        $consumed = User::query()
+            ->whereKey($user->getKey())
+            ->where(fn ($query) => $query
+                ->whereNull('two_factor_last_used_step')
+                ->orWhere('two_factor_last_used_step', '<', $step))
+            ->update(['two_factor_last_used_step' => $step]);
+
+        if ($consumed === 1) {
+            $user->forceFill(['two_factor_last_used_step' => $step])->syncOriginalAttribute('two_factor_last_used_step');
+        }
+
+        return $consumed === 1;
+    }
+
+    /** The time step whose code matches, within the accepted leeway, or null. */
+    private function matchingStep(User $user, string $code): ?int
+    {
+        $totp = $this->totp($user);
+        $period = $totp->getPeriod();
+        $now = time();
+        $steps = array_unique([
+            intdiv($now - 15, $period),
+            intdiv($now, $period),
+            intdiv($now + 15, $period),
+        ]);
+
+        foreach ($steps as $step) {
+            if (hash_equals($totp->at($step * $period), $code)) {
+                return $step;
+            }
+        }
+
+        return null;
     }
 
     /** @return array{plain: array<int, string>, hashed: array<int, string>} */

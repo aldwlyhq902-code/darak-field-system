@@ -187,6 +187,24 @@ class NotificationService
         );
     }
 
+    /**
+     * Account-security events for the owner's inbox: lockouts and devices
+     * waiting for approval. `$subjectUserId` is the account concerned, which is
+     * also what scopes the message to that account's company in the panel.
+     */
+    public function securityAlert(string $key, string $body, ?int $subjectUserId = null, array $context = []): ?NotificationMessage
+    {
+        return $this->queue(
+            type: NotificationMessage::TYPE_SECURITY_ALERT,
+            channel: NotificationMessage::CHANNEL_IN_APP,
+            recipientKind: 'supervisor',
+            key: $key,
+            body: $body,
+            userId: $subjectUserId,
+            context: $context,
+        );
+    }
+
     /** Idempotent: the same key never produces a second message. */
     private function queue(
         string $type,

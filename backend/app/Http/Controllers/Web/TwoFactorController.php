@@ -95,10 +95,17 @@ class TwoFactorController extends Controller
             throw ValidationException::withMessages(['code' => 'انتهت جلسة التحقق. سجّل الدخول مرة أخرى.']);
         }
 
-        $valid = $this->twoFactor->verify($user, $data['code'])
-            || $this->twoFactor->consumeRecoveryCode($user, $data['code']);
+        $attempt = $this->twoFactor->attempt($user, $data['code']);
 
-        if (! $valid) {
+        if ($attempt['locked_for'] > 0) {
+            // The pending login dies with the lock: after the window the password
+            // must be proven again, not just more codes guessed.
+            $request->session()->forget(['two_factor_pending_user_id', 'two_factor_remember']);
+
+            throw ValidationException::withMessages(['code' => TwoFactorService::lockedMessage($attempt['locked_for'])]);
+        }
+
+        if (! $attempt['valid']) {
             throw ValidationException::withMessages(['code' => 'رمز التحقق أو الاسترداد غير صحيح.']);
         }
 

@@ -6,12 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\PasswordLogin;
 use App\Services\TwoFactorService;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -25,6 +25,7 @@ class AuthController extends Controller
         private readonly AuditLogger $audit,
         private readonly TenantAccess $tenantAccess,
         private readonly TwoFactorService $twoFactor,
+        private readonly PasswordLogin $passwords,
     ) {}
 
     public function login(Request $request): JsonResponse
@@ -39,9 +40,20 @@ class AuthController extends Controller
             'mfa_code' => ['nullable', 'string', 'max:32'],
         ]);
 
-        $user = User::where('email', $data['email'])->first();
+        $result = $this->passwords->attempt('api', User::class, $data['email'], $data['password']);
 
-        if (! $user || ! Hash::check($data['password'], $user->password)) {
+        if ($result['locked_for'] > 0) {
+            return response()->json([
+                'code' => 'ACCOUNT_TEMPORARILY_LOCKED',
+                'message' => PasswordLogin::lockedMessage($result['locked_for']),
+                'retry_after' => $result['locked_for'],
+            ], 429);
+        }
+
+        /** @var User|null $user */
+        $user = $result['user'];
+
+        if ($user === null) {
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
         }
 
@@ -60,13 +72,17 @@ class AuthController extends Controller
                 ], 403);
             }
 
-            $mfaCode = (string) ($data['mfa_code'] ?? '');
-            $validSecondFactor = $mfaCode !== '' && (
-                $this->twoFactor->verify($user, $mfaCode)
-                || $this->twoFactor->consumeRecoveryCode($user, $mfaCode)
-            );
+            $secondFactor = $this->twoFactor->attempt($user, (string) ($data['mfa_code'] ?? ''));
 
-            if (! $validSecondFactor) {
+            if ($secondFactor['locked_for'] > 0) {
+                return response()->json([
+                    'code' => 'ACCOUNT_TEMPORARILY_LOCKED',
+                    'message' => TwoFactorService::lockedMessage($secondFactor['locked_for']),
+                    'retry_after' => $secondFactor['locked_for'],
+                ], 429);
+            }
+
+            if (! $secondFactor['valid']) {
                 return response()->json([
                     'code' => 'TWO_FACTOR_REQUIRED',
                     'message' => 'رمز التحقق أو الاسترداد مطلوب لإصدار رمز API إداري.',

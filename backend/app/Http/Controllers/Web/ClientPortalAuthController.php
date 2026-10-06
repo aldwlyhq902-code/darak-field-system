@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Models\ClientPortalUser;
+use App\Services\PasswordLogin;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -11,6 +13,8 @@ use Illuminate\View\View;
 
 class ClientPortalAuthController extends Controller
 {
+    public function __construct(private readonly PasswordLogin $passwords) {}
+
     public function show(): View|RedirectResponse
     {
         if (Auth::guard('client')->check()) {
@@ -27,16 +31,24 @@ class ClientPortalAuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        if (! Auth::guard('client')->attempt($credentials, $request->boolean('remember'))) {
+        $result = $this->passwords->attempt('client', ClientPortalUser::class, $credentials['email'], $credentials['password']);
+
+        if ($result['locked_for'] > 0) {
+            throw ValidationException::withMessages(['email' => PasswordLogin::lockedMessage($result['locked_for'])]);
+        }
+
+        /** @var ClientPortalUser|null $user */
+        $user = $result['user'];
+
+        if ($user === null) {
             throw ValidationException::withMessages(['email' => 'بيانات الدخول غير صحيحة.']);
         }
 
-        $user = Auth::guard('client')->user();
         if (! $user->is_active || ! $user->client?->is_active) {
-            Auth::guard('client')->logout();
             throw ValidationException::withMessages(['email' => 'حساب العميل غير متاح.']);
         }
 
+        Auth::guard('client')->login($user, $request->boolean('remember'));
         $request->session()->regenerate();
 
         return redirect()->intended(route('client.home'));

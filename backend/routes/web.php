@@ -59,7 +59,7 @@ Route::get('client/manifest.webmanifest', fn () => response()->view('client.mani
 Route::get('client/service-worker.js', fn () => response()->view('client.service-worker')->header('Content-Type', 'application/javascript'))
     ->name('client.service-worker');
 Route::get('client/login', [ClientPortalAuthController::class, 'show'])->name('client.login');
-Route::post('client/login', [ClientPortalAuthController::class, 'login'])->middleware('throttle:10,1');
+Route::post('client/login', [ClientPortalAuthController::class, 'login'])->middleware('throttle:login');
 
 Route::get('report/{token}', [EmergencyReportController::class, 'create'])->name('emergency.create');
 Route::post('report/{token}', [EmergencyReportController::class, 'store'])
@@ -87,10 +87,10 @@ Route::middleware(['auth:client', 'client.active'])->prefix('client')->group(fun
 });
 
 Route::get('login', [PanelAuthController::class, 'show'])->name('panel.login');
-Route::post('login', [PanelAuthController::class, 'login'])->middleware('throttle:10,1');
+Route::post('login', [PanelAuthController::class, 'login'])->middleware('throttle:login');
 Route::get('two-factor-challenge', [TwoFactorController::class, 'challenge'])->name('panel.two-factor.challenge');
 Route::post('two-factor-challenge', [TwoFactorController::class, 'verifyChallenge'])
-    ->middleware('throttle:10,1')->name('panel.two-factor.verify');
+    ->middleware('throttle:mfa')->name('panel.two-factor.verify');
 
 // `auth:web` alone only asks "is someone signed in", never "are they still
 // allowed to be". A disabled account kept its cookie session and the whole panel.
