@@ -27,7 +27,7 @@ DB_APP_ROLE=${DARAK_DB_APP_ROLE:-darak_app}
 STATE_DIR=${DARAK_STATE_DIR:-/var/lib/darak}
 SKIP_BACKUP=${DARAK_SKIP_PREDEPLOY_BACKUP:-0}
 # darak:revoke-backoffice-tokens must revoke without prompting under these args.
-read -r -a REVOKE_ARGS <<< "${DARAK_REVOKE_TOKENS_ARGS:---no-interaction}"
+read -r -a REVOKE_ARGS <<< "${DARAK_REVOKE_TOKENS_ARGS:---force --no-interaction}"
 
 STARTED=$(date +%s)
 MIGRATED=0
