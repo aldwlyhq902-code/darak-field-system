@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Api\VisitDetailResource;
+use App\Http\Resources\Api\VisitSummaryResource;
 use App\Models\User;
 use App\Models\Visit;
 use App\Services\AdditionalWorkService;
@@ -113,7 +115,7 @@ class VisitController extends Controller
             $query->where('state', $request->string('state'));
         }
 
-        return response()->json(['data' => $query->limit(200)->get()]);
+        return response()->json(['data' => VisitSummaryResource::collection($query->limit(200)->get())]);
     }
 
     public function show(Visit $visit): JsonResponse
@@ -123,7 +125,7 @@ class VisitController extends Controller
         $visit->load(['workOrder.contract', 'site.client', 'site.assets', 'checklistInstances.asset', 'mediaFiles', 'stockMoves.part', 'stockReservations.part', 'additionalWorkApprovals', 'technician']);
 
         return response()->json([
-            'data' => $visit,
+            'data' => new VisitDetailResource($visit),
             'close_blockers' => $this->closeGate->blockers($visit),
         ]);
     }
@@ -149,7 +151,7 @@ class VisitController extends Controller
             'client_event_id' => $data['client_event_id'] ?? null,
         ]);
 
-        return response()->json(['data' => $visit]);
+        return response()->json(['data' => new VisitSummaryResource($visit)]);
     }
 
     public function closeBlockers(Visit $visit): JsonResponse

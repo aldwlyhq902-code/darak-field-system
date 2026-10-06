@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Api\MeResource;
 use App\Models\Device;
 use App\Models\User;
 use App\Services\AuditLogger;
@@ -175,16 +176,7 @@ class AuthController extends Controller
 
     public function me(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        return response()->json([
-            'id' => $user->id,
-            'name' => $user->name,
-            'role' => $user->role,
-            'trade' => $user->trade,
-            'specialties' => $user->specialties,
-            'shift' => ['start' => $user->shift_start, 'end' => $user->shift_end],
-            'server_time' => CarbonImmutable::now()->toIso8601String(),
-        ]);
+        // Unwrapped on purpose: the response shape predates the resource.
+        return response()->json((new MeResource($request->user()))->resolve($request));
     }
 }
