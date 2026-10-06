@@ -2,43 +2,33 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\MediaUploadRejected;
 use App\Http\Controllers\Controller;
+use App\Models\Device;
 use App\Models\MediaFile;
-use App\Services\AuditLogger;
-use App\Services\PhotoStamper;
+use App\Services\MediaUploadService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 /**
- * Resumable evidence upload.
- *
- * A connection dropped at 60% resumes from the byte offset instead of restarting —
- * technicians work in basements and kitchens, and re-sending a 3MB photo over a bad
- * link is how evidence gets abandoned.
- *
- * The ORIGINAL file is kept with its sha256; the stamped copy used in the report is
- * a derivative. Keeping only the stamped image would destroy the audit trail.
+ * Resumable evidence upload. The byte handling lives in MediaUploadService; this
+ * controller decides WHO may read and who may write.
  */
 class MediaController extends Controller
 {
-    private const CHUNK_LIMIT = 8 * 1024 * 1024;
-
-    public function __construct(
-        private readonly PhotoStamper $stamper,
-        private readonly AuditLogger $audit,
-    ) {}
+    public function __construct(private readonly MediaUploadService $uploads) {}
 
     /**
-     * Ownership gate for every media route.
+     * Read gate: anyone who may view the visit may ask for upload status.
      *
-     * The sha256 check is NOT a substitute for this. An attacker uploading bytes
-     * of their own choosing also supplies the matching hash, so without an owner
-     * check a technician whose visit was reassigned could overwrite the new
-     * technician's evidence and the integrity check would happily agree.
+     * The sha256 check is NOT a substitute for the write gate below. An attacker
+     * uploading bytes of their own choosing also supplies the matching hash, so
+     * without an owner check a technician whose visit was reassigned could
+     * overwrite the new technician's evidence and the integrity check would
+     * happily agree.
      */
-    private function authorizeMedia(MediaFile $media): void
+    private function authorizeRead(MediaFile $media): void
     {
         $media->loadMissing('visit');
 
@@ -47,11 +37,42 @@ class MediaController extends Controller
         $this->authorize('view', $media->visit);
     }
 
+    /**
+     * Write gate: chunk, complete and discard. Viewing a visit is not the right
+     * to replace its pending evidence — back-office accounts read only. Only the
+     * technician who registered the file, from the device that registered it,
+     * may write. Rows registered before this was recorded fall back to the
+     * visit's assigned technician (which the view policy already requires).
+     */
+    private function authorizeWrite(Request $request, MediaFile $media): void
+    {
+        $this->authorizeRead($media);
+
+        $user = $request->user();
+        $device = $request->attributes->get('device');
+
+        $owns = $user->isTechnician() && (
+            $media->registered_by_user_id === null
+                ? $media->visit->assigned_user_id === $user->id
+                : $media->registered_by_user_id === $user->id
+        );
+
+        // A device token must be the registering handset. Session/transient
+        // auth carries no device and is held to the user check alone.
+        if ($owns && $device instanceof Device && $media->registered_device_id !== null) {
+            $owns = $media->registered_device_id === $device->id;
+        }
+
+        if (! $owns) {
+            throw new AuthorizationException('Only the registering technician device may upload this evidence.');
+        }
+    }
+
     /** Client asks where to resume from. */
     public function status(string $clientMediaId): JsonResponse
     {
         $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
-        $this->authorizeMedia($media);
+        $this->authorizeRead($media);
 
         return response()->json([
             'client_media_id' => $media->client_media_id,
@@ -65,138 +86,11 @@ class MediaController extends Controller
     public function chunk(Request $request, string $clientMediaId): JsonResponse
     {
         $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
-        $this->authorizeMedia($media);
-
-        if ($media->discarded_at !== null) {
-            return $this->discardedResponse();
-        }
-
-        if ($media->upload_state === 'complete') {
-            return response()->json([
-                'code' => 'ALREADY_COMPLETE',
-                'uploaded_bytes' => $media->uploaded_bytes,
-            ]);
-        }
+        $this->authorizeWrite($request, $media);
 
         $offset = (int) $request->header('X-Upload-Offset', (string) $request->input('offset', 0));
-        $bytes = $request->getContent();
 
-        if ($bytes === '' || $bytes === false) {
-            return response()->json(['code' => 'EMPTY_CHUNK', 'message' => 'No bytes received.'], 422);
-        }
-
-        $chunkBytes = strlen($bytes);
-
-        if ($chunkBytes > self::CHUNK_LIMIT) {
-            return response()->json(['code' => 'CHUNK_TOO_LARGE', 'message' => 'Chunk exceeds 8MB.'], 413);
-        }
-
-        $declaredBytes = (int) $media->total_bytes;
-        $maxBytes = (int) config('darak.max_media_bytes', 25 * 1024 * 1024);
-
-        if ($declaredBytes < 1 || $declaredBytes > $maxBytes) {
-            return response()->json([
-                'code' => 'INVALID_MEDIA_SIZE',
-                'message' => 'This evidence item has no valid declared size. Register it again.',
-            ], 422);
-        }
-
-        if ($offset < 0 || $offset + $chunkBytes > $declaredBytes || $offset + $chunkBytes > $maxBytes) {
-            return response()->json([
-                'code' => 'UPLOAD_LIMIT_EXCEEDED',
-                'message' => 'The chunk would exceed the declared or permitted evidence size.',
-                'total_bytes' => $declaredBytes,
-            ], 413);
-        }
-
-        // Offset mismatch is not an error the client should guess about: tell it
-        // exactly where the server is and let it resume from there.
-        if ($offset !== (int) $media->uploaded_bytes) {
-            return response()->json([
-                'code' => 'OFFSET_MISMATCH',
-                'message' => 'Resume from the server offset.',
-                'expected_offset' => (int) $media->uploaded_bytes,
-            ], 409);
-        }
-
-        $partPath = $this->partPath($media);
-        $disk = Storage::disk('local');
-
-        if (! $disk->exists($partPath)) {
-            $disk->put($partPath, '');
-        }
-
-        $absolute = $disk->path($partPath);
-        $handle = fopen($absolute, 'c+b');
-        if ($handle === false || ! flock($handle, LOCK_EX)) {
-            if (is_resource($handle)) {
-                fclose($handle);
-            }
-
-            return response()->json(['code' => 'UPLOAD_BUSY', 'message' => 'Could not lock the upload. Retry this chunk.'], 409);
-        }
-
-        try {
-            // A second request may have passed the fast offset check while waiting
-            // for this file lock. Re-read only after exclusive ownership.
-            $media->refresh();
-            if ($media->discarded_at !== null) {
-                return $this->discardedResponse();
-            }
-            if ($media->upload_state === 'complete') {
-                return response()->json(['code' => 'ALREADY_COMPLETE', 'uploaded_bytes' => $media->uploaded_bytes]);
-            }
-            if ($offset !== (int) $media->uploaded_bytes) {
-                return response()->json([
-                    'code' => 'OFFSET_MISMATCH',
-                    'message' => 'Resume from the server offset.',
-                    'expected_offset' => (int) $media->uploaded_bytes,
-                ], 409);
-            }
-
-            if (fseek($handle, $offset) !== 0 || fwrite($handle, $bytes) !== $chunkBytes || ! fflush($handle)) {
-                ftruncate($handle, $offset);
-
-                return response()->json(['code' => 'WRITE_FAILED', 'message' => 'The chunk could not be stored. Retry it.'], 500);
-            }
-
-            // Compare-and-set prevents a stale request from advancing the counter.
-            // A discard landing mid-write still wins through the null predicate.
-            $claimed = MediaFile::whereKey($media->getKey())
-                ->whereNull('discarded_at')
-                ->where('uploaded_bytes', $offset)
-                ->where('upload_state', '!=', 'complete')
-                ->update([
-                    'uploaded_bytes' => $offset + $chunkBytes,
-                    'upload_state' => 'uploading',
-                    'attempts' => $media->attempts + 1,
-                    'updated_at' => now(),
-                ]);
-
-            if ($claimed === 0) {
-                ftruncate($handle, $offset);
-                $media->refresh();
-
-                return $media->discarded_at !== null
-                    ? $this->discardedResponse()
-                    : response()->json([
-                        'code' => 'OFFSET_MISMATCH',
-                        'message' => 'Resume from the server offset.',
-                        'expected_offset' => (int) $media->uploaded_bytes,
-                    ], 409);
-            }
-        } finally {
-            flock($handle, LOCK_UN);
-            fclose($handle);
-        }
-
-        $media->refresh();
-
-        return response()->json([
-            'uploaded_bytes' => $media->uploaded_bytes,
-            'total_bytes' => $media->total_bytes,
-            'upload_state' => $media->upload_state,
-        ]);
+        return $this->respond(fn () => $this->uploads->appendChunk($media, $offset, (string) $request->getContent()));
     }
 
     /** Verify the hash, store the original, and produce the stamped derivative. */
@@ -207,177 +101,37 @@ class MediaController extends Controller
         ]);
 
         $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
-        $this->authorizeMedia($media);
+        $this->authorizeWrite($request, $media);
 
-        if ($media->discarded_at !== null) {
-            return $this->discardedResponse();
-        }
-
-        $disk = Storage::disk('local');
-        $partPath = $this->partPath($media);
-
-        if (! $disk->exists($partPath)) {
-            return response()->json(['code' => 'NO_UPLOAD', 'message' => 'Nothing uploaded for this file.'], 422);
-        }
-
-        $absolute = $disk->path($partPath);
-        $actualBytes = filesize($absolute);
-        $declaredBytes = (int) $media->total_bytes;
-        $maxBytes = (int) config('darak.max_media_bytes', 25 * 1024 * 1024);
-
-        if ($actualBytes === false || $declaredBytes < 1 || $declaredBytes > $maxBytes
-            || $actualBytes !== $declaredBytes || $actualBytes > $maxBytes) {
-            return response()->json([
-                'code' => 'SIZE_MISMATCH',
-                'message' => 'Uploaded bytes do not match the declared evidence size.',
-                'uploaded_bytes' => $actualBytes === false ? null : $actualBytes,
-                'total_bytes' => $declaredBytes,
-            ], 422);
-        }
-
-        $actual = hash_file('sha256', $absolute);
-
-        if (! hash_equals(strtolower($data['sha256']), strtolower($actual))) {
-            $media->forceFill([
-                'upload_state' => 'failed',
-                'last_error' => 'sha256 mismatch',
-                'uploaded_bytes' => 0,
-            ])->save();
-            $disk->delete($partPath);
-
-            return response()->json([
-                'code' => 'HASH_MISMATCH',
-                'message' => 'Uploaded bytes do not match the declared hash. Restart the upload.',
-            ], 422);
-        }
-
-        $finalPath = $this->finalPath($media);
-        $disk->move($partPath, $finalPath);
-
-        // Conditional and atomic. Reading discarded_at earlier and writing here
-        // left a window: a discard could land between the two, and the row ended
-        // up complete AND discarded — with the gate ignoring evidence that had
-        // actually arrived.
-        $claimed = MediaFile::whereKey($media->getKey())
-            ->whereNull('discarded_at')
-            ->update([
-                'original_path' => $finalPath,
-                'original_hash' => $actual,
-                'upload_state' => 'complete',
-                'last_error' => null,
-                'updated_at' => now(),
-            ]);
-
-        if ($claimed === 0) {
-            // Discarded while these bytes were being verified. Drop the file
-            // rather than leaving an orphan on disk no record points to.
-            $disk->delete($finalPath);
-
-            return $this->discardedResponse();
-        }
-
-        $media->refresh();
-
-        if (str_starts_with((string) $media->kind, 'photo')) {
-            $media->forceFill(['derived_path' => $this->stamper->stamp($media)])->save();
-        }
-
-        return response()->json([
-            'client_media_id' => $media->client_media_id,
-            'upload_state' => $media->upload_state,
-            'original_hash' => $media->original_hash,
-            'has_derived' => $media->derived_path !== null,
-        ]);
+        return $this->respond(fn () => $this->uploads->complete($media, $data['sha256']));
     }
 
-    /**
-     * Drop a file that will never upload, optionally naming its replacement.
-     *
-     * Without this a failed upload blocked the close permanently: retaking added
-     * a second row while the first went on raising UPLOADS_FAILED, and there was
-     * no endpoint to remove it. The record is kept, not deleted — who dropped
-     * what and why is part of the trail.
-     */
+    /** The way out for evidence that will never upload. */
     public function discard(Request $request, string $clientMediaId): JsonResponse
     {
         $media = MediaFile::where('client_media_id', $clientMediaId)->firstOrFail();
-        $this->authorizeMedia($media);
+        $this->authorizeWrite($request, $media);
 
         $data = $request->validate([
             'reason' => ['required', 'string', 'max:190'],
             'superseded_by' => ['nullable', 'uuid'],
         ]);
 
-        $replacement = isset($data['superseded_by'])
-            ? MediaFile::where('client_media_id', $data['superseded_by'])
-                ->where('visit_id', $media->visit_id)
-                ->first()
-            : null;
+        return $this->respond(fn () => $this->uploads->discard(
+            $media,
+            $data['reason'],
+            $data['superseded_by'] ?? null,
+            $request->user()->id,
+        ));
+    }
 
-        // Re-read under a row lock. Without it a chunk arriving at the same
-        // moment could take the file to 'complete' while this marks it
-        // discarded, leaving a row that is both — and CloseGate would ignore
-        // evidence that had in fact landed.
-        $outcome = DB::transaction(function () use ($media, $data, $request, $replacement) {
-            $locked = MediaFile::whereKey($media->getKey())->lockForUpdate()->firstOrFail();
-
-            if ($locked->upload_state === 'complete') {
-                return null;
-            }
-
-            $locked->forceFill([
-                'discarded_at' => now(),
-                'discard_reason' => $data['reason'],
-                'discarded_by' => $request->user()->id,
-                'superseded_by_id' => $replacement?->id,
-                'upload_state' => 'discarded',
-            ])->save();
-
-            return $locked;
-        });
-
-        if ($outcome === null) {
-            return response()->json([
-                'code' => 'CANNOT_DISCARD_COMPLETE',
-                'message' => 'Evidence that uploaded successfully cannot be discarded from the app.',
-            ], 422);
+    /** @param callable(): array<string, mixed> $step */
+    private function respond(callable $step): JsonResponse
+    {
+        try {
+            return response()->json($step());
+        } catch (MediaUploadRejected $rejected) {
+            return response()->json($rejected->body(), $rejected->status);
         }
-
-        $media = $outcome;
-
-        $this->audit->record('media.discarded', $media, null, [
-            'reason' => $data['reason'],
-            'superseded_by' => $replacement?->client_media_id,
-        ]);
-
-        return response()->json([
-            'client_media_id' => $media->client_media_id,
-            'discarded_at' => $media->discarded_at->toIso8601String(),
-        ]);
-    }
-
-    private function discardedResponse(): JsonResponse
-    {
-        return response()->json([
-            'code' => 'MEDIA_DISCARDED',
-            'message' => 'This file was discarded. Capture a replacement instead.',
-        ], 409);
-    }
-
-    private function partPath(MediaFile $media): string
-    {
-        return "media/parts/{$media->client_media_id}.part";
-    }
-
-    private function finalPath(MediaFile $media): string
-    {
-        $ext = match ($media->mime) {
-            'image/png' => 'png',
-            'image/webp' => 'webp',
-            'audio/mp4', 'audio/m4a' => 'm4a',
-            default => 'jpg',
-        };
-
-        return "media/visits/{$media->visit_id}/{$media->client_media_id}.{$ext}";
     }
 }

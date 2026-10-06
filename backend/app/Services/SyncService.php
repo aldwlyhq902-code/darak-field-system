@@ -306,6 +306,9 @@ class SyncService
                         'lng' => $payload['lng'] ?? null,
                         'declared_source' => $payload['declared_source'] ?? 'camera',
                         'upload_state' => 'pending',
+                        // Only this device may later write the bytes.
+                        'registered_by_user_id' => $device->user_id,
+                        'registered_device_id' => $device->id,
                     ],
                 );
 

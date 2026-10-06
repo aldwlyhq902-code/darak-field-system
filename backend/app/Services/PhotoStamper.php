@@ -18,16 +18,57 @@ use Illuminate\Support\Facades\Storage;
  */
 class PhotoStamper
 {
+    public const IMAGE_TOO_LARGE = 'IMAGE_TOO_LARGE';
+
+    public const IMAGE_UNREADABLE = 'IMAGE_UNREADABLE';
+
+    /**
+     * Inspect the header only. GD allocates width x height x 4 bytes on decode,
+     * so a 25 MB file declaring 30000x30000 pixels asks for 3.6 GB — a single
+     * upload could take the worker down. Nothing is decoded past these limits.
+     */
+    public function dimensionProblem(string $path): ?string
+    {
+        $info = @getimagesize($path);
+
+        if ($info === false || ($info[0] ?? 0) < 1 || ($info[1] ?? 0) < 1) {
+            return self::IMAGE_UNREADABLE;
+        }
+
+        [$width, $height] = $info;
+
+        if ($width > self::maxSide() || $height > self::maxSide() || $width * $height > self::maxPixels()) {
+            return self::IMAGE_TOO_LARGE;
+        }
+
+        return null;
+    }
+
+    public static function maxPixels(): int
+    {
+        return (int) config('darak.media.max_image_pixels', 40_000_000);
+    }
+
+    public static function maxSide(): int
+    {
+        return (int) config('darak.media.max_image_side', 12_000);
+    }
+
     public function stamp(MediaFile $media): ?string
     {
         if ($media->original_path === null) {
             return null;
         }
 
-        $disk = Storage::disk('local');
+        $disk = Storage::disk(config('darak.files_disk', 'local'));
         $source = $disk->path($media->original_path);
 
         if (! file_exists($source) || ! function_exists('imagecreatetruecolor')) {
+            return null;
+        }
+
+        // Unreadable or oversized: keep the verified original, skip the stamp.
+        if ($this->dimensionProblem($source) !== null) {
             return null;
         }
 

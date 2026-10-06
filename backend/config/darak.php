@@ -142,4 +142,9 @@ return [
         // Showing a new MFA secret requires a password proven this recently.
         'password_confirm_seconds' => (int) env('DARAK_PASSWORD_CONFIRM_SECONDS', 600),
     ],
+    // Evidence images are inspected (header only) before GD decodes them.
+    'media' => [
+        'max_image_pixels' => (int) env('DARAK_MAX_IMAGE_PIXELS', 40_000_000),
+        'max_image_side' => (int) env('DARAK_MAX_IMAGE_SIDE', 12_000),
+    ],
 ];
