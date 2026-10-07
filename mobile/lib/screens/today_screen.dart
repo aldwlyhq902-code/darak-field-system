@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
-import 'package:intl/intl.dart';
 
 import '../app_state.dart';
 import '../core/action_outbox.dart';
+import '../core/business_time.dart';
 import '../core/event_queue.dart';
 import 'sync_screen.dart';
 import 'field_tools_screen.dart';
@@ -251,7 +251,7 @@ class _ConnectionBanner extends StatelessWidget {
     final synced = state.lastSyncedAt;
     final label = synced == null
         ? 'لم تتم المزامنة بعد'
-        : 'آخر مزامنة ${DateFormat('HH:mm', state.locale.languageCode).format(synced)}';
+        : 'آخر مزامنة ${BusinessTime.time(synced, state.locale.languageCode)}';
 
     return Container(
       width: double.infinity,
@@ -287,7 +287,15 @@ class _VisitCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final start = DateTime.tryParse(visit['scheduled_start'] as String? ?? '');
+    // Site (Riyadh) time, never the raw UTC fields of the parsed instant.
+    final start = BusinessTime.parse(visit['scheduled_start'] as String?);
+    final day = start == null
+        ? null
+        : BusinessTime.dayLabel(
+            start,
+            state.clock.bestEstimate,
+            state.locale.languageCode,
+          );
     final slaStatus = visit['sla_status'] as String?;
     final isRework = (visit['is_rework'] as int? ?? 0) == 1;
 
@@ -306,7 +314,7 @@ class _VisitCard extends StatelessWidget {
         leading: CircleAvatar(
           backgroundColor: _slaColor(slaStatus).withValues(alpha: 0.15),
           child: LText(
-            start == null ? '—' : DateFormat('HH:mm').format(start),
+            start == null ? '—' : BusinessTime.time(start),
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
@@ -328,6 +336,8 @@ class _VisitCard extends StatelessWidget {
               spacing: 6,
               runSpacing: 4,
               children: [
+                // The list also carries tomorrow's work; say which day.
+                if (day != null) _Chip(label: day, color: Colors.indigo),
                 _Chip(
                   label: _stateLabel(visit['state'] as String?),
                   color: Colors.blueGrey,

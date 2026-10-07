@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 
 import '../app_state.dart';
+import '../core/business_time.dart';
 import '../core/error_messages.dart';
 import '../core/evidence_store.dart';
 import '../core/geofence.dart';
@@ -756,7 +757,7 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lastSynced = visit['last_synced_at'] as String?;
+    final lastSynced = BusinessTime.parse(visit['last_synced_at'] as String?);
 
     return Card(
       child: Padding(
@@ -807,7 +808,7 @@ class _InfoCard extends StatelessWidget {
                   child: LText(
                     lastSynced == null
                         ? 'بيانات غير مزامنة'
-                        : 'حُدّثت من الخادم: ${lastSynced.substring(0, 16).replaceFirst('T', ' ')}',
+                        : 'حُدّثت من الخادم: ${BusinessTime.dateTime(lastSynced)}',
                     style: const TextStyle(fontSize: 12, color: Colors.black45),
                   ),
                 ),

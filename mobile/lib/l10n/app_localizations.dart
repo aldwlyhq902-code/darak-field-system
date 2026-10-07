@@ -188,6 +188,8 @@ class AppLocalizations {
     'كل عملك يُحفظ على الجهاز أولاً ثم يُزامن عند توفر الشبكة.':
         'Your work is saved on the device first and synced when a network is available.',
     'زيارات اليوم': 'Today’s visits',
+    'غداً': 'Tomorrow',
+    'أمس': 'Yesterday',
     'العهد والجرد والتحويلات': 'Custody, stocktake & transfers',
     'حالة المزامنة': 'Sync status',
     'مزامنة': 'Sync',
