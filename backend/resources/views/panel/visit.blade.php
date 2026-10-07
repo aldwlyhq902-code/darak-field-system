@@ -176,7 +176,7 @@
                     <div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px">
                         <strong>{{ \App\Support\Labels::visitEvent($event->event_type) }}</strong>
                         <span style="color:var(--muted)">
-                            · {{ $event->server_received_at?->format('m-d H:i') }}
+                            · {{ \App\Support\Ltr::wrap($event->server_received_at?->format('Y-m-d H:i')) }}
                             @if ($event->clock_suspect)
                                 <span class="pill red">ساعة مشبوهة</span>
                             @endif

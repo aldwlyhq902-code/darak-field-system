@@ -34,7 +34,7 @@
     <div class="muted">
         رقم الزيارة: {{ $visit->id }} ·
         أمر العمل: {{ $visit->workOrder?->wo_number }} ·
-        تاريخ الإصدار: {{ now()->format('Y-m-d H:i') }}
+        تاريخ الإصدار: {{ \App\Support\Ltr::wrap(now()->format('Y-m-d H:i')) }}
     </div>
 </div>
 
@@ -120,7 +120,7 @@
     @if($signatureRef)
         <img class="sig" src="{{ $signatureRef }}" alt="signature">
     @endif
-    <div class="muted">وقّع بتاريخ {{ $signature->captured_at?->format('Y-m-d H:i') ?? '—' }}</div>
+    <div class="muted">وقّع بتاريخ {{ \App\Support\Ltr::wrap($signature->captured_at?->format('Y-m-d H:i') ?? '—') }}</div>
 @endif
 
 <div class="note">

@@ -39,7 +39,7 @@
                             <td style="font-size:12px">{{ $asset->qr_code }}</td>
                             <td>
                                 @if ($asset->isUnderWarranty())
-                                    <span class="pill amber">حتى {{ $asset->warranty_until->format('Y-m-d') }}</span>
+                                    <span class="pill amber">حتى {{ \App\Support\Ltr::wrap($asset->warranty_until->format('Y-m-d')) }}</span>
                                 @else
                                     —
                                 @endif
@@ -138,7 +138,7 @@
                                 <div style="font-size:11px;color:var(--muted)">{{ $contract->installments->where('status','paid')->count() }}/{{ $contract->installments->count() }} دفعات مدفوعة</div>
                             @endif
                             @if ($contract->is_trial)
-                                <div style="font-size:11px;color:var(--amber)">تجريبي — حسم {{ $contract->decision_due_on?->format('Y-m-d') }}</div>
+                                <div style="font-size:11px;color:var(--amber)">تجريبي — حسم {{ \App\Support\Ltr::wrap($contract->decision_due_on?->format('Y-m-d')) }}</div>
                             @endif
                         </td>
                     </tr>

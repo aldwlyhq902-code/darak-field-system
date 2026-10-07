@@ -23,7 +23,7 @@
 <section class="perf-hero">
     <h1>مركز الأداء والترتيب</h1>
     <p>قياس عادل يربط جودة الخدمة والالتزام والربحية والتحصيل، ويقارن كل نتيجة بالفترة السابقة بدل الاعتماد على عدد المهام وحده.</p>
-    <span class="period-chip">{{ $dashboard['from']->format('Y/m/d') }} — {{ $dashboard['to']->format('Y/m/d') }}</span>
+    <span class="period-chip">{{ \App\Support\Ltr::wrap($dashboard['from']->format('Y-m-d')) }} — {{ \App\Support\Ltr::wrap($dashboard['to']->format('Y-m-d')) }}</span>
 </section>
 
 <div class="card"><div class="bd">
