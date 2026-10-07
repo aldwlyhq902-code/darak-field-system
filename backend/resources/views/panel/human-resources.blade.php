@@ -46,7 +46,7 @@
 @foreach($users as $user)
 @php $balance=$balances[$user->id]; @endphp
 <div class="card">
-    <div class="hd"><strong>{{ $user->name }}</strong><span class="pill grey">{{ $user->trade ?? $user->role }}</span><span style="margin-inline-start:auto;font-size:12px;color:var(--muted)">المتبقي السنوي: {{ $balance['remaining'] }} من {{ $balance['entitlement'] }} يوم</span></div>
+    <div class="hd"><strong>{{ $user->name }}</strong><span class="pill grey">{{ $user->trade ?? \App\Support\Labels::of('user_role', $user->role) }}</span><span style="margin-inline-start:auto;font-size:12px;color:var(--muted)">المتبقي السنوي: {{ $balance['remaining'] }} من {{ $balance['entitlement'] }} يوم</span></div>
     <div class="bd"><div class="grid2">
         <details><summary style="cursor:pointer;color:var(--teal);font-weight:600">الملف الوظيفي</summary><form method="POST" action="{{ route('panel.hr.profile',$user) }}" style="margin-top:12px">@csrf @method('PUT')
             <div class="grid3"><div class="field"><label>الرقم الوظيفي</label><input name="employee_no" value="{{ $user->employeeProfile?->employee_no }}"></div><div class="field"><label>الجنسية</label><input name="nationality" value="{{ $user->employeeProfile?->nationality }}"></div><div class="field"><label>تاريخ التعيين</label><input type="date" name="hired_on" value="{{ $user->employeeProfile?->hired_on?->format('Y-m-d') }}"></div></div>

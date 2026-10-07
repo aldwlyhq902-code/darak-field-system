@@ -2,8 +2,8 @@
 @section('title', 'لوحة اليوم')
 @section('content')
 @php
-    $states = ['scheduled'=>'مجدولة','en_route'=>'في الطريق','started'=>'قيد التنفيذ','paused'=>'متوقفة','awaiting_close'=>'بانتظار الإقفال','completed'=>'مقفلة','reopened'=>'أُعيد فتحها'];
-    $types = ['preventive'=>'وقائية','reactive'=>'بلاغ','out_of_contract'=>'خارج العقد'];
+    $states = \App\Support\Labels::group('visit_state');
+    $types = \App\Support\Labels::group('work_order_type');
     // Finished work: the verdict at the moment it finished, never a countdown.
     $slaVerdict = fn (array $row) => match ($row['sla_outcome']) {
         'met' => 'أُنجزت ضمن المهلة',

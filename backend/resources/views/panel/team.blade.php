@@ -15,13 +15,13 @@
                 <td>{{ $user->name }}<br><span style="font-size:12px;color:var(--muted)">{{ $user->email }}</span></td>
                 <td>
                     <span class="pill grey">
-                        {{ ['owner_supervisor' => 'مالك/مشرف', 'technician' => 'فني', 'admin' => 'إداري'][$user->role] ?? $user->role }}
+                        {{ \App\Support\Labels::of('user_role', $user->role) }}
                     </span>
                 </td>
                 <td style="font-size:13px">
                     {{ $user->trade ?? '—' }}
                     @if ($user->specialties)
-                        <div style="color:var(--muted);font-size:12px">{{ implode(' · ', $user->specialties) }}</div>
+                        <div style="color:var(--muted);font-size:12px">{{ \App\Support\Labels::list('specialty', $user->specialties) }}</div>
                     @endif
                 </td>
                 <td style="font-size:13px">
@@ -77,7 +77,7 @@
                 </div>
                 <div class="field">
                     <label>التخصصات (تُستخدم في منع الإسناد الخاطئ)</label>
-                    @foreach (['split_ac' => 'سبليت', 'package_ac' => 'مركزي', 'chiller' => 'تبريد', 'freezer' => 'تجميد', 'electrical' => 'كهرباء', 'plumbing' => 'سباكة'] as $key => $label)
+                    @foreach (\App\Support\Labels::group('specialty') as $key => $label)
                         <label style="display:inline-flex;gap:5px;align-items:center;color:var(--ink);margin-inline-end:14px">
                             <input type="checkbox" name="specialties[]" value="{{ $key }}" style="width:auto">{{ $label }}
                         </label>

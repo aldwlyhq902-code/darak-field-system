@@ -115,6 +115,9 @@ class AppLocalizations {
 
   static const Map<String, String> _englishSuffixTemplates = {
     ' سليمة': ' is safe',
+    ' · بانتظار الاستلام': ' · Awaiting receipt',
+    ' · مستلمة': ' · Received',
+    ' · مرجعة': ' · Returned',
   };
 
   static const Map<String, String> _englishAliases = {

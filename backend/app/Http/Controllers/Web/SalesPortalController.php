@@ -23,6 +23,7 @@ use App\Services\PerformanceScoreService;
 use App\Services\QuotationPricingService;
 use App\Services\SalesPushService;
 use App\Support\ClientPicker;
+use App\Support\Labels;
 use App\Support\Money;
 use App\Support\PrivateFiles;
 use App\Support\TenantAccess;
@@ -415,6 +416,6 @@ class SalesPortalController extends Controller
     /** @return array<string, string> */
     private function stageLabels(): array
     {
-        return ['new' => 'جديد', 'qualified' => 'مؤهل', 'proposal' => 'عرض سعر', 'negotiation' => 'تفاوض', 'won' => 'مكتسب', 'lost' => 'مفقود'];
+        return Labels::group('lead_stage');
     }
 }

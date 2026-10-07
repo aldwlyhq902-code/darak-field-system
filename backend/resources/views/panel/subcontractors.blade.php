@@ -16,7 +16,7 @@
                     <select name="subcontractor_id" required>
                         @foreach ($activePartners as $partner)
                             <option value="{{ $partner->id }}">
-                                {{ $partner->name }}@if ($partner->specialties) — {{ implode('، ', $partner->specialties) }}@endif
+                                {{ $partner->name }}@if ($partner->specialties) — {{ \App\Support\Labels::list('specialty', $partner->specialties, '، ') }}@endif
                             </option>
                         @endforeach
                     </select>
@@ -141,7 +141,7 @@
         @foreach ($partners as $partner)
             <tr>
                 <td>{{ $partner->name }}<br><span style="font-size:12px;color:var(--muted)">{{ $partner->phone }}</span></td>
-                <td style="font-size:13px">{{ implode('، ', $partner->specialties ?? []) ?: '—' }}</td>
+                <td style="font-size:13px">{{ \App\Support\Labels::list('specialty', $partner->specialties, '، ') }}</td>
                 <td>@if ($partner->issues_official_certificates)<span class="pill green">نعم</span>@else — @endif</td>
                 <td>{{ $partner->orders_count }}</td>
                 <td><span class="pill {{ $partner->is_active ? 'green' : 'grey' }}">{{ $partner->is_active ? 'نشط' : 'موقوف' }}</span></td>
@@ -162,7 +162,7 @@
                 </div>
                 <div class="field">
                     <label>التخصصات</label>
-                    @foreach (['hood' => 'هود', 'gas' => 'غاز', 'electrical' => 'كهرباء', 'plumbing' => 'سباكة', 'hvac' => 'تكييف'] as $key => $label)
+                    @foreach (\App\Support\Labels::group('specialty') as $key => $label)
                         <label style="display:inline-flex;gap:5px;align-items:center;color:var(--ink);margin-inline-end:14px">
                             <input type="checkbox" name="specialties[]" value="{{ $key }}" style="width:auto">{{ $label }}
                         </label>

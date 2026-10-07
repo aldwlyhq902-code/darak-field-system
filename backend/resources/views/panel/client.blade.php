@@ -35,7 +35,7 @@
                     @foreach ($site->assets as $asset)
                         <tr>
                             <td>{{ $asset->name }}</td>
-                            <td style="font-size:13px">{{ $asset->type }}</td>
+                            <td style="font-size:13px">{{ \App\Support\Labels::of('asset_type', $asset->type) }}</td>
                             <td style="font-size:12px">{{ $asset->qr_code }}</td>
                             <td>
                                 @if ($asset->isUnderWarranty())
@@ -59,13 +59,9 @@
                         <div class="field">
                             <label>النوع</label>
                             <select name="type">
-                                <option value="split_ac">سبليت</option>
-                                <option value="package_ac">مركزي</option>
-                                <option value="chiller">ثلاجة</option>
-                                <option value="freezer">فريزر</option>
-                                <option value="hood">هود</option>
-                                <option value="electrical">كهرباء</option>
-                                <option value="plumbing">سباكة</option>
+                                @foreach (\App\Support\Labels::group('asset_type') as $code => $label)
+                                    <option value="{{ $code }}">{{ $label }}</option>
+                                @endforeach
                             </select>
                         </div>
                         <div class="field"><label>الموقع داخل الفرع</label><input name="location_in_site"></div>
@@ -125,7 +121,7 @@
                 @foreach ($client->contracts as $contract)
                     <tr>
                         <td>{{ $contract->contract_no }}</td>
-                        <td>{{ $contract->package_code === 'basic' ? 'أساسي' : 'شامل' }}</td>
+                        <td>{{ \App\Support\Labels::of('package', $contract->package_code) }}</td>
                         <td>
                             {{ \App\Support\Money::format($contract->price_amount, 0) }}
                             <span style="font-size:11px;color:var(--muted)">قبل الضريبة</span><br>
@@ -137,7 +133,7 @@
                             </span>
                         </td>
                         <td>
-                            <span class="pill {{ $contract->isActive() ? 'green' : 'grey' }}">{{ $contract->status }}</span>
+                            <span class="pill {{ $contract->isActive() ? 'green' : 'grey' }}">{{ \App\Support\Labels::of('contract_status', $contract->status) }}</span>
                             @if($contract->installments->isNotEmpty())
                                 <div style="font-size:11px;color:var(--muted)">{{ $contract->installments->where('status','paid')->count() }}/{{ $contract->installments->count() }} دفعات مدفوعة</div>
                             @endif

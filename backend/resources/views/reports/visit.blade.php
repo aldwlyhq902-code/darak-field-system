@@ -67,7 +67,7 @@
     @forelse($visit->checklistInstances as $item)
         <tr>
             <td>{{ $item->asset?->name }}</td>
-            <td>{{ $item->asset?->type }}</td>
+            <td>{{ \App\Support\Labels::of('asset_type', $item->asset?->type) }}</td>
             <td class="status-{{ ['ok' => 'ok', 'needs_followup' => 'followup', 'fault' => 'fault'][$item->status] ?? 'ok' }}">
                 {{ ['ok' => 'سليم', 'needs_followup' => 'يحتاج متابعة', 'fault' => 'عطل'][$item->status] ?? '—' }}
             </td>
@@ -83,7 +83,7 @@
     @foreach ($retiredAssets as $retired)
         <tr>
             <td>{{ $retired->name }}</td>
-            <td>{{ $retired->type }}</td>
+            <td>{{ \App\Support\Labels::of('asset_type', $retired->type) }}</td>
             <td class="status-followup">استُبعد</td>
             <td>كان مجدولاً ضمن الزيارة، ثم أُزيل من الموقع قبل تنفيذها.</td>
         </tr>

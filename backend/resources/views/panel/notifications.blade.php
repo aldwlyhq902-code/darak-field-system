@@ -28,21 +28,11 @@
             <thead><tr><th style="width:130px">النوع</th><th>الرسالة</th><th style="width:120px">القناة</th><th style="width:150px"></th></tr></thead>
             <tbody>
             @foreach ($queued as $message)
-                @php
-                    $types = [
-                        'visit.assigned' => 'إسناد زيارة',
-                        'sla.at_risk' => 'خطر SLA',
-                        'report.ready' => 'التقرير جاهز',
-                        'employee_document.expiring' => 'وثيقة موظف',
-                        'vehicle_document.expiring' => 'وثيقة سيارة',
-                        'vehicle.maintenance_due' => 'صيانة سيارة',
-                    ];
-                @endphp
                 <tr>
-                    <td><span class="pill grey">{{ $types[$message->type] ?? $message->type }}</span></td>
+                    <td><span class="pill grey">{{ \App\Support\Labels::of('notification_type', $message->type) }}</span></td>
                     <td style="font-size:13px;white-space:pre-line">{{ $message->body }}</td>
                     <td style="font-size:13px">
-                        {{ $message->channel === 'whatsapp_manual' ? 'واتساب يدوي' : 'داخل التطبيق' }}
+                        {{ \App\Support\Labels::of('notification_channel', $message->channel) }}
                     </td>
                     <td>
                         @if ($message->whatsappLink())
@@ -72,7 +62,7 @@
             <tbody>
             @foreach ($dead as $message)
                 <tr>
-                    <td style="font-size:13px">{{ $message->type }}</td>
+                    <td style="font-size:13px">{{ \App\Support\Labels::of('notification_type', $message->type) }}</td>
                     <td style="font-size:13px;color:var(--red)">{{ $message->last_error }}</td>
                     <td>{{ $message->attempts }}</td>
                     <td>
@@ -99,7 +89,7 @@
             <tbody>
             @foreach ($sent as $message)
                 <tr>
-                    <td style="font-size:13px">{{ $message->type }}</td>
+                    <td style="font-size:13px">{{ \App\Support\Labels::of('notification_type', $message->type) }}</td>
                     <td style="font-size:13px">{{ Str::limit($message->body, 90) }}</td>
                     <td style="font-size:13px;color:var(--muted)">{{ $message->sent_at?->format('Y-m-d H:i') }}</td>
                 </tr>

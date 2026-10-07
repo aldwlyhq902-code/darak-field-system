@@ -249,7 +249,7 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
                         leading: const Icon(Icons.badge_outlined),
                         title: LText('${row['item_name']}'),
                         subtitle: LText(
-                          '${row['custody_no']} · ${row['status']}',
+                          '${row['custody_no']} · ${custodyStatusLabel(row['status'] as String?)}',
                         ),
                         trailing: waiting.isNotEmpty
                             ? const _PendingChip()
@@ -376,6 +376,14 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
     child: LText(label, style: Theme.of(context).textTheme.titleLarge),
   );
 }
+
+/// Custody states as the technician reads them — never the raw code.
+String custodyStatusLabel(String? status) => switch (status) {
+  'issued' => 'بانتظار الاستلام',
+  'accepted' => 'مستلمة',
+  'returned' => 'مرجعة',
+  _ => '—',
+};
 
 class _PendingChip extends StatelessWidget {
   const _PendingChip();

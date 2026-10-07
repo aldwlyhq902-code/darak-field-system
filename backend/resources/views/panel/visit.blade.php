@@ -14,7 +14,7 @@
         <div class="card">
             <div class="hd">التنفيذ</div>
             <table>
-                <tr><th style="width:40%">الحالة</th><td>{{ $visit->state }}</td></tr>
+                <tr><th style="width:40%">الحالة</th><td>{{ \App\Support\Labels::of('visit_state', $visit->state) }}</td></tr>
                 <tr><th>الفني</th><td>{{ $visit->technician?->name ?? 'بلا إسناد' }}</td></tr>
                 <tr><th>الموعد</th><td>{{ $visit->scheduled_start?->format('Y-m-d H:i') }}</td></tr>
                 <tr><th>بدء العمل</th><td>{{ $visit->started_at?->format('Y-m-d H:i') ?? '—' }}</td></tr>
@@ -174,7 +174,7 @@
             <div class="bd" style="max-height:320px;overflow:auto">
                 @forelse ($visit->events as $event)
                     <div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px">
-                        <strong>{{ $event->event_type }}</strong>
+                        <strong>{{ \App\Support\Labels::visitEvent($event->event_type) }}</strong>
                         <span style="color:var(--muted)">
                             · {{ $event->server_received_at?->format('m-d H:i') }}
                             @if ($event->clock_suspect)
