@@ -7,6 +7,7 @@ import '../core/action_outbox.dart';
 import '../core/error_messages.dart';
 import '../core/sync_engine.dart';
 import 'scanner_screen.dart';
+import 'tile_button.dart';
 import 'vehicle_inspection_screen.dart';
 
 class FieldToolsScreen extends StatefulWidget {
@@ -253,11 +254,11 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
                         trailing: waiting.isNotEmpty
                             ? const _PendingChip()
                             : row['status'] == 'issued'
-                            ? FilledButton.tonal(
+                            ? TileButton(
                                 onPressed: busy
                                     ? null
                                     : () => _acceptCustody(row),
-                                child: const LText('توقيع الاستلام'),
+                                label: 'توقيع الاستلام',
                               )
                             : const Icon(Icons.verified, color: Colors.teal),
                       ),
@@ -361,11 +362,11 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
       subtitle: LText('${row['transfer_no']}'),
       trailing: _pendingFor(request.targetKey!).isNotEmpty
           ? const _PendingChip()
-          : FilledButton.tonal(
+          : TileButton(
               onPressed: busy
                   ? null
                   : () => _perform(request, 'تم تسجيل الإجراء.'),
-              child: LText(label),
+              label: label,
             ),
     ),
   );

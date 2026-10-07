@@ -8,6 +8,7 @@ import 'core/device_platform.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/login_screen.dart';
 import 'screens/today_screen.dart';
+import 'theme.dart';
 
 /// Point this at the Laravel host. Overridden at build time:
 ///   flutter run --dart-define=DARAK_API=https://api.darak.sa
@@ -84,34 +85,14 @@ class _DarakAppState extends State<DarakApp> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF0F766E),
-      brightness: Brightness.light,
-    );
+    final theme = buildDarakTheme();
+    final scheme = theme.colorScheme;
 
     return MaterialApp(
       navigatorKey: _navigator,
       onGenerateTitle: (context) => context.tr('دارك — تطبيق الفني'),
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: scheme,
-        useMaterial3: true,
-        fontFamily: 'Roboto',
-        // Field conditions: gloves, sunlight, one hand. Bigger targets, higher
-        // contrast, no delicate hit areas.
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(56),
-            textStyle: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        cardTheme: const CardThemeData(
-          margin: EdgeInsets.symmetric(vertical: 6),
-        ),
-      ),
+      theme: theme,
       locale: state.locale,
       supportedLocales: const [Locale('ar'), Locale('en')],
       localizationsDelegates: const [

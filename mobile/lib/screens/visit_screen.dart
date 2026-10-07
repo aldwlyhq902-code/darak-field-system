@@ -11,6 +11,7 @@ import 'scanner_screen.dart';
 import 'signature_screen.dart';
 import 'diagnosis_screen.dart';
 import 'additional_work_screen.dart';
+import 'tile_button.dart';
 
 /// The button for one edge of the visit state machine.
 class VisitTransitionAction {
@@ -668,9 +669,11 @@ class _VisitScreenState extends State<VisitScreen> {
                   subtitle: LText(
                     _hasSignature ? 'تم التوقيع' : 'مطلوب قبل الإقفال',
                   ),
-                  trailing: FilledButton.tonal(
+                  // Not a bare FilledButton: the theme's full-width minimum
+                  // made it swallow the tile and the whole page failed layout.
+                  trailing: TileButton(
                     onPressed: _sign,
-                    child: LText(_hasSignature ? 'إعادة' : 'توقيع'),
+                    label: _hasSignature ? 'إعادة' : 'توقيع',
                   ),
                 ),
               ),
@@ -798,11 +801,15 @@ class _InfoCard extends StatelessWidget {
               children: [
                 const Icon(Icons.history, size: 15, color: Colors.black45),
                 const SizedBox(width: 6),
-                LText(
-                  lastSynced == null
-                      ? 'بيانات غير مزامنة'
-                      : 'حُدّثت من الخادم: ${lastSynced.substring(0, 16).replaceFirst('T', ' ')}',
-                  style: const TextStyle(fontSize: 12, color: Colors.black45),
+                // Expanded: a long line (English, large system font) must
+                // wrap, not overflow the card.
+                Expanded(
+                  child: LText(
+                    lastSynced == null
+                        ? 'بيانات غير مزامنة'
+                        : 'حُدّثت من الخادم: ${lastSynced.substring(0, 16).replaceFirst('T', ' ')}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black45),
+                  ),
                 ),
               ],
             ),

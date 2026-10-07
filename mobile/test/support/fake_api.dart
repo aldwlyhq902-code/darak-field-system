@@ -49,6 +49,9 @@ class FakeApi {
   /// Per-request override for any other POST (outbox actions).
   http.Response? Function(SeenRequest request)? onAction;
 
+  /// Per-request override for any other GET (field tools, vehicle, me).
+  http.Response? Function(SeenRequest request)? onGet;
+
   /// Called while a /sync/events request is "in flight".
   Future<void> Function()? duringEvents;
 
@@ -167,6 +170,11 @@ class FakeApi {
         'data': {'ok': true},
         'message': 'تم.',
       }, 201);
+    }
+
+    if (request.method == 'GET') {
+      final custom = onGet?.call(seen);
+      if (custom != null) return custom;
     }
 
     return _json({'code': 'NOT_FOUND'}, 404);
