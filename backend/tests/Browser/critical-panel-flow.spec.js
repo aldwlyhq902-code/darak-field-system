@@ -78,4 +78,23 @@ test('owner completes MFA and critical RTL mobile interactions stay accessible',
     await page.keyboard.press('Escape');
     await expect(modal).toBeHidden();
     await expect(openLead).toBeFocused();
+
+    // 0.3.0 regression: once leads had follow-up dates on several days, the
+    // calendar strip's min-content widened the one-column grid and the whole
+    // sales app became ~650px wide on a 390px phone.
+    for (let day = 1; day <= 4; day += 1) {
+        await page.locator('[data-open-modal="lead-modal"]').first().click();
+        await modal.locator('[name=company_name]').fill(`مطاعم ومطابخ الضيافة الشعبية المركزية للحفلات والمناسبات ${day}`);
+        await modal.locator('[name=estimated_value]').fill(String(15_000 * day));
+        await modal.locator('[name=next_action_on]').fill(new Date(Date.now() + day * 86_400_000).toISOString().slice(0, 10));
+        await modal.getByRole('button', { name: 'إضافة إلى مساري' }).click();
+        await page.waitForLoadState('domcontentloaded');
+    }
+    await expect(page.locator('.calendar-day')).toHaveCount(4);
+    expect(await hasHorizontalOverflow(page)).toBe(false);
+    for (const selector of ['.calendar-card', '.follow-list', '.pipeline']) {
+        const box = await page.locator(selector).first().boundingBox();
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(390);
+    }
 });
