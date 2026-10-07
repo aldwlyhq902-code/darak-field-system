@@ -24,4 +24,13 @@ final class Ltr
 
         return new HtmlString('<bdi dir="ltr">'.e((string) $value).'</bdi>');
     }
+
+    /**
+     * The same isolation as plain text (LEFT-TO-RIGHT ISOLATE … POP DIRECTIONAL
+     * ISOLATE), for places that cannot hold markup such as <option>.
+     */
+    public static function text(mixed $value): string
+    {
+        return $value === null || $value === '' ? '' : "\u{2066}".$value."\u{2069}";
+    }
 }

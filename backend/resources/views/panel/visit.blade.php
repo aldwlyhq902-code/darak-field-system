@@ -4,7 +4,7 @@
 @section('content')
 <h1>{{ $visit->workOrder?->client?->name }} — {{ $visit->site?->name }}</h1>
 <div class="sub">
-    أمر العمل {{ $visit->workOrder?->wo_number }} ·
+    أمر العمل {{ \App\Support\Ltr::wrap($visit->workOrder?->wo_number) }} ·
     زيارة #{{ $visit->id }} ·
     <a href="{{ route('panel.board') }}">رجوع للوحة</a>
 </div>
@@ -67,7 +67,7 @@
                     <tbody>
                     @foreach ($consumption as $row)
                         <tr>
-                            <td>{{ $row['name'] }} <span style="color:var(--muted);font-size:12px">({{ $row['sku'] }})</span></td>
+                            <td>{{ $row['name'] }} <span style="color:var(--muted);font-size:12px">({{ \App\Support\Ltr::wrap($row['sku']) }})</span></td>
                             <td>{{ \App\Support\Quantity::format($row['qty']) }}</td>
                             <td>{{ \App\Support\Money::format($row['unit_cost']) }}</td>
                             <td>{{ \App\Support\Money::format($row['unit_price']) }}</td>

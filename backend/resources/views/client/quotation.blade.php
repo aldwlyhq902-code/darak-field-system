@@ -8,6 +8,6 @@
     <h2>المواقع المشمولة</h2><div class="list">@foreach($quotation->sites as $site)<div class="row"><strong>{{ $site->name }}</strong><span class="muted">{{ $site->address }}</span></div>@endforeach</div>
     <h2>الشروط</h2><div class="card">@forelse($quotation->terms ?? [] as $term)<div>• {{ $term }}</div>@empty<span class="muted">لا توجد شروط إضافية.</span>@endforelse</div>
     @if($quotation->status === 'sent')<form method="POST" action="{{ route('client.quotation.accept',$quotation) }}">@csrf<label style="display:flex;gap:8px;align-items:start"><input type="checkbox" name="accept_terms" value="1" style="width:auto;margin-top:6px" required><span>قرأت تفاصيل هذا الإصدار وأوافق على السعر والمواقع والشروط الموضحة.</span></label><button class="btn" style="margin-top:16px">اعتماد عرض السعر</button></form>@endif
-    @if($quotation->convertedContract)<div class="flash ok" style="margin-top:18px">تحول إلى العقد {{ $quotation->convertedContract->contract_no }}، وعدد دفعاته {{ $quotation->convertedContract->installments->count() }}.</div>@endif
+    @if($quotation->convertedContract)<div class="flash ok" style="margin-top:18px">تحول إلى العقد {{ \App\Support\Ltr::wrap($quotation->convertedContract->contract_no) }}، وعدد دفعاته {{ $quotation->convertedContract->installments->count() }}.</div>@endif
 </div>
 @endsection

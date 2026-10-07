@@ -33,7 +33,7 @@
     <h1>تقرير حالة فنية وسجل صيانة</h1>
     <div class="muted">
         رقم الزيارة: {{ $visit->id }} ·
-        أمر العمل: {{ $visit->workOrder?->wo_number }} ·
+        أمر العمل: {{ \App\Support\Ltr::wrap($visit->workOrder?->wo_number) }} ·
         تاريخ الإصدار: {{ \App\Support\Ltr::wrap(now()->format('Y-m-d H:i')) }}
     </div>
 </div>

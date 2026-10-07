@@ -45,7 +45,7 @@
                     <label>الصنف</label>
                     <select name="part_id" required>
                         @foreach ($parts as $part)
-                            <option value="{{ $part->id }}">{{ $part->name }} ({{ $part->sku }})</option>
+                            <option value="{{ $part->id }}">{{ $part->name }} ({{ \App\Support\Ltr::text($part->sku) }})</option>
                         @endforeach
                     </select>
                 </div>
@@ -75,7 +75,7 @@
                     <label>الصنف</label>
                     <select name="part_id" required>
                         @foreach ($parts as $part)
-                            <option value="{{ $part->id }}">{{ $part->name }} ({{ $part->sku }})</option>
+                            <option value="{{ $part->id }}">{{ $part->name }} ({{ \App\Support\Ltr::text($part->sku) }})</option>
                         @endforeach
                     </select>
                 </div>
@@ -114,7 +114,7 @@
                     <label>الصنف</label>
                     <select name="part_id" required>
                         @foreach ($parts as $part)
-                            <option value="{{ $part->id }}">{{ $part->name }} ({{ $part->sku }})</option>
+                            <option value="{{ $part->id }}">{{ $part->name }} ({{ \App\Support\Ltr::text($part->sku) }})</option>
                         @endforeach
                     </select>
                 </div>

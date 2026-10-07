@@ -1,7 +1,7 @@
 @extends('layouts.client')
 @section('title','تفاصيل الزيارة — دارك')
 @section('content')
-<a href="{{ route('client.home') }}">← العودة</a><h1 style="margin-bottom:4px">{{ $visit->workOrder?->title }}</h1><div class="muted">{{ $visit->workOrder?->wo_number }} · {{ $visit->site?->name }}</div>
+<a href="{{ route('client.home') }}">← العودة</a><h1 style="margin-bottom:4px">{{ $visit->workOrder?->title }}</h1><div class="muted">{{ \App\Support\Ltr::wrap($visit->workOrder?->wo_number) }} · {{ $visit->site?->name }}</div>
 <div class="grid" style="margin-top:18px"><div class="card"><span class="muted">الحالة</span><b style="font-size:18px">{{ \App\Support\Labels::of('visit_state', $visit->state) }}</b></div><div class="card"><span class="muted">الفني</span><b style="font-size:18px">{{ $visit->technician?->name ?? 'لم يُسند بعد' }}</b></div><div class="card"><span class="muted">الوصول التقريبي</span><b style="font-size:18px">{{ $visit->estimated_arrival_at?->format('Y-m-d H:i') ?? $visit->scheduled_start?->format('Y-m-d H:i') ?? 'غير محدد' }}</b><span class="muted">تقديري وقد يتغير حسب الطريق</span></div></div>
 <div class="card" style="margin-top:14px"><strong>وصف الطلب</strong><p>{{ $visit->workOrder?->description ?: 'لا يوجد وصف إضافي.' }}</p></div>
 @if($approximateLocation ?? null)

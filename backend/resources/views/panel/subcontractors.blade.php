@@ -78,7 +78,7 @@
                     <td>
                         <strong>{{ $order->subcontractor?->name }}</strong><br>
                         <span style="font-size:12px;color:var(--muted)">
-                            {{ $order->workOrder?->wo_number }} — {{ $order->workOrder?->client?->name }}
+                            {{ \App\Support\Ltr::wrap($order->workOrder?->wo_number) }} — {{ $order->workOrder?->client?->name }}
                         </span>
                     </td>
                     <td>{{ \App\Support\Money::format($order->purchase_cost) }}</td>
