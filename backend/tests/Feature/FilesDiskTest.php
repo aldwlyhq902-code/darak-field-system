@@ -9,6 +9,7 @@ use App\Models\SalesLeadAttachment;
 use App\Models\Vehicle;
 use App\Models\VehicleDocument;
 use App\Services\PhotoStamper;
+use App\Services\ReportImages;
 use App\Services\VisitReportBuilder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -83,6 +84,14 @@ class FilesDiskTest extends DarakTestCase
         $this->assertNotNull($derived);
         Storage::disk('evidence')->assertExists($derived);
         Storage::disk('local')->assertMissing($derived);
-        $this->assertStringStartsWith('data:image/jpeg;base64,', app(VisitReportBuilder::class)->imageDataUri($derived));
+
+        // The report reads the stamped photo and caches its report-sized
+        // copy through the same disk.
+        $reportCopy = app(ReportImages::class)->jpeg($derived);
+        $this->assertNotNull($reportCopy);
+        $this->assertSame(IMAGETYPE_JPEG, getimagesizefromstring($reportCopy)[2]);
+        Storage::disk('evidence')->assertExists(ReportImages::cachePathFor($derived));
+        Storage::disk('local')->assertMissing(ReportImages::cachePathFor($derived));
+        $this->assertStringStartsWith('%PDF-', app(VisitReportBuilder::class)->render($this->visit->refresh()));
     }
 }
