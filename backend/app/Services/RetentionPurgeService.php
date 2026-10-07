@@ -343,7 +343,13 @@ class RetentionPurgeService
                 }
 
                 try {
-                    $this->deleteFiles($disk, [$row->original_path, $row->derived_path]);
+                    // The report-sized copies go with their sources.
+                    $this->deleteFiles($disk, [
+                        $row->original_path,
+                        $row->derived_path,
+                        $row->original_path ? ReportImages::cachePathFor($row->original_path) : null,
+                        $row->derived_path ? ReportImages::cachePathFor($row->derived_path) : null,
+                    ]);
                     DB::table('media_files')->where('id', $row->id)->update([
                         'original_path' => null,
                         'derived_path' => null,

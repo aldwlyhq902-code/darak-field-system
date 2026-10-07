@@ -8,6 +8,7 @@ use App\Models\MediaFile;
 use App\Models\ReportDispute;
 use App\Models\Visit;
 use App\Models\VisitEvent;
+use App\Services\ReportImages;
 use App\Services\RetentionPurgeService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -123,6 +124,10 @@ class RetentionPurgeTest extends DarakTestCase
         Storage::disk('local')->assertMissing($this->photo->original_path);
         Storage::disk('local')->assertMissing($this->signature->original_path);
         Storage::disk('local')->assertMissing("reports/visits/visit-{$this->visit->id}.pdf");
+        Storage::disk('local')->assertMissing(ReportImages::cachePathFor($this->photo->original_path));
+        Storage::disk('local')->assertMissing(ReportImages::cachePathFor($this->photo->derived_path));
+        Storage::disk('local')->assertMissing(ReportImages::cachePathFor($this->signature->original_path));
+        Storage::disk('local')->assertExists(ReportImages::cachePathFor($this->heldPhoto->original_path));
 
         // Coordinates nulled, the rest of the row kept.
         $this->assertNull($photo->lat);
@@ -231,8 +236,11 @@ class RetentionPurgeTest extends DarakTestCase
         $original = "media/visits/{$visit->id}/{$kind}.jpg";
         $derived = $kind === 'signature' ? null : "media/visits/{$visit->id}/{$kind}-stamped.jpg";
         Storage::disk('local')->put($original, 'bytes');
+        // The visit report's cached, downscaled copies (ReportImages).
+        Storage::disk('local')->put(ReportImages::cachePathFor($original), 'report copy');
         if ($derived !== null) {
             Storage::disk('local')->put($derived, 'stamped');
+            Storage::disk('local')->put(ReportImages::cachePathFor($derived), 'report copy');
         }
 
         return MediaFile::create([

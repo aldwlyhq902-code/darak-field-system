@@ -27,6 +27,7 @@ class VisitReportBuilder
     public function __construct(
         private readonly InventoryService $inventory,
         private readonly RequiredAssets $requiredAssets,
+        private readonly ReportImages $images,
     ) {}
 
     public function render(Visit $visit): string
@@ -37,13 +38,33 @@ class VisitReportBuilder
             'stockMoves.part', 'technician',
         ]);
 
+        // Image bytes travel to mPDF beside the HTML (imageVars, referenced as
+        // `var:<name>`), as report-sized derivatives. Inlined as full-size
+        // base64 they made the HTML too large for mPDF once a visit had a few
+        // real photos.
+        $imageVars = [];
+        $photoRefs = [];
+
+        $photos = $visit->mediaFiles
+            ->whereIn('kind', ['photo_before', 'photo_after'])
+            ->where('upload_state', 'complete');
+
+        foreach ($photos as $photo) {
+            $ref = $this->addImage($imageVars, 'photo'.$photo->id, $photo->derived_path ?? $photo->original_path);
+
+            if ($ref !== null) {
+                $photoRefs[] = $ref;
+            }
+        }
+
+        $signature = $visit->mediaFiles->firstWhere('kind', 'signature');
+
         $html = View::make('reports.visit', [
             'visit' => $visit,
             'parts' => $this->inventory->visitConsumption($visit),
-            'photos' => $visit->mediaFiles
-                ->whereIn('kind', ['photo_before', 'photo_after'])
-                ->where('upload_state', 'complete'),
-            'signature' => $visit->mediaFiles->firstWhere('kind', 'signature'),
+            'photoRefs' => $photoRefs,
+            'signature' => $signature,
+            'signatureRef' => $signature ? $this->addImage($imageVars, 'signature', $signature->original_path) : null,
             // Units scheduled for this visit that were removed from the site
             // before it ran. Without them the report reads as a complete round.
             'retiredAssets' => $this->requiredAssets->retiredSince($visit),
@@ -72,9 +93,53 @@ class VisitReportBuilder
         ]);
 
         $mpdf->SetDirectionality('rtl');
-        $mpdf->WriteHTML($html);
+        $mpdf->imageVars = $imageVars;
+        unset($imageVars);
+
+        $this->withBacktrackLimitFor($html, fn () => $mpdf->WriteHTML($html));
 
         return $mpdf->Output('', 'S');
+    }
+
+    /** @param  array<string, string>  $imageVars */
+    private function addImage(array &$imageVars, string $name, ?string $storagePath): ?string
+    {
+        $bytes = $storagePath === null ? null : $this->images->jpeg($storagePath);
+
+        if ($bytes === null) {
+            return null;
+        }
+
+        $imageVars[$name] = $bytes;
+
+        return 'var:'.$name;
+    }
+
+    /**
+     * mPDF refuses HTML longer than `pcre.backtrack_limit`. With the images
+     * out of the HTML that takes an extraordinary report, but if one comes,
+     * raise the limit for this render only and put it back afterwards — never
+     * globally.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $render
+     * @return T
+     */
+    private function withBacktrackLimitFor(string $html, callable $render): mixed
+    {
+        $previous = ini_get('pcre.backtrack_limit');
+        $needed = strlen($html) * 2;
+        $raised = $previous !== false && (int) $previous < $needed
+            && ini_set('pcre.backtrack_limit', (string) $needed) !== false;
+
+        try {
+            return $render();
+        } finally {
+            if ($raised) {
+                ini_set('pcre.backtrack_limit', (string) $previous);
+            }
+        }
     }
 
     /** Renders and stores, returning the storage path. */
@@ -84,23 +149,5 @@ class VisitReportBuilder
         PrivateFiles::disk()->put($path, $this->render($visit));
 
         return $path;
-    }
-
-    public function imageDataUri(?string $storagePath): ?string
-    {
-        if ($storagePath === null) {
-            return null;
-        }
-
-        $disk = PrivateFiles::disk();
-
-        if (! $disk->exists($storagePath)) {
-            return null;
-        }
-
-        $bytes = $disk->get($storagePath);
-        $mime = str_ends_with($storagePath, '.png') ? 'image/png' : 'image/jpeg';
-
-        return 'data:'.$mime.';base64,'.base64_encode($bytes);
     }
 }

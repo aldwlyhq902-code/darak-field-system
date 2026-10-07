@@ -1,6 +1,5 @@
 @php
     /** @var \App\Models\Visit $visit */
-    $builder = app(\App\Services\VisitReportBuilder::class);
     $client = $visit->site->client;
     $contract = $visit->workOrder?->contract;
 @endphp
@@ -106,23 +105,20 @@
     </tbody>
 </table>
 
-@if($photos->isNotEmpty())
+@if($photoRefs !== [])
     <div class="section">الأدلة المصورة</div>
     <div>
-        @foreach($photos as $photo)
-            @php $uri = $builder->imageDataUri($photo->derived_path ?? $photo->original_path); @endphp
-            @if($uri)
-                <img class="photo" src="{{ $uri }}" alt="evidence">
-            @endif
+        {{-- var: images are passed to mPDF beside the HTML, never inlined. --}}
+        @foreach($photoRefs as $ref)
+            <img class="photo" src="{{ $ref }}" alt="evidence">
         @endforeach
     </div>
 @endif
 
 @if($signature)
     <div class="section">اعتماد مسؤول الموقع</div>
-    @php $sigUri = $builder->imageDataUri($signature->original_path); @endphp
-    @if($sigUri)
-        <img class="sig" src="{{ $sigUri }}" alt="signature">
+    @if($signatureRef)
+        <img class="sig" src="{{ $signatureRef }}" alt="signature">
     @endif
     <div class="muted">وقّع بتاريخ {{ $signature->captured_at?->format('Y-m-d H:i') ?? '—' }}</div>
 @endif
