@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\StockLocation;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
 use App\Models\VehicleInspection;
 use App\Models\VehicleMaintenanceOrder;
 use App\Models\VehicleOutage;
+use App\Support\BranchAssignment;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -101,10 +103,18 @@ class FleetManagementService
     public function recordInspection(Vehicle $vehicle, User $inspector, float $odometer, array $checklist, ?string $defects, array $file = []): array
     {
         $roadworthy = collect(['tires', 'brakes', 'lights', 'fluids'])->every(fn (string $item) => $checklist[$item] ?? false);
-        $inspection = DB::transaction(function () use ($vehicle, $inspector, $odometer, $checklist, $defects, $file, $roadworthy): VehicleInspection {
+        // Filed under the vehicle's branch; a legacy branchless vehicle is given
+        // one first, so neither it nor the inspection disappears from the panel.
+        $branchId = $vehicle->operating_branch_id === null ? null : (int) $vehicle->operating_branch_id;
+        if ($branchId === null) {
+            $branchId = app(BranchAssignment::class)->resolve($inspector);
+            $vehicle->forceFill(['operating_branch_id' => $branchId])->save();
+            StockLocation::withoutGlobalScopes()->where('vehicle_id', $vehicle->id)->update(['operating_branch_id' => $branchId]);
+        }
+        $inspection = DB::transaction(function () use ($vehicle, $inspector, $odometer, $checklist, $defects, $file, $roadworthy, $branchId): VehicleInspection {
             $inspection = VehicleInspection::create([
                 'inspection_no' => 'VINSP-'.now()->format('ymd').'-'.strtoupper(substr((string) Str::uuid(), 0, 8)),
-                'vehicle_id' => $vehicle->id, 'operating_branch_id' => $vehicle->operating_branch_id,
+                'vehicle_id' => $vehicle->id, 'operating_branch_id' => $branchId,
                 'inspected_by' => $inspector->id, 'inspected_at' => now(), 'odometer_km' => $odometer,
                 'checklist' => $checklist, 'is_roadworthy' => $roadworthy, 'defects' => $defects,
             ] + $file);

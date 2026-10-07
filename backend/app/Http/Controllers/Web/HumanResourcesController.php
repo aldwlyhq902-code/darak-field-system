@@ -9,6 +9,7 @@ use App\Models\EmployeeProfile;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\LeaveManagementService;
+use App\Support\BranchAssignment;
 use App\Support\PrivateFiles;
 use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
@@ -20,7 +21,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HumanResourcesController extends Controller
 {
-    public function __construct(private readonly LeaveManagementService $leaves, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
+    public function __construct(private readonly LeaveManagementService $leaves, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess, private readonly BranchAssignment $branches) {}
 
     public function index(Request $request): View
     {
@@ -41,6 +42,8 @@ class HumanResourcesController extends Controller
             'expiringDocumentsCount' => (clone $documents)->where('expires_on', '>=', now()->startOfDay())->count(),
             'pendingLeaves' => EmployeeLeave::with('user')->where('status', 'pending')->orderBy('starts_on')->paginate(20, ['*'], 'pending_page')->withQueryString(),
             'recentLeaves' => EmployeeLeave::with('user')->latest('id')->paginate(30, ['*'], 'leaves_page')->withQueryString(),
+            'branchChoices' => $branchChoices = $this->branches->choices($request->user()),
+            'branchDefault' => $this->branches->defaultChoice($request->user(), $branchChoices),
         ]);
     }
 
@@ -76,7 +79,9 @@ class HumanResourcesController extends Controller
             'expires_on' => ['nullable', 'date', 'after_or_equal:issued_on'], 'issuer' => ['nullable', 'string', 'max:190'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'file' => ['nullable', 'file', 'mimes:pdf,png,jpg,jpeg,webp', 'max:5120'],
+            'operating_branch_id' => ['nullable', 'integer'],
         ]);
+        $data['operating_branch_id'] = $this->branchFor($request, $user, $data['operating_branch_id'] ?? null);
         $file = $request->file('file');
         $path = $file?->store('employee-documents/'.$user->id, PrivateFiles::diskName());
         unset($data['file']);
@@ -84,7 +89,7 @@ class HumanResourcesController extends Controller
         try {
             EmployeeDocument::where('user_id', $user->id)->where('type', $data['type'])->where('status', 'active')->update(['status' => 'superseded']);
             $document = EmployeeDocument::create($data + [
-                'user_id' => $user->id, 'operating_branch_id' => $user->operating_branch_id,
+                'user_id' => $user->id,
                 'file_path' => $path ?: null, 'file_name' => $file?->getClientOriginalName(),
                 'mime_type' => $file?->getMimeType(), 'file_size' => $file?->getSize(),
                 'status' => 'active', 'created_by' => $request->user()->id,
@@ -114,9 +119,11 @@ class HumanResourcesController extends Controller
             'user_id' => ['required', 'exists:users,id'], 'type' => ['required', 'in:annual,sick,unpaid,emergency,other'],
             'starts_on' => ['required', 'date'], 'ends_on' => ['required', 'date', 'after_or_equal:starts_on'],
             'reason' => ['nullable', 'string', 'max:2000'],
+            'operating_branch_id' => ['nullable', 'integer'],
         ]);
         $user = User::findOrFail($data['user_id']);
         $this->authorizeUser($request, $user);
+        $data['operating_branch_id'] = $this->branchFor($request, $user, $data['operating_branch_id'] ?? null);
         $overlap = EmployeeLeave::where('user_id', $user->id)->whereIn('status', ['pending', 'approved'])
             ->where('starts_on', '<=', $data['ends_on'])->where('ends_on', '>=', $data['starts_on'])->exists();
         if ($overlap) {
@@ -127,7 +134,7 @@ class HumanResourcesController extends Controller
             return back()->with('err', 'مدة الإجازة السنوية تتجاوز الرصيد المتاح.');
         }
         $leave = EmployeeLeave::create($data + [
-            'operating_branch_id' => $user->operating_branch_id, 'days' => $days,
+            'days' => $days,
             'status' => 'pending', 'requested_by' => $request->user()->id,
         ]);
         $this->audit->record('employee.leave_requested', $leave, null, $leave->only(['user_id', 'type', 'starts_on', 'ends_on', 'days']), $request->user()->id);
@@ -154,6 +161,22 @@ class HumanResourcesController extends Controller
         $this->audit->recordChange('employee.leave_decided', $leave->refresh(), $before, $request->user()->id);
 
         return back()->with('ok', $message);
+    }
+
+    /**
+     * HR records file under the employee's branch. A company-wide employee
+     * (owner, head-office staff) has none, so the record takes the actor's
+     * branch, the one chosen in the form, or the company's only branch —
+     * never none, which would hide it from everyone.
+     */
+    private function branchFor(Request $request, User $user, mixed $requested): int
+    {
+        return $this->branches->resolve(
+            $request->user(),
+            $requested === null ? null : (int) $requested,
+            $user->operating_branch_id === null ? null : (int) $user->operating_branch_id,
+            $user->operating_company_id === null ? null : (int) $user->operating_company_id,
+        );
     }
 
     private function authorizeUser(Request $request, User $user): void

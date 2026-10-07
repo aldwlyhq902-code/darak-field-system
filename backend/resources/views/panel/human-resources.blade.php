@@ -30,7 +30,7 @@
     <div class="card"><div class="hd">طلب إجازة</div><div class="bd"><form method="POST" action="{{ route('panel.hr.leave') }}">@csrf
         <div class="field"><label>الموظف</label><select name="user_id" required>@foreach($employeeOptions as $user)<option value="{{ $user->id }}">{{ $user->name }}</option>@endforeach</select></div>
         <div class="grid3"><div class="field"><label>النوع</label><select name="type">@foreach($leaveLabels as $key=>$label)<option value="{{ $key }}">{{ $label }}</option>@endforeach</select></div><div class="field"><label>من</label><input type="date" name="starts_on" required></div><div class="field"><label>إلى</label><input type="date" name="ends_on" required></div></div>
-        <div class="field"><label>السبب أو الملاحظة</label><textarea name="reason"></textarea></div><button class="btn">إرسال للاعتماد</button>
+        @include('partials.branch-select', ['branchHint' => 'يُستخدم فقط إن لم يكن الموظف مرتبطًا بفرع.'])<div class="field"><label>السبب أو الملاحظة</label><textarea name="reason"></textarea></div><button class="btn">إرسال للاعتماد</button>
     </form></div></div>
     <div class="card"><div class="hd">طلبات تنتظر القرار</div>
         @forelse($pendingLeaves as $leave)<div class="bd" style="border-bottom:1px solid var(--line)"><strong>{{ $leave->user->name }}</strong> · {{ $leaveLabels[$leave->type] ?? $leave->type }} · {{ $leave->days }} يوم<br><small>{{ $leave->starts_on->format('Y-m-d') }} — {{ $leave->ends_on->format('Y-m-d') }} · {{ $leave->reason }}</small>
@@ -56,7 +56,7 @@
         <details><summary style="cursor:pointer;color:var(--teal);font-weight:600">إضافة أو تجديد وثيقة</summary><form method="POST" action="{{ route('panel.hr.document',$user) }}" enctype="multipart/form-data" style="margin-top:12px">@csrf
             <div class="grid3"><div class="field"><label>النوع</label><select name="type">@foreach($documentLabels as $key=>$label)<option value="{{ $key }}">{{ $label }}</option>@endforeach</select></div><div class="field"><label>رقم الوثيقة</label><input name="document_number" dir="ltr"></div><div class="field"><label>جهة الإصدار</label><input name="issuer"></div></div>
             <div class="grid3"><div class="field"><label>تاريخ الإصدار</label><input type="date" name="issued_on"></div><div class="field"><label>تاريخ الانتهاء</label><input type="date" name="expires_on"></div><div class="field"><label>المرفق</label><input type="file" name="file" accept="application/pdf,image/png,image/jpeg,image/webp"></div></div>
-            <div class="field"><label>ملاحظات</label><input name="notes"></div><button class="btn small">حفظ الوثيقة</button>
+            @if($user->operating_branch_id === null)@include('partials.branch-select', ['branchHint' => 'الموظف غير مرتبط بفرع؛ تُحفظ الوثيقة تحت هذا الفرع.'])@endif<div class="field"><label>ملاحظات</label><input name="notes"></div><button class="btn small">حفظ الوثيقة</button>
         </form></details>
     </div></div>
     @if($user->employeeDocuments->isNotEmpty())<div style="overflow:auto"><table><thead><tr><th>الوثيقة</th><th>الرقم</th><th>الانتهاء</th><th></th></tr></thead><tbody>@foreach($user->employeeDocuments as $document)<tr><td>{{ $documentLabels[$document->type] ?? $document->type }}</td><td dir="ltr">{{ $document->document_number ?? '—' }}</td><td>{{ $document->expires_on?->format('Y-m-d') ?? 'غير محدد' }}</td><td>@if($document->file_path)<a href="{{ route('panel.hr.document.download',$document) }}">تنزيل</a>@endif</td></tr>@endforeach</tbody></table></div>@endif

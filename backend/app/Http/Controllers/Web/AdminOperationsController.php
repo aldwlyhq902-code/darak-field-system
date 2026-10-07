@@ -13,6 +13,7 @@ use App\Models\OperatingCompany;
 use App\Models\Payment;
 use App\Models\Quotation;
 use App\Models\SalesLead;
+use App\Models\StockLocation;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
@@ -20,6 +21,7 @@ use App\Models\Visit;
 use App\Services\AuditLogger;
 use App\Services\CommissionService;
 use App\Services\FinancialApprovalService;
+use App\Support\BranchAssignment;
 use App\Support\BusinessReference;
 use App\Support\TenantAccess;
 use Illuminate\Http\RedirectResponse;
@@ -32,7 +34,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminOperationsController extends Controller
 {
-    public function __construct(private readonly CommissionService $commissions, private readonly FinancialApprovalService $approvals, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
+    public function __construct(private readonly CommissionService $commissions, private readonly FinancialApprovalService $approvals, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess, private readonly BranchAssignment $branches) {}
 
     public function index(Request $request): View
     {
@@ -59,6 +61,8 @@ class AdminOperationsController extends Controller
                 ->latest()->paginate(20, ['*'], 'approvals_page')->withQueryString(),
             'users' => (clone $users)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'role']),
             'permissionUsers' => (clone $users)->orderBy('name')->paginate(25, ['*'], 'users_page')->withQueryString(),
+            'branchChoices' => $branchChoices = $this->branches->choices($actor),
+            'branchDefault' => $this->branches->defaultChoice($actor, $branchChoices),
         ]);
     }
 
@@ -188,6 +192,11 @@ class AdminOperationsController extends Controller
             abort_unless($actor->isOwner() || $actor->isPlatformAdmin(), 403, 'تغيير فرع المستخدمين صلاحية للمالك فقط.');
             abort_if((int) $data['entity_id'] === (int) $actor->id, 403, 'لا يمكن تغيير الفرع المرتبط بحسابك.');
         }
+        // Users and clients may be company-wide; a vehicle (and its stock) is
+        // only ever visible through its branch, so it must keep one.
+        if ($data['entity_type'] === 'vehicle' && $branch === null) {
+            return back()->withErrors(['operating_branch_id' => 'السيارة تتبع فرعًا دائمًا؛ اختر الفرع.'])->with('err', 'السيارة تتبع فرعًا دائمًا؛ اختر الفرع.');
+        }
         $model = match ($data['entity_type']) {
             'user' => $this->tenantAccess->scopeUsersToActor(User::query(), $actor)->findOrFail($data['entity_id']),
             'client' => Client::findOrFail($data['entity_id']),
@@ -201,6 +210,11 @@ class AdminOperationsController extends Controller
                 ?? $actor->operating_company_id;
         }
         $model->forceFill($tenant)->save();
+        if ($model instanceof Vehicle) {
+            // Its mobile warehouse moves with it (unscoped: a branchless
+            // location is exactly the one the scope would hide).
+            StockLocation::withoutGlobalScopes()->where('vehicle_id', $model->id)->update(['operating_branch_id' => $branch->id]);
+        }
         $this->audit->recordChange('tenancy.branch_assigned', $model, $before, $actor->id);
 
         return back()->with('ok', 'حُدث الفرع المرتبط بالسجل.');
@@ -208,14 +222,20 @@ class AdminOperationsController extends Controller
 
     public function lead(Request $request): RedirectResponse
     {
-        $data = $request->validate(['company_name' => ['required', 'string', 'max:190'], 'contact_name' => ['nullable', 'string', 'max:190'], 'phone' => ['nullable', 'string', 'max:32'], 'email' => ['nullable', 'email'], 'stage' => ['required', 'in:new,qualified,proposal,negotiation,won,lost'], 'estimated_value' => ['required', 'numeric', 'min:0'], 'next_action_on' => ['nullable', 'date'], 'owner_user_id' => ['nullable', 'exists:users,id'], 'notes' => ['nullable', 'string', 'max:2000']]);
-        if (isset($data['owner_user_id'])) {
-            $this->tenantAccess->assertUser($request->user(), User::query()->findOrFail($data['owner_user_id']));
+        $data = $request->validate(['company_name' => ['required', 'string', 'max:190'], 'contact_name' => ['nullable', 'string', 'max:190'], 'phone' => ['nullable', 'string', 'max:32'], 'email' => ['nullable', 'email'], 'stage' => ['required', 'in:new,qualified,proposal,negotiation,won,lost'], 'estimated_value' => ['required', 'numeric', 'min:0'], 'next_action_on' => ['nullable', 'date'], 'owner_user_id' => ['nullable', 'exists:users,id'], 'notes' => ['nullable', 'string', 'max:2000'], 'operating_branch_id' => ['nullable', 'integer']]);
+        $owner = isset($data['owner_user_id']) ? User::query()->findOrFail($data['owner_user_id']) : null;
+        if ($owner !== null) {
+            $this->tenantAccess->assertUser($request->user(), $owner);
         }
-        $leadBranchId = isset($data['owner_user_id'])
-            ? User::query()->whereKey($data['owner_user_id'])->value('operating_branch_id')
-            : $request->user()->operating_branch_id;
-        SalesLead::create($data + ['operating_branch_id' => $leadBranchId, 'lead_no' => BusinessReference::make('LEAD')]);
+        // The owner's branch when they have one; otherwise the actor's, the one
+        // chosen in the form, or the company's only branch — never none.
+        $data['operating_branch_id'] = $this->branches->resolve(
+            $request->user(),
+            isset($data['operating_branch_id']) ? (int) $data['operating_branch_id'] : null,
+            $owner?->operating_branch_id === null ? null : (int) $owner->operating_branch_id,
+            $owner?->operating_company_id === null ? null : (int) $owner->operating_company_id,
+        );
+        SalesLead::create($data + ['lead_no' => BusinessReference::make('LEAD')]);
 
         return back()->with('ok', 'أُضيفت الفرصة إلى مسار المبيعات.');
     }

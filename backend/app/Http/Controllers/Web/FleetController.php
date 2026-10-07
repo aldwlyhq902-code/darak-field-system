@@ -13,6 +13,7 @@ use App\Models\VehicleInspection;
 use App\Models\VehicleMaintenanceOrder;
 use App\Services\AuditLogger;
 use App\Services\FleetManagementService;
+use App\Support\BranchAssignment;
 use App\Support\Money;
 use App\Support\PrivateFiles;
 use App\Support\TenantAccess;
@@ -27,7 +28,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FleetController extends Controller
 {
-    public function __construct(private readonly FleetManagementService $fleet, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
+    public function __construct(private readonly FleetManagementService $fleet, private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess, private readonly BranchAssignment $branches) {}
 
     public function index(Request $request): View
     {
@@ -44,13 +45,16 @@ class FleetController extends Controller
                 ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
                 ->when($request->user()->operating_branch_id, fn ($query, $branchId) => $query->whereKey($branchId))
                 ->orderBy('name')->get(),
+            'branchDefault' => $this->branches->defaultChoice($request->user(), OperatingBranch::query()->where('is_active', true)
+                ->when(! $request->user()->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $request->user()->operating_company_id))
+                ->orderBy('id')->get()),
         ]);
     }
 
     public function storeVehicle(Request $request): RedirectResponse
     {
         $data = $this->vehicleData($request, null);
-        $data['operating_branch_id'] = $this->resolvedBranch($request, $data['operating_branch_id'] ?? null);
+        $data['operating_branch_id'] = $this->resolvedBranch($request, $data['operating_branch_id'] ?? null, null);
         $vehicle = DB::transaction(function () use ($data): Vehicle {
             $vehicle = Vehicle::create($data + ['is_active' => true, 'operational_status' => 'available']);
             StockLocation::create(['type' => StockLocation::TYPE_VEHICLE, 'name' => 'سيارة '.$vehicle->plate, 'vehicle_id' => $vehicle->id, 'operating_branch_id' => $vehicle->operating_branch_id, 'is_active' => true]);
@@ -65,10 +69,10 @@ class FleetController extends Controller
     public function updateVehicle(Request $request, Vehicle $vehicle): RedirectResponse
     {
         $data = $this->vehicleData($request, $vehicle);
-        $data['operating_branch_id'] = $this->resolvedBranch($request, $data['operating_branch_id'] ?? $vehicle->operating_branch_id);
+        $data['operating_branch_id'] = $this->resolvedBranch($request, $data['operating_branch_id'] ?? null, $vehicle);
         $before = $vehicle->getAttributes();
         $vehicle->fill($data)->save();
-        $vehicle->stockLocation?->forceFill(['operating_branch_id' => $vehicle->operating_branch_id])->save();
+        StockLocation::withoutGlobalScopes()->where('vehicle_id', $vehicle->id)->update(['operating_branch_id' => $vehicle->operating_branch_id]);
         $this->audit->recordChange('fleet.vehicle_updated', $vehicle, $before, $request->user()->id);
 
         return back()->with('ok', 'حُفظت بيانات السيارة وخطة صيانتها.');
@@ -89,7 +93,7 @@ class FleetController extends Controller
         try {
             VehicleDocument::where('vehicle_id', $vehicle->id)->where('type', $data['type'])->where('status', 'active')->update(['status' => 'superseded']);
             $document = VehicleDocument::create($data + [
-                'vehicle_id' => $vehicle->id, 'operating_branch_id' => $vehicle->operating_branch_id,
+                'vehicle_id' => $vehicle->id, 'operating_branch_id' => $this->vehicleBranch($request, $vehicle),
                 'file_path' => $path ?: null, 'file_name' => $file?->getClientOriginalName(),
                 'mime_type' => $file?->getMimeType(), 'file_size' => $file?->getSize(), 'status' => 'active', 'created_by' => $request->user()->id,
             ]);
@@ -122,7 +126,7 @@ class FleetController extends Controller
         ]);
         $order = VehicleMaintenanceOrder::create($data + [
             'order_no' => 'VMO-'.now()->format('ymd').'-'.strtoupper(Str::random(8)),
-            'vehicle_id' => $vehicle->id, 'operating_branch_id' => $vehicle->operating_branch_id,
+            'vehicle_id' => $vehicle->id, 'operating_branch_id' => $this->vehicleBranch($request, $vehicle),
             'status' => 'open', 'estimated_cost' => $data['estimated_cost'] ?? 0,
             'causes_outage' => $request->boolean('causes_outage'), 'created_by' => $request->user()->id,
         ]);
@@ -228,16 +232,29 @@ class FleetController extends Controller
         return $data;
     }
 
-    private function resolvedBranch(Request $request, ?int $requested): ?int
+    /**
+     * A vehicle's branch: chosen by an owner/company-wide user, otherwise the
+     * user's branch, the vehicle's current one, or the company's only branch.
+     * Never null — a branchless vehicle (and its stock) is invisible.
+     */
+    private function resolvedBranch(Request $request, ?int $requested, ?Vehicle $vehicle): int
     {
-        if (! $request->user()->isOwner() && ! $request->user()->isPlatformAdmin()) {
-            return $request->user()->operating_branch_id;
-        }
-        if ($requested !== null) {
-            $branch = OperatingBranch::query()->findOrFail($requested);
-            $this->tenantAccess->assertCompany($request->user(), $branch->operating_company_id);
-        }
+        // With no choice made, an existing vehicle keeps its branch.
+        $current = $requested === null && $vehicle?->operating_branch_id !== null ? (int) $vehicle->operating_branch_id : null;
 
-        return $requested;
+        return $this->branches->resolve($request->user(), $requested, $current);
+    }
+
+    /** Children of a vehicle file under its branch; a legacy branchless vehicle gets one now. */
+    private function vehicleBranch(Request $request, Vehicle $vehicle): int
+    {
+        if ($vehicle->operating_branch_id !== null) {
+            return (int) $vehicle->operating_branch_id;
+        }
+        $branchId = $this->branches->resolve($request->user());
+        $vehicle->forceFill(['operating_branch_id' => $branchId])->save();
+        StockLocation::withoutGlobalScopes()->where('vehicle_id', $vehicle->id)->update(['operating_branch_id' => $branchId]);
+
+        return $branchId;
     }
 }

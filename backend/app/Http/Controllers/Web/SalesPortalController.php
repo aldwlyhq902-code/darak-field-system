@@ -22,6 +22,7 @@ use App\Services\FinancialApprovalService;
 use App\Services\PerformanceScoreService;
 use App\Services\QuotationPricingService;
 use App\Services\SalesPushService;
+use App\Support\BranchAssignment;
 use App\Support\ClientPicker;
 use App\Support\Labels;
 use App\Support\Money;
@@ -123,6 +124,8 @@ class SalesPortalController extends Controller
             'pushConfigured' => $this->push->configured(), 'pushPublicKey' => config('sales.vapid.public_key'),
             'pushSubscribed' => $user->webPushSubscriptions()->exists(),
             'stageLabels' => $this->stageLabels(),
+            'branchChoices' => $branchChoices = app(BranchAssignment::class)->choices($user),
+            'branchDefault' => app(BranchAssignment::class)->defaultChoice($user, $branchChoices),
             'targets' => PerformanceMetricSetting::effectiveFor($user->operating_company_id)->where('category', 'marketers')->pluck('target', 'metric_key'),
             'kpis' => [
                 'active' => $leads->whereIn('stage', self::ACTIVE_STAGES)->count(),
@@ -153,7 +156,13 @@ class SalesPortalController extends Controller
             'campaign_name' => ['nullable', 'required_if:source,campaign', 'string', 'max:190'],
             'expected_close_on' => ['nullable', 'date', 'after_or_equal:today'],
             'next_action_on' => ['nullable', 'date'], 'notes' => ['nullable', 'string', 'max:2000'],
+            'operating_branch_id' => ['nullable', 'integer'],
         ]);
+        // Never a branchless lead: OperatingBranchScope would hide it from
+        // everyone, including the company-wide owner who just created it.
+        $data['operating_branch_id'] = app(BranchAssignment::class)->resolve(
+            $request->user(), isset($data['operating_branch_id']) ? (int) $data['operating_branch_id'] : null,
+        );
         $duplicate = SalesLead::query()->whereIn('stage', self::ACTIVE_STAGES)->where(function (Builder $query) use ($data): void {
             $query->whereRaw('LOWER(company_name) = ?', [mb_strtolower($data['company_name'])]);
             if (filled($data['phone'] ?? null)) {
@@ -168,8 +177,7 @@ class SalesPortalController extends Controller
         }
         $lead = SalesLead::create($data + [
             'lead_no' => 'LEAD-'.now()->format('ymd').'-'.Str::upper(Str::random(6)),
-            'stage' => 'new', 'owner_user_id' => $request->user()->id,
-            'operating_branch_id' => $request->user()->operating_branch_id, 'probability_percent' => 10,
+            'stage' => 'new', 'owner_user_id' => $request->user()->id, 'probability_percent' => 10,
         ]);
         $this->audit->record('sales.lead_created', $lead, null, $lead->getAttributes(), $request->user()->id);
 
