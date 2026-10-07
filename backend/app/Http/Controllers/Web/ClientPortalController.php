@@ -149,6 +149,11 @@ class ClientPortalController extends Controller
             'visit' => $visit->makeHidden(['technician_lat', 'technician_lng']),
             'disputes' => $disputes,
             'approximateLocation' => app(ApproximateTechnicianLocation::class)->forClient($visit),
+            // An arrival estimate means something only before arrival: never
+            // once work started, the visit closed or its work order was
+            // closed or cancelled.
+            'showEta' => in_array($visit->state, [Visit::STATE_SCHEDULED, Visit::STATE_EN_ROUTE], true)
+                && ! in_array($visit->workOrder?->status, ['closed', 'cancelled'], true),
         ]);
     }
 

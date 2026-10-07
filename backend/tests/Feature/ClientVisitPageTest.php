@@ -38,4 +38,28 @@ class ClientVisitPageTest extends DarakTestCase
         $this->assertStringContainsString('.card>b{display:block', $html);
         $this->assertDoesNotMatchRegularExpression('/\.card b\{display:block/', $html);
     }
+
+    /**
+     * 0.3.0 regression: a completed visit still showed «الوصول التقريبي» (an
+     * estimate from the scheduled start). An arrival estimate exists only
+     * before arrival: scheduled or en route, and not for a closed or
+     * cancelled work order.
+     */
+    public function test_the_arrival_estimate_shows_only_before_arrival(): void
+    {
+        $states = [
+            Visit::STATE_SCHEDULED => true, Visit::STATE_EN_ROUTE => true, Visit::STATE_STARTED => false,
+            Visit::STATE_PAUSED => false, Visit::STATE_AWAITING_CLOSE => false, Visit::STATE_COMPLETED => false,
+        ];
+
+        foreach ($states as $state => $shown) {
+            $this->visit->forceFill(['state' => $state, 'closed_at' => $state === Visit::STATE_COMPLETED ? now() : null])->save();
+            $response = $this->actingAs($this->portal, 'client')->get(route('client.visit', $this->visit))->assertOk();
+            $shown ? $response->assertSee('الوصول التقريبي') : $response->assertDontSee('الوصول التقريبي');
+        }
+
+        $this->visit->forceFill(['state' => Visit::STATE_SCHEDULED])->save();
+        $this->visit->workOrder->forceFill(['status' => 'cancelled'])->save();
+        $this->get(route('client.visit', $this->visit))->assertOk()->assertDontSee('الوصول التقريبي');
+    }
 }
