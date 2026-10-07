@@ -578,4 +578,5 @@ return [
     // Line-item tables (client portal).
     'البند' => 'Item',
     'سعر الوحدة' => 'Unit price',
+    'جوجل' => 'Google',
 ];

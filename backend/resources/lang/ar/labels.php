@@ -155,7 +155,7 @@ return [
     'lead_source' => [
         'direct' => 'مباشر',
         'referral' => 'توصية',
-        'google' => 'Google',
+        'google' => 'جوجل',
         'social' => 'شبكات اجتماعية',
         'campaign' => 'حملة',
         'field' => 'زيارة ميدانية',

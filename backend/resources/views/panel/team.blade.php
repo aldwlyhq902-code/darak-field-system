@@ -8,7 +8,7 @@
 <div class="card">
     <div class="hd">المستخدمون</div>
     <table>
-        <thead><tr><th>الاسم</th><th style="width:130px">الدور</th><th>المهنة</th><th style="width:120px">الوردية</th><th style="width:90px">الحالة</th><th style="width:120px">MFA</th><th style="width:90px"></th></tr></thead>
+        <thead><tr><th>الاسم</th><th style="width:130px">الدور</th><th>المهنة</th><th style="width:120px">الوردية</th><th style="width:90px">الحالة</th><th style="width:120px">التحقق بخطوتين</th><th style="width:90px"></th></tr></thead>
         <tbody>
         @foreach ($users as $user)
             <tr>

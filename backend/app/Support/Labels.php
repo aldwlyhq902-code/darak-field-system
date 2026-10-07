@@ -24,7 +24,11 @@ final class Labels
             return $empty;
         }
 
-        return self::group($group)[$code] ?? $code;
+        $labels = self::group($group);
+
+        // "Google" typed or imported for the `google` code still reads «جوجل»;
+        // anything unknown (free text) is shown exactly as entered.
+        return $labels[$code] ?? $labels[mb_strtolower(trim($code))] ?? $code;
     }
 
     /** Several codes (e.g. a technician's specialties) as one line. */
