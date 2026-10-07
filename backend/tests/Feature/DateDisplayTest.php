@@ -25,7 +25,7 @@ class DateDisplayTest extends DarakTestCase
 
         $this->actingAs($this->owner, 'web')->get(route('panel.maintenance'))->assertOk()
             ->assertSee('2026-11-06')
-            ->assertSee('آخر توليد: <bdi dir="ltr">2026-10-07</bdi>', false);
+            ->assertSee('آخر توليد: <bdi dir="ltr" style="white-space:nowrap">2026-10-07</bdi>', false);
     }
 
     public function test_dates_inside_arabic_text_are_isolated_in_the_visit_report(): void
@@ -53,8 +53,8 @@ class DateDisplayTest extends DarakTestCase
 
     public function test_the_isolation_helper_escapes_and_skips_empty_values(): void
     {
-        $this->assertSame('<bdi dir="ltr">2026-10-07</bdi>', (string) Ltr::wrap('2026-10-07'));
-        $this->assertSame('<bdi dir="ltr">&lt;b&gt;</bdi>', (string) Ltr::wrap('<b>'));
+        $this->assertSame('<bdi dir="ltr" style="white-space:nowrap">2026-10-07</bdi>', (string) Ltr::wrap('2026-10-07'));
+        $this->assertSame('<bdi dir="ltr" style="white-space:nowrap">&lt;b&gt;</bdi>', (string) Ltr::wrap('<b>'));
         $this->assertSame('', (string) Ltr::wrap(null));
     }
 }

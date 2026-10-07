@@ -13,6 +13,10 @@ use Illuminate\Support\HtmlString;
  * "(COIL-CLN)" loses its brackets to the wrong side. <bdi dir="ltr"> works
  * in browsers and in mPDF. The value is escaped; use in text, never in an
  * attribute: {{ \App\Support\Ltr::wrap($part->sku) }}.
+ *
+ * Isolation alone keeps the order right but still lets the line break at
+ * the hyphen of "COIL-CLN" or "2026-10-07"; these tokens are short, so they
+ * never wrap.
  */
 final class Ltr
 {
@@ -22,7 +26,7 @@ final class Ltr
             return new HtmlString('');
         }
 
-        return new HtmlString('<bdi dir="ltr">'.e((string) $value).'</bdi>');
+        return new HtmlString('<bdi dir="ltr" style="white-space:nowrap">'.e((string) $value).'</bdi>');
     }
 
     /**

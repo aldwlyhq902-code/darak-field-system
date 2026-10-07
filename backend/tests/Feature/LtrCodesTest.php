@@ -24,8 +24,8 @@ class LtrCodesTest extends DarakTestCase
         $inventory->issueToVisit((string) Str::uuid(), $this->part->id, 1, $this->vehicleStock->id, $this->visit);
 
         $this->actingAs($this->owner, 'web')->get(route('panel.visit', $this->visit))->assertOk()
-            ->assertSee('منظف ملفات قلوي <span style="color:var(--muted);font-size:12px">(<bdi dir="ltr">COIL-CLN</bdi>)</span>', false)
-            ->assertSee('أمر العمل <bdi dir="ltr">', false);
+            ->assertSee('منظف ملفات قلوي <span style="color:var(--muted);font-size:12px">(<bdi dir="ltr" style="white-space:nowrap">COIL-CLN</bdi>)</span>', false)
+            ->assertSee('أمر العمل <bdi dir="ltr" style="white-space:nowrap">', false);
     }
 
     public function test_inventory_options_isolate_the_sku_without_markup(): void

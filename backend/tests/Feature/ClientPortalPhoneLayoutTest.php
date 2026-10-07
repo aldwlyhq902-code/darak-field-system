@@ -80,6 +80,19 @@ class ClientPortalPhoneLayoutTest extends DarakTestCase
         $this->assertStringContainsString('<b class="num">'.$this->contract->starts_on->format('Y-m-d').'</b>', $html);
     }
 
+    public function test_only_a_lone_last_card_spans_the_phone_grid(): void
+    {
+        // A finished visit has two summary cards (no arrival estimate). Spanning
+        // every last card put the second one full-width under a half-width first.
+        $html = $this->actingAs($this->portal, 'client')
+            ->get(route('client.visit', $this->visit))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('.grid .card:last-child:nth-child(odd){grid-column:1/-1}', $html);
+        $this->assertStringNotContainsString('.grid .card:last-child{grid-column', $html);
+    }
+
     public function test_quantities_drop_trailing_zeros_only(): void
     {
         $this->assertSame('1', Quantity::format('1.000'));
