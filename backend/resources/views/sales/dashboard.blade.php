@@ -14,7 +14,11 @@
     @media(max-width:950px){.sales-hero,.today-grid,.quote-grid,.performance-grid,.tool-grid,.manager-grid{grid-template-columns:1fr}.kpi-grid{grid-template-columns:1fr 1fr}.hero-focus{min-height:130px}.quote-row{grid-template-columns:1fr 105px auto}.quote-row .quote-client{display:none}}
     @media(max-width:560px){.sales-hero{padding:21px;border-radius:22px}.kpi-grid{grid-template-columns:1fr 1fr}.kpi{padding:13px}.kpi b{font-size:20px}.follow-row{grid-template-columns:auto 1fr}.contact-actions{grid-column:2}.quote-row{grid-template-columns:1fr auto;padding:12px}.quote-row .quote-amount{grid-row:2}.quote-row .quote-status{grid-column:2;grid-row:1/3}.section-title h2{font-size:18px}.pipeline{grid-auto-columns:82vw}}
 .pager{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px;font-size:13px}.pager a,.pager-disabled{min-width:64px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;text-align:center}.pager-disabled{color:#94a3b8}
-</style>
+    /* Phones. A `1fr` track is minmax(auto,1fr): it grows to its widest child's min-content — the follow-up calendar strip, a long lead name — and once leads had follow-up dates the whole app became ~650px wide on a 390px screen. Tracks may shrink to zero; their content wraps, shrinks or scrolls inside its own box. */
+    .sales-hero>*,.today-grid>*,.quote-grid>*,.performance-grid>*,.tool-grid>*,.manager-grid>*,.kpi-grid>*,.follow-row>*,.quote-row>*,.alert-row>*,.event>*,.lead-meta>*,.stage-head>*{min-width:0}.tool-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.calendar-lead,.lead-card h4,.follow-row strong{overflow-wrap:anywhere}.date-block,.quote-amount,.lead-value{white-space:nowrap;font-variant-numeric:tabular-nums}
+    @media(max-width:950px){.sales-hero,.today-grid,.quote-grid,.performance-grid,.tool-grid,.manager-grid{grid-template-columns:minmax(0,1fr)}}
+    @media(max-width:560px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.calendar-strip{grid-auto-columns:minmax(118px,1fr)}.pipeline{grid-auto-columns:min(82vw,320px)}.stage-head{flex-wrap:wrap;gap:4px}.pill{max-width:100%;white-space:normal}}
+    </style>
 @endpush
 
 @section('content')

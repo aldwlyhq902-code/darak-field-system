@@ -87,6 +87,34 @@ class SalesPwaTest extends DarakTestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'quotation.sent', 'user_id' => $this->marketer->id]);
     }
 
+    /**
+     * 0.3.0 regression: with follow-up dates on several days, the calendar
+     * strip's min-content sized the phone layout's single `1fr` grid track and
+     * the whole app grew to ~650px on a 390px screen. Verified in a browser at
+     * 390x844; here the markup and the rules that keep it inside the screen.
+     */
+    public function test_follow_up_calendar_cannot_widen_the_phone_layout(): void
+    {
+        foreach (range(1, 5) as $day) {
+            SalesLead::create([
+                'lead_no' => "LEAD-CAL-{$day}", 'company_name' => "مطاعم ومطابخ الضيافة الشعبية المركزية للحفلات والمناسبات {$day}",
+                'stage' => 'qualified', 'estimated_value' => 10000 * $day, 'owner_user_id' => $this->marketer->id,
+                'operating_branch_id' => $this->branch->id, 'next_action_on' => today()->addDays($day),
+            ]);
+        }
+
+        $html = $this->actingAs($this->marketer, 'web')->get(route('sales.home'))->assertOk()->getContent();
+
+        $this->assertSame(5, substr_count($html, 'class="calendar-day'));
+        $this->assertStringContainsString('<section class="tool-grid"><div class="card calendar-card"><div class="calendar-strip">', $html);
+        // Tracks may shrink below their content; the strip scrolls inside its card.
+        $this->assertStringContainsString('.tool-grid>*', $html);
+        $this->assertMatchesRegularExpression('/\.tool-grid>\*[^{]*\{min-width:0\}/', $html);
+        $this->assertStringContainsString('.tool-grid{grid-template-columns:repeat(2,minmax(0,1fr))}', $html);
+        $this->assertMatchesRegularExpression('/@media\(max-width:950px\)\{[^}]*\.tool-grid[^{]*\{grid-template-columns:minmax\(0,1fr\)\}/', $html);
+        $this->assertMatchesRegularExpression('/\.calendar-strip\{[^}]*overflow:auto/', $html);
+    }
+
     public function test_lead_converts_to_client_site_and_contact_without_retyping(): void
     {
         $lead = SalesLead::create([
