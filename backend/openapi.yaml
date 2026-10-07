@@ -737,7 +737,10 @@ components:
             description:
               type: [string, "null"]
         sla:
-          description: Null when the work order has no SLA due time. The countdown runs only inside the service window.
+          description: >-
+            Null when the work order has no SLA due time. The countdown runs only inside the service window,
+            and only while the work is open: once the visit is completed (or its work order closed or cancelled)
+            `live` is false and `status`/`outcome` are frozen at the moment the work finished.
           oneOf:
             - type: "null"
             - type: object
@@ -746,9 +749,18 @@ components:
                   type: string
                   format: date-time
                 remaining_minutes:
-                  type: integer
+                  type: [integer, "null"]
+                  description: Live in-window minutes left (negative = overdue); for finished work, the margin (positive) or overrun (negative) when it finished; null when cancelled.
                 status:
                   type: string
+                  enum: [green, amber, red, grey]
+                  description: Live colour while open; green (met) / red (breached) / grey (cancelled) once finished.
+                live:
+                  type: boolean
+                  description: False once the work is finished — no countdown.
+                outcome:
+                  type: [string, "null"]
+                  enum: [met, breached, cancelled, null]
                 service_window:
                   type: object
                   properties:

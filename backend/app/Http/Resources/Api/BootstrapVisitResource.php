@@ -28,9 +28,9 @@ class BootstrapVisitResource extends JsonResource
     {
         /** @var Visit $visit */
         $visit = $this->resource;
-        $sla = app(SlaCalculator::class);
         $contract = $visit->workOrder?->contract;
         $due = $visit->workOrder?->sla_due_at;
+        $sla = $due ? app(SlaCalculator::class)->forVisit($visit, $this->now) : null;
 
         return [
             'id' => $visit->id,
@@ -47,11 +47,15 @@ class BootstrapVisitResource extends JsonResource
                 'title' => $visit->workOrder?->title,
                 'description' => $visit->workOrder?->description,
             ],
-            // The SLA countdown only runs inside the contract service window.
-            'sla' => $due ? [
+            // The SLA countdown only runs inside the contract service window,
+            // and stops for good once the work is finished (`live` false, with
+            // the frozen `outcome`).
+            'sla' => $sla ? [
                 'due_at' => $due->toIso8601String(),
-                'remaining_minutes' => $sla->remainingMinutes($this->now, $due, $contract),
-                'status' => $sla->status($this->now, $due, $visit->workOrder?->sla_minutes_budget ?? 240, $contract),
+                'remaining_minutes' => $sla['remaining_minutes'],
+                'status' => $sla['status'],
+                'live' => $sla['live'],
+                'outcome' => $sla['outcome'],
                 'service_window' => [
                     'start' => $contract?->service_window_start ?? '07:00:00',
                     'end' => $contract?->service_window_end ?? '23:00:00',

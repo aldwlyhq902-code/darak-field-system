@@ -49,18 +49,19 @@ class BoardController extends Controller
             ->get()
             ->map(function (Visit $visit) use ($now) {
                 $contract = $visit->workOrder?->contract;
-                $due = $visit->workOrder?->sla_due_at;
-                $slaStatus = $due
-                    ? $this->sla->status($now, $due, $visit->workOrder->sla_minutes_budget ?? 240, $contract)
-                    : null;
-                $slaRemaining = $due ? $this->sla->remainingMinutes($now, $due, $contract) : null;
+                // Finished work carries a frozen verdict, not a countdown: a
+                // visit closed in the morning must not turn red in the evening
+                // or climb into "today's priorities".
+                $sla = $this->sla->forVisit($visit, $now);
+                $slaStatus = $sla['status'] ?? null;
+                $slaLive = $sla['live'] ?? false;
                 $reasons = [];
                 $priorityScore = 0;
 
-                if ($slaStatus === 'red') {
+                if ($slaLive && $slaStatus === 'red') {
                     $reasons[] = 'متجاوزة لاتفاقية الخدمة';
                     $priorityScore += 100;
-                } elseif ($slaStatus === 'amber') {
+                } elseif ($slaLive && $slaStatus === 'amber') {
                     $reasons[] = 'اتفاقية الخدمة تقترب';
                     $priorityScore += 60;
                 }
@@ -78,7 +79,9 @@ class BoardController extends Controller
                 return [
                     'visit' => $visit,
                     'sla_status' => $slaStatus,
-                    'sla_remaining' => $slaRemaining,
+                    'sla_remaining' => $sla['remaining_minutes'] ?? null,
+                    'sla_live' => $slaLive,
+                    'sla_outcome' => $sla['outcome'] ?? null,
                     'in_window' => $this->sla->isWithinWindow($now, $contract),
                     'priority_score' => $priorityScore,
                     'priority_reasons' => $reasons,
@@ -211,8 +214,10 @@ class BoardController extends Controller
             'total' => $rows->count(),
             'open' => $rows->filter(fn ($r) => $r['visit']->state !== Visit::STATE_COMPLETED)->count(),
             'done' => $rows->filter(fn ($r) => $r['visit']->state === Visit::STATE_COMPLETED)->count(),
-            'red' => $rows->filter(fn ($r) => $r['sla_status'] === 'red')->count(),
-            'amber' => $rows->filter(fn ($r) => $r['sla_status'] === 'amber')->count(),
+            // Live breaches only: these KPIs ask for intervention now. Finished
+            // work keeps its verdict on its own row.
+            'red' => $rows->filter(fn ($r) => $r['sla_live'] && $r['sla_status'] === 'red')->count(),
+            'amber' => $rows->filter(fn ($r) => $r['sla_live'] && $r['sla_status'] === 'amber')->count(),
             'unassigned' => $rows->filter(fn ($r) => $r['visit']->assigned_user_id === null)->count(),
         ];
     }

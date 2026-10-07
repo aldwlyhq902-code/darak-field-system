@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Contract;
+use App\Models\Visit;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 
@@ -25,6 +26,95 @@ class SlaCalculator
     private const DEFAULT_START = '07:00:00';
 
     private const DEFAULT_END = '23:00:00';
+
+    public const OUTCOME_MET = 'met';
+
+    public const OUTCOME_BREACHED = 'breached';
+
+    public const OUTCOME_CANCELLED = 'cancelled';
+
+    /** Work-order statuses after which no SLA clock runs. */
+    public const FINAL_WORK_ORDER_STATUSES = ['closed', 'cancelled'];
+
+    /**
+     * One visit's SLA as of $now — the single answer for the board, the app's
+     * bootstrap `sla` block and the SLA sweep.
+     *
+     * Open work gets the live, service-window-aware countdown (green / amber /
+     * red). Finished work — the visit completed, or its work order closed or
+     * cancelled — does not: the clock stopped when the work finished, and the
+     * verdict is fixed at that moment. Met if it finished by the due time
+     * (the same rule as the performance score), breached otherwise. A visit
+     * closed at 09:00 inside its deadline must not turn red at 15:00. A
+     * cancelled work order has no verdict at all.
+     *
+     * `remaining_minutes` is the live in-window balance for open work, and
+     * the margin (positive) or overrun (negative) at finish for finished work.
+     * Null when the work order carries no SLA.
+     *
+     * @return array{status: string, remaining_minutes: int|null, live: bool, outcome: string|null, finished_at: CarbonImmutable|null}|null
+     */
+    public function forVisit(Visit $visit, CarbonInterface $now): ?array
+    {
+        $workOrder = $visit->workOrder;
+        $due = $workOrder?->sla_due_at;
+
+        if ($due === null) {
+            return null;
+        }
+
+        $contract = $workOrder->contract;
+
+        if ($workOrder->status === 'cancelled') {
+            return [
+                'status' => 'grey',
+                'remaining_minutes' => null,
+                'live' => false,
+                'outcome' => self::OUTCOME_CANCELLED,
+                'finished_at' => null,
+            ];
+        }
+
+        $finishedAt = $this->finishedAt($visit);
+
+        if ($finishedAt !== null) {
+            $met = $finishedAt->lte($due);
+
+            return [
+                'status' => $met ? 'green' : 'red',
+                'remaining_minutes' => $this->remainingMinutes($finishedAt, $due, $contract),
+                'live' => false,
+                'outcome' => $met ? self::OUTCOME_MET : self::OUTCOME_BREACHED,
+                'finished_at' => $finishedAt,
+            ];
+        }
+
+        return [
+            'status' => $this->status($now, $due, $workOrder->sla_minutes_budget ?? 240, $contract),
+            'remaining_minutes' => $this->remainingMinutes($now, $due, $contract),
+            'live' => true,
+            'outcome' => null,
+            'finished_at' => null,
+        ];
+    }
+
+    /** When the visit's work finished, or null while it is still open. */
+    public function finishedAt(Visit $visit): ?CarbonImmutable
+    {
+        $completed = $visit->state === Visit::STATE_COMPLETED;
+        $workOrderFinal = in_array($visit->workOrder?->status, self::FINAL_WORK_ORDER_STATUSES, true);
+
+        if (! $completed && ! $workOrderFinal) {
+            return null;
+        }
+
+        $at = $visit->closed_at
+            ?? $visit->ended_at
+            ?? ($completed ? $visit->state_changed_at : null)
+            ?? $visit->workOrder?->updated_at;
+
+        return $at === null ? null : CarbonImmutable::instance($at);
+    }
 
     /**
      * Due timestamp after consuming $minutes of in-window time from $from.

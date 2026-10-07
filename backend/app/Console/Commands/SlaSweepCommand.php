@@ -42,7 +42,7 @@ class SlaSweepCommand extends Command
             ->whereHas('workOrder', fn ($q) => $q
                 ->whereNotNull('sla_due_at')
                 ->where('sla_due_at', '<=', $horizon)
-                ->whereNotIn('status', ['closed', 'cancelled']))
+                ->whereNotIn('status', SlaCalculator::FINAL_WORK_ORDER_STATUSES))
             ->chunkById(200, function ($visits) use (
                 &$examined, &$queued, &$skippedOutOfWindow, $sla, $notifications, $now, $threshold
             ) {
@@ -50,7 +50,6 @@ class SlaSweepCommand extends Command
                     $examined++;
 
                     $contract = $visit->workOrder->contract;
-                    $due = $visit->workOrder->sla_due_at;
                     $budget = $visit->workOrder->sla_minutes_budget ?? 240;
 
                     // Outside service hours the clock is frozen; warning now
@@ -61,7 +60,15 @@ class SlaSweepCommand extends Command
                         continue;
                     }
 
-                    $remaining = $sla->remainingMinutes($now, $due, $contract);
+                    // Same rule as the board and the app: only live work can be
+                    // "at risk"; finished work has a frozen verdict.
+                    $state = $sla->forVisit($visit, $now);
+
+                    if ($state === null || ! $state['live']) {
+                        continue;
+                    }
+
+                    $remaining = $state['remaining_minutes'];
 
                     if ($remaining > $budget * $threshold) {
                         continue;
