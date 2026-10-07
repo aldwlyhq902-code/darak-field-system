@@ -66,7 +66,7 @@ class ClientPortalPhoneLayoutTest extends DarakTestCase
         $this->assertStringContainsString('<span class="num">460.00 ر.س</span>', $html);
         $this->assertMatchesRegularExpression('/\.num\{white-space:nowrap;font-variant-numeric:tabular-nums\}/', $html);
         // Headings, labels and figures break between words only.
-        $this->assertMatchesRegularExpression('/h1,h2,th,\.card b,\.muted,\.num\{overflow-wrap:break-word;word-break:normal\}/', $html);
+        $this->assertMatchesRegularExpression('/h1,h2,th,\.card>b,\.muted,\.num\{overflow-wrap:break-word;word-break:normal\}/', $html);
     }
 
     public function test_contract_and_quotation_codes_and_dates_stay_whole(): void
