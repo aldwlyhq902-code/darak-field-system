@@ -3,7 +3,7 @@
 @section('content')
 <div class="form-card" style="max-width:820px">
     <span class="pill {{ $quotation->status === 'accepted' || $quotation->status === 'converted' ? 'green' : 'amber' }}">{{ ['sent'=>'بانتظار اعتمادك','accepted'=>'معتمد','converted'=>'تحول إلى عقد'][$quotation->status] ?? $quotation->status }}</span>
-    <h1>{{ $quotation->title }}</h1><p class="muted">{{ $quotation->quote_no }} · الإصدار {{ $quotation->version }} · صالح حتى {{ $quotation->valid_until->format('Y-m-d') }}</p>
+    <h1>{{ $quotation->title }}</h1><p class="muted"><span class="num">{{ $quotation->quote_no }}</span> · الإصدار {{ $quotation->version }} · صالح حتى <span class="num">{{ $quotation->valid_until->format('Y-m-d') }}</span></p>
     <div class="grid"><div class="card"><span class="muted">السعر للدورة قبل الضريبة</span><b>{{ \App\Support\Money::format($quotation->price_amount) }} ر.س</b></div><div class="card"><span class="muted">شامل الضريبة</span><b>{{ \App\Support\Money::format($quotation->priceInclVat()) }} ر.س</b></div><div class="card"><span class="muted">المدة</span><b>{{ $quotation->duration_months }} شهر</b></div></div>
     <h2>المواقع المشمولة</h2><div class="list">@foreach($quotation->sites as $site)<div class="row"><strong>{{ $site->name }}</strong><span class="muted">{{ $site->address }}</span></div>@endforeach</div>
     <h2>الشروط</h2><div class="card">@forelse($quotation->terms ?? [] as $term)<div>• {{ $term }}</div>@empty<span class="muted">لا توجد شروط إضافية.</span>@endforelse</div>

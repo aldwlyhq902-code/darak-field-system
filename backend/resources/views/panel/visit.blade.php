@@ -68,7 +68,7 @@
                     @foreach ($consumption as $row)
                         <tr>
                             <td>{{ $row['name'] }} <span style="color:var(--muted);font-size:12px">({{ $row['sku'] }})</span></td>
-                            <td>{{ rtrim(rtrim(number_format($row['qty'], 3), '0'), '.') }}</td>
+                            <td>{{ \App\Support\Quantity::format($row['qty']) }}</td>
                             <td>{{ \App\Support\Money::format($row['unit_cost']) }}</td>
                             <td>{{ \App\Support\Money::format($row['unit_price']) }}</td>
                         </tr>

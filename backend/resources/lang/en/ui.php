@@ -574,4 +574,8 @@ return [
     'أُنجزت ضمن المهلة' => 'Finished within SLA',
     'أُنجزت متأخرة' => 'Finished late',
     'أُنجزت بعد المهلة' => 'Finished after SLA',
+
+    // Line-item tables (client portal).
+    'البند' => 'Item',
+    'سعر الوحدة' => 'Unit price',
 ];

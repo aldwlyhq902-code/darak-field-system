@@ -98,7 +98,7 @@
     </thead>
     <tbody>
     @forelse($parts as $part)
-        <tr><td>{{ $part['sku'] }}</td><td>{{ $part['name'] }}</td><td>{{ rtrim(rtrim(number_format($part['qty'], 3), '0'), '.') }}</td></tr>
+        <tr><td>{{ $part['sku'] }}</td><td>{{ $part['name'] }}</td><td>{{ \App\Support\Quantity::format($part['qty']) }}</td></tr>
     @empty
         <tr><td colspan="3">لم تُستخدم قطع غيار في هذه الزيارة.</td></tr>
     @endforelse

@@ -23,7 +23,7 @@
                         <td>{{ $balance['name'] }}</td>
                         <td>
                             <span class="pill {{ $balance['below_reorder'] ? 'red' : 'green' }}">
-                                {{ rtrim(rtrim(number_format($balance['qty'], 3), '0'), '.') }}
+                                {{ \App\Support\Quantity::format($balance['qty']) }}
                             </span>
                         </td>
                         <td style="font-size:13px;color:var(--muted)">{{ rtrim(rtrim(number_format($balance['reorder_level'], 2), '0'), '.') }}</td>
