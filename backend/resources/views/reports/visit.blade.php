@@ -22,11 +22,17 @@
         .status-fault { color: #b91c1c; font-weight: bold; }
         .photo { width: 78mm; margin: 0 0 3mm 3mm; border: 1px solid #ddd; }
         .sig { width: 60mm; border: 1px solid #ddd; padding: 2mm; }
-        .note { background: #fffbeb; border: 1px solid #fde68a; padding: 3mm; font-size: 9pt; margin-top: 6mm; }
-        .foot { margin-top: 8mm; border-top: 1px solid #ddd; padding-top: 2mm; font-size: 8pt; color: #777; }
+        .note { background: #fffbeb; border: 1px solid #fde68a; padding: 3mm; font-size: 9pt; margin-top: 6mm; page-break-inside: avoid; }
+        .foot { border-top: 1px solid #ddd; padding-top: 1.5mm; font-size: 7.5pt; color: #777; }
     </style>
 </head>
 <body>
+<htmlpagefooter name="report-footer">
+    <div class="foot">
+        نسخة القالب: <bdi dir="ltr">{{ $templateVersion }}</bdi> · وُلّد آلياً من نظام دارك · الصور مختومة بوقت الالتقاط والإحداثيات · صفحة {PAGENO} من {nbpg}
+    </div>
+</htmlpagefooter>
+<sethtmlpagefooter name="report-footer" value="on" show-this-page="1" />
 
 <div class="head">
     <span class="brand">دارك</span>
@@ -127,10 +133,6 @@
     هذا التقرير سجل فني لأعمال الصيانة المنفذة في الموقع أعلاه. الشهادات الرسمية
     (السلامة، أنظمة الغاز، تنظيف الهود) تصدر عن الجهات المعتمدة لدى الجهات المختصة،
     وتُرفق منفصلة باسم الجهة المُصدِرة، وتتولى دارك تنسيقها فقط.
-</div>
-
-<div class="foot">
-    نسخة القالب: {{ $templateVersion }} · وُلّد آلياً من نظام دارك · الصور مختومة بوقت الالتقاط والإحداثيات.
 </div>
 
 @include('partials.runtime-localization')</body>

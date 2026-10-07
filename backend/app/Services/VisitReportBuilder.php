@@ -89,7 +89,10 @@ class VisitReportBuilder
             'autoLangToFont' => true,
             'tempDir' => storage_path('app/mpdf'),
             'margin_top' => 12,
-            'margin_bottom' => 14,
+            // Room for the template/page footer (reports.visit <htmlpagefooter>),
+            // which lives in the bottom margin rather than in the content flow.
+            'margin_bottom' => 18,
+            'margin_footer' => 6,
         ]);
 
         $mpdf->SetDirectionality('rtl');
