@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\DeviceRegistry;
 use App\Services\PasswordLogin;
+use App\Services\RevokedTokens;
 use App\Services\TwoFactorService;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
@@ -29,6 +30,7 @@ class AuthController extends Controller
         private readonly TwoFactorService $twoFactor,
         private readonly PasswordLogin $passwords,
         private readonly DeviceRegistry $devices,
+        private readonly RevokedTokens $revokedTokens,
     ) {}
 
     public function login(Request $request): JsonResponse
@@ -167,7 +169,12 @@ class AuthController extends Controller
             'revoked_reason' => $data['reason'] ?? 'revoked by supervisor',
         ])->save();
 
-        $device->user?->tokens()->where('name', 'device:'.$device->device_uuid)->delete();
+        if ($device->user !== null) {
+            $this->revokedTokens->revoke(
+                $device->user->tokens()->where('name', 'device:'.$device->device_uuid),
+                RevokedTokens::DEVICE_REVOKED,
+            );
+        }
 
         $this->audit->record('device.revoked', $device, null, ['reason' => $device->revoked_reason]);
 

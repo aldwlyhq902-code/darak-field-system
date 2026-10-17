@@ -91,6 +91,31 @@ class _SyncScreenState extends State<SyncScreen> {
   }
 
   /// Stored as "CODE: server message".
+  Future<void> _abandon(QueuedEvent event) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const LText('تجاهل هذه العملية؟'),
+        content: const LText(
+          'لن تُرسل إلى الخادم أبداً، ولا يمكن التراجع. استخدم هذا فقط إذا رفضها الخادم لسبب لن يتغير، أو بعد مراجعة المشرف.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const LText('تراجع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const LText('تجاهل'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.state.queue.abandon(event.clientEventId);
+    await _load();
+  }
+
   static String _rejectionReason(String stored) {
     final separator = stored.indexOf(':');
     if (separator <= 0) return friendlyRejection(null, stored);
@@ -345,14 +370,29 @@ class _SyncScreenState extends State<SyncScreen> {
                           ],
                         ],
                       ),
-                      trailing: IconButton(
-                        tooltip: context.tr('إعادة المحاولة'),
-                        icon: const Icon(Icons.refresh),
-                        onPressed: () async {
-                          await widget.state.queue.requeue(event.clientEventId);
-                          await widget.state.runSync();
-                          await _load();
-                        },
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: context.tr('إعادة المحاولة'),
+                            icon: const Icon(Icons.refresh),
+                            onPressed: () async {
+                              await widget.state.queue.requeue(
+                                event.clientEventId,
+                              );
+                              await widget.state.runSync();
+                              await _load();
+                            },
+                          ),
+                          // Retry alone was a dead end for a refusal that will
+                          // never change (a visit given to a colleague): the
+                          // event stayed, and sign-out stayed refused.
+                          IconButton(
+                            tooltip: context.tr('تجاهل العملية'),
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _abandon(event),
+                          ),
+                        ],
                       ),
                     ),
                   ),

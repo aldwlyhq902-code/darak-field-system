@@ -12,6 +12,7 @@ import 'scanner_screen.dart';
 import 'signature_screen.dart';
 import 'diagnosis_screen.dart';
 import 'additional_work_screen.dart';
+import 'parts_screen.dart';
 import 'tile_button.dart';
 
 /// The button for one edge of the visit state machine.
@@ -149,10 +150,33 @@ class _VisitScreenState extends State<VisitScreen> {
   bool _loading = true;
   bool _busy = false;
 
+  /// The local state is ahead of the server (a transition not yet confirmed).
+  bool _unconfirmed = false;
+
+  /// What the server said was missing when it last refused this visit's close.
+  List<String> _refusedClose = const [];
+
+  /// Parts this phone issued to the visit that the server has not refused.
+  int _issuedParts = 0;
+
   @override
   void initState() {
     super.initState();
+    // A sync can change this visit underneath the screen — most of all, the
+    // server refusing a close the phone had already shown as done. Without
+    // listening, the screen kept saying "مقفلة" until it was reopened.
+    widget.state.addListener(_onAppStateChanged);
     _load();
+  }
+
+  @override
+  void dispose() {
+    widget.state.removeListener(_onAppStateChanged);
+    super.dispose();
+  }
+
+  void _onAppStateChanged() {
+    if (mounted && !_busy) _load();
   }
 
   Future<void> _load() async {
@@ -163,6 +187,13 @@ class _VisitScreenState extends State<VisitScreen> {
     // visit is ready while the server is still asking for a replacement.
     final media = await widget.state.evidence.liveForVisit(widget.visitId);
     final noParts = await widget.state.noPartsDeclared(widget.visitId);
+    final unconfirmed = await widget.state.hasUnconfirmedTransition(
+      widget.visitId,
+    );
+    final refusedClose = await widget.state.refusedCloseBlockers(
+      widget.visitId,
+    );
+    final issued = await widget.state.issuedParts(widget.visitId);
 
     if (mounted) {
       setState(() {
@@ -171,6 +202,9 @@ class _VisitScreenState extends State<VisitScreen> {
         _checklist = checklist;
         _media = media;
         _noPartsDeclared = noParts;
+        _unconfirmed = unconfirmed;
+        _refusedClose = refusedClose;
+        _issuedParts = issued.where((issue) => !issue.refused).length;
         _loading = false;
       });
     }
@@ -201,6 +235,15 @@ class _VisitScreenState extends State<VisitScreen> {
   List<String> get _missing {
     final missing = <String>[];
 
+    // The server needs at least one inspected asset (NO_CHECKLIST). With none
+    // linked, the phone used to call the visit ready and the server refused
+    // every close, for good.
+    if (_assets.isEmpty) {
+      missing.add(
+        'لا توجد أصول مرتبطة بهذه الزيارة — اطلب من المشرف ربط أصل بها قبل الإقفال.',
+      );
+    }
+
     for (final asset in _assets) {
       final id = asset['id'] as int;
       final entry = _checklist[id];
@@ -215,7 +258,8 @@ class _VisitScreenState extends State<VisitScreen> {
       }
     }
 
-    if (_checklist.isNotEmpty && !_noPartsDeclared) {
+    // As the server asks it: a part issued to the visit, or an explicit "none".
+    if (_issuedParts == 0 && !_noPartsDeclared) {
       missing.add('سجّل القطع المستخدمة أو صرّح بعدم استخدام قطع');
     }
 
@@ -229,7 +273,7 @@ class _VisitScreenState extends State<VisitScreen> {
   Future<void> _transition(VisitTransitionAction action) async {
     final to = action.to;
     if (to == 'completed' && _missing.isNotEmpty) {
-      _showMissing();
+      _showMissing(_missing);
       return;
     }
 
@@ -239,6 +283,20 @@ class _VisitScreenState extends State<VisitScreen> {
     setState(() => _busy = true);
 
     try {
+      // What only the server knows (the client's answer on additional work),
+      // asked while still on site. Offline this returns nothing and the close
+      // goes ahead; a refusal then comes back through sync with its list.
+      if (to == 'completed') {
+        final serverOnly = await widget.state.serverCloseBlockers(
+          widget.visitId,
+        );
+        if (!mounted) return;
+        if (serverOnly.isNotEmpty) {
+          _showMissing(serverOnly);
+          return;
+        }
+      }
+
       // At "start" and at close, where the technician is matters. One short
       // wait for a fix (never more than ~5 s, never a refusal for lack of
       // one); far from the site, a reason is required to continue (C3).
@@ -368,7 +426,7 @@ class _VisitScreenState extends State<VisitScreen> {
     return reason;
   }
 
-  void _showMissing() {
+  void _showMissing(List<String> missing) {
     showModalBottomSheet<void>(
       context: context,
       builder: (context) => Padding(
@@ -388,7 +446,7 @@ class _VisitScreenState extends State<VisitScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            ..._missing.map(
+            ...missing.map(
               (m) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
@@ -531,6 +589,20 @@ class _VisitScreenState extends State<VisitScreen> {
     await _load();
   }
 
+  /// Parts are fitted on site: from arrival until the visit is closed.
+  bool get _canWorkOnSite =>
+      _state == 'started' || _state == 'paused' || _state == 'awaiting_close';
+
+  Future<void> _openParts() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) =>
+            PartsScreen(state: widget.state, visitId: widget.visitId),
+      ),
+    );
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -594,10 +666,32 @@ class _VisitScreenState extends State<VisitScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+              if (_canWorkOnSite)
+                Card(
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.build_circle_outlined,
+                      color: _issuedParts > 0 ? Colors.teal : Colors.black45,
+                    ),
+                    title: const LText('قطع الغيار المصروفة'),
+                    subtitle: LText(
+                      _issuedParts == 0
+                          ? 'لم تُصرف قطع لهذه الزيارة بعد'
+                          : 'صُرفت $_issuedParts قطعة',
+                    ),
+                    trailing: TileButton(
+                      onPressed: _busy ? null : _openParts,
+                      label: 'صرف قطعة',
+                    ),
+                  ),
+                ),
               Card(
                 child: SwitchListTile(
                   value: _noPartsDeclared,
-                  onChanged: _busy ? null : (v) => _toggleNoParts(v),
+                  // Once a part is issued, "none used" cannot be true.
+                  onChanged: _busy || _issuedParts > 0
+                      ? null
+                      : (v) => _toggleNoParts(v),
                   secondary: Icon(
                     _noPartsDeclared
                         ? Icons.check_circle
@@ -723,7 +817,46 @@ class _VisitScreenState extends State<VisitScreen> {
                     ),
                   ),
                 ),
-              if (_state == 'completed')
+              if (_state == 'awaiting_close' && _refusedClose.isNotEmpty)
+                Card(
+                  color: Colors.red.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const LText(
+                          'رفض الخادم الإقفال:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 6),
+                        ..._refusedClose.map(
+                          (m) => LText(
+                            '• $m',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const LText(
+                          'أكمل هذه النواقص ثم أعد الإقفال.',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              // "Closed" only once the server has it. Until then it is closed on
+              // this phone, which the server may still refuse.
+              if (_state == 'completed' && _unconfirmed)
+                const Card(
+                  color: Color(0xFFFFFBEB),
+                  child: ListTile(
+                    leading: Icon(Icons.cloud_upload_outlined),
+                    title: LText('الزيارة مقفلة على الجهاز'),
+                    subtitle: LText('بانتظار تأكيد الخادم بعد المزامنة.'),
+                  ),
+                )
+              else if (_state == 'completed')
                 const Card(
                   color: Color(0xFFECFDF5),
                   child: ListTile(

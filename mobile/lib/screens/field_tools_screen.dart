@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../app_state.dart';
 import '../core/action_outbox.dart';
 import '../core/error_messages.dart';
+import '../core/numbers.dart';
 import '../core/sync_engine.dart';
 import 'scanner_screen.dart';
 import 'tile_button.dart';
@@ -164,7 +165,7 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
           ),
           FilledButton(
             onPressed: () =>
-                Navigator.pop(context, double.tryParse(quantity.text)),
+                Navigator.pop(context, parseLocalizedNumber(quantity.text)),
             child: const LText('حفظ'),
           ),
         ],
@@ -280,9 +281,15 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
                         children: [
                           ListTile(
                             leading: const Icon(Icons.qr_code_scanner),
-                            title: LText('${row['reference'] ?? 'جلسة جرد'}'),
+                            // The API names it public_reference (a UUID);
+                            // `reference` never existed, so every session
+                            // used to show the same generic label.
+                            title: const LText('جلسة جرد'),
                             subtitle: LText(
-                              '${(row['location'] as Map?)?['name'] ?? ''}',
+                              _stocktakeLabel(
+                                row['location'] as Map?,
+                                row['public_reference'],
+                              ),
                             ),
                             trailing: waiting.isEmpty
                                 ? null
@@ -357,7 +364,7 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
     child: ListTile(
       leading: const Icon(Icons.swap_horiz),
       title: LText(
-        '${(row['part'] as Map?)?['name'] ?? 'صنف'} × ${row['qty']}',
+        '${(row['part'] as Map?)?['name'] ?? 'صنف'} × ${formatQuantity(row['qty'])}',
       ),
       subtitle: LText('${row['transfer_no']}'),
       trailing: _pendingFor(request.targetKey!).isNotEmpty
@@ -384,6 +391,15 @@ String custodyStatusLabel(String? status) => switch (status) {
   'returned' => 'مرجعة',
   _ => '—',
 };
+
+/// "Van 2 · 3f9a1c2e": the location, then enough of the session's UUID to tell
+/// two open sessions apart when talking to the office.
+String _stocktakeLabel(Map? location, Object? publicReference) {
+  final name = '${location?['name'] ?? ''}'.trim();
+  final reference = '${publicReference ?? ''}';
+  final short = reference.length > 8 ? reference.substring(0, 8) : reference;
+  return [name, short].where((part) => part.isNotEmpty).join(' · ');
+}
 
 class _PendingChip extends StatelessWidget {
   const _PendingChip();

@@ -31,16 +31,17 @@ class NotificationPanelController extends Controller
     {
         abort_unless($request->user()->isPlatformAdmin(), 403);
         $delivered = 0;
-        $waiting = 0;
 
         foreach ($this->notifications->due() as $message) {
             try {
-                $result = $this->notifications->deliver($message);
-                $result === 'sent' ? $delivered++ : $waiting++;
+                if ($this->notifications->deliver($message) === 'sent') {
+                    $delivered++;
+                }
             } catch (\Throwable $e) {
                 $this->notifications->recordFailure($message, $e->getMessage());
             }
         }
+        $waiting = $this->notifications->awaitingHuman();
 
         return back()->with('ok', "أُرسلت {$delivered} رسالة · {$waiting} بانتظار إرسال يدوي.");
     }

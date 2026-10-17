@@ -8,9 +8,11 @@ use App\Http\Middleware\EnsureDeviceIsActive;
 use App\Http\Middleware\EnsureIdempotency;
 use App\Http\Middleware\EnsurePanelPermission;
 use App\Http\Middleware\EnsurePanelUserIsActive;
+use App\Http\Middleware\EnsureSupportedAppVersion;
 use App\Http\Middleware\EnsureTwoFactorConfirmed;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetUserLocale;
+use App\Services\RevokedTokens;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\QueryException;
@@ -47,6 +49,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // A revoked handset must fail on every protected endpoint, not just login.
         $middleware->alias([
             'device.active' => EnsureDeviceIsActive::class,
+            'app.version' => EnsureSupportedAppVersion::class,
             'role.backoffice' => EnsureBackOfficeRole::class,
             'panel.active' => EnsurePanelUserIsActive::class,
             'panel.permission' => EnsurePanelPermission::class,
@@ -127,6 +130,18 @@ return Application::configure(basePath: dirname(__DIR__))
         // The mobile client needs a clean 401 to know it must sign in again.
         $exceptions->render(function (AuthenticationException $e, Request $request) {
             if ($request->is('api/*') || (getenv('VERCEL') && $request->is('v1/*'))) {
+                // A token deleted by a revocation must not read as an expired
+                // session: the phone keeps its data on 401 and wipes on these.
+                $revoked = app(RevokedTokens::class)->codeFor($request->bearerToken());
+                if ($revoked !== null) {
+                    return response()->json([
+                        'code' => $revoked,
+                        'message' => $revoked === RevokedTokens::USER_INACTIVE
+                            ? 'This account is disabled.'
+                            : 'This device is no longer authorised.',
+                    ], 403);
+                }
+
                 return response()->json([
                     'code' => 'UNAUTHENTICATED',
                     'message' => 'Authentication required.',

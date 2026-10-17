@@ -5,7 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\BootstrapVisitResource;
 use App\Models\Device;
+use App\Models\Part;
+use App\Models\StockLocation;
 use App\Models\Visit;
+use App\Services\InventoryService;
 use App\Services\SyncService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -13,7 +16,10 @@ use Illuminate\Http\Request;
 
 class SyncController extends Controller
 {
-    public function __construct(private readonly SyncService $sync) {}
+    public function __construct(
+        private readonly SyncService $sync,
+        private readonly InventoryService $inventory,
+    ) {}
 
     /**
      * Everything the device needs to work for a day with no network: today's and
@@ -45,7 +51,54 @@ class SyncController extends Controller
         return response()->json([
             'server_time' => $now->toIso8601String(),
             'visits' => $visits->map(fn (Visit $v) => (new BootstrapVisitResource($v, $now))->resolve($request))->all(),
+            'vehicle_stock' => $this->vehicleStock($user->id),
         ]);
+    }
+
+    /**
+     * The parts in this technician's van, so a part can be issued to a visit
+     * with no network. The docblock above promised this all along; without it
+     * the phone had no way to record a part at all, and the close gate pushed
+     * the technician to declare "no parts used" — the stock leak it exists for.
+     *
+     * Allowlisted like the visits (C5): no purchase cost or sale price leaves the
+     * server. On-hand quantity is a hint; the server still refuses an issue the
+     * van cannot cover (STOCK_MOVE_REFUSED).
+     *
+     * @return array{location_id:int, name:string, parts:list<array<string, mixed>>}|null
+     */
+    private function vehicleStock(int $userId): ?array
+    {
+        $location = StockLocation::query()
+            ->where('type', StockLocation::TYPE_VEHICLE)
+            ->where('is_active', true)
+            ->whereHas('vehicle', fn ($q) => $q->where('assigned_user_id', $userId))
+            ->orderBy('id')
+            ->first();
+
+        if ($location === null) {
+            return null;
+        }
+
+        $balances = collect($this->inventory->locationBalances($location->id))->keyBy('part_id');
+        $parts = Part::query()->whereIn('id', $balances->keys())->get()->keyBy('id');
+
+        return [
+            'location_id' => $location->id,
+            'name' => $location->name,
+            'parts' => $balances
+                ->filter(fn (array $row) => $row['qty'] > 0 && $parts->has($row['part_id']))
+                ->map(fn (array $row) => [
+                    'part_id' => $row['part_id'],
+                    'sku' => $row['sku'],
+                    'qr_code' => $parts[$row['part_id']]->qr_code,
+                    'name' => $row['name'],
+                    'unit' => $parts[$row['part_id']]->unit,
+                    'qty' => $row['qty'],
+                ])
+                ->values()
+                ->all(),
+        ];
     }
 
     /**

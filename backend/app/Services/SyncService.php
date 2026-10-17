@@ -141,6 +141,9 @@ class SyncService
                 $results[] = $this->rejection($clientEventId, 'INVALID_VISIT_TRANSITION', $e->getMessage(), [
                     'from' => $e->fromState, 'to' => $e->toState, 'allowed' => $e->allowed,
                 ]);
+                // The phone already moved this visit locally; send the truth back
+                // in this same response instead of on the next pull.
+                $this->touch($touchedVisits, $raw['visit_id'] ?? null);
             } catch (InvalidSyncPayload $e) {
                 $results[] = $this->rejection(
                     $clientEventId,
@@ -152,6 +155,9 @@ class SyncService
                 // that write is still inside THIS one, which is now rolling back.
                 // Writing again here — outside both — is what actually survives.
                 $this->persistBlockers($raw['visit_id'] ?? null, $e->blockers);
+                // The phone showed this visit closed the moment it was tapped. It
+                // learns otherwise from this response — not ten minutes later.
+                $this->touch($touchedVisits, $raw['visit_id'] ?? null);
 
                 $results[] = $this->rejection($clientEventId, 'VISIT_CLOSE_BLOCKED', $e->getMessage(), [
                     'blockers' => $e->blockers,
@@ -861,6 +867,20 @@ class SyncService
         }
 
         Visit::where('id', $visitId)->update(['close_blockers' => json_encode($blockers)]);
+    }
+
+    /**
+     * Marks a visit for the canonical-state reply. Only for refusals that come
+     * after the assignment check, so it never reports a visit the device may
+     * not see; canonicalVisits() is tenant-scoped on top of that.
+     *
+     * @param  array<int, bool>  $touched
+     */
+    private function touch(array &$touched, mixed $visitId): void
+    {
+        if (is_int($visitId) || (is_string($visitId) && ctype_digit($visitId))) {
+            $touched[(int) $visitId] = true;
+        }
     }
 
     private function rejection(string $id, string $code, string $message, array $extra = []): array

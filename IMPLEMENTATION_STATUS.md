@@ -164,7 +164,7 @@
 |---|---|---|
 | `MediaUploadService` يكتب أجزاء الرفع عبر مسار محلي (`$disk->path()` مع `fopen`/`flock`/`hash_file`) | مع `DARAK_FILES_DISK=s3` يتعطل رفع الأدلة المستأنف؛ `PhotoStamper` وبقية الملفات تعمل عبر واجهة القرص | ابقَ على `local` مع نسخ خارجي، أو انقل أجزاء الرفع إلى قرص محلي مؤقت قبل اعتماد S3 |
 | قوائم التحويلات والجرد للفني (`vehicle-transfers`، `vehicle-transfer-releases`، `stocktakes`) ترجع النماذج كاملة | تصل الهاتف بيانات الفني الآخر (البريد، الجوال، تكلفة الساعة، الصلاحيات) وأسعار شراء القطع وبيعها — خارج قائمة السماح C5 | موارد API بقائمة سماح مثل الزيارات |
-| رفض الأعمال في `StocktakeService` و`ProcurementService` (`RuntimeException`) | يظهر 500 بدل 4xx، فيعيد صندوق إجراءات التطبيق المحاولة بلا نهاية برسالة عامة | تحويلها إلى 409/422 برمز ثابت |
+| ~~رفض الأعمال في `StocktakeService` و`ProcurementService` (`RuntimeException`)~~ | **أُغلقت (الموجة الأولى، 2026-10-17):** `BusinessRuleViolation` يرد 409/422 برمز ثابت ورسالة عربية | `FieldActionRefusalTest` |
 
 ### إجراءات المالك قبل التشغيل
 

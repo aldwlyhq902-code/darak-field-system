@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\StockReservation;
 use App\Models\Visit;
+use Illuminate\Support\Str;
 use Tests\DarakTestCase;
 
 /**
@@ -94,6 +95,36 @@ class ApiSerializationAllowlistTest extends DarakTestCase
         }
 
         $this->assertNoForbiddenData((string) $response->getContent());
+    }
+
+    public function test_bootstrap_carries_the_vans_parts_without_their_prices(): void
+    {
+        $this->part->forceFill(['purchase_cost' => 41.5, 'sale_price' => 99.75])->save();
+        $this->part->refresh();
+        $this->inventory()->receipt((string) Str::uuid(), $this->part->id, 4, $this->vehicleStock->id);
+        // Stock elsewhere is not this technician's to issue.
+        $this->inventory()->receipt((string) Str::uuid(), $this->part->id, 9, $this->warehouse->id);
+
+        $response = $this->actingAs($this->technician)->getJson('/api/v1/sync/bootstrap')->assertOk();
+
+        $this->assertSame($this->vehicleStock->id, $response->json('vehicle_stock.location_id'));
+        $this->assertSame([[
+            'part_id' => $this->part->id,
+            'sku' => $this->part->sku,
+            'qr_code' => $this->part->qr_code,
+            'name' => $this->part->name,
+            'unit' => $this->part->unit,
+            'qty' => 4,
+        ]], $response->json('vehicle_stock.parts'));
+        $this->assertNoForbiddenData((string) $response->getContent());
+        $this->assertStringNotContainsString('99.75', (string) $response->getContent());
+    }
+
+    public function test_a_technician_without_a_van_gets_no_vehicle_stock(): void
+    {
+        $this->actingAs($this->otherTechnician)->getJson('/api/v1/sync/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('vehicle_stock', null);
     }
 
     public function test_me_is_allowlisted(): void

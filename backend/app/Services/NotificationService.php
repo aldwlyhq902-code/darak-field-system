@@ -311,11 +311,23 @@ class NotificationService
     /** @return Collection<int, NotificationMessage> */
     public function due(int $limit = 100): Collection
     {
+        // Manual-WhatsApp rows stay queued until a person sends them, so they are
+        // never "due" for the machine. Left in, a hundred unsent ones filled every
+        // batch and the drain stopped delivering everything behind them.
         return NotificationMessage::where('status', 'queued')
+            ->where('channel', '!=', NotificationMessage::CHANNEL_WHATSAPP_MANUAL)
             ->where(fn ($q) => $q->whereNull('available_at')->orWhere('available_at', '<=', now()))
             ->orderBy('id')
             ->limit($limit)
             ->get();
+    }
+
+    /** Manual-WhatsApp messages still waiting for a person to send them. */
+    public function awaitingHuman(): int
+    {
+        return NotificationMessage::where('status', 'queued')
+            ->where('channel', NotificationMessage::CHANNEL_WHATSAPP_MANUAL)
+            ->count();
     }
 
     /**

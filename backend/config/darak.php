@@ -171,6 +171,11 @@ return [
         'sync_events_per_minute' => (int) env('DARAK_SYNC_EVENTS_PER_MINUTE', 120),
         // Idempotency-Key responses are replayable for this long, then pruned.
         'idempotency_ttl_hours' => (int) env('DARAK_IDEMPOTENCY_TTL_HOURS', 48),
+        // Oldest technician app build still served, e.g. "0.3.1" or "0.3.1+4".
+        // Empty = no gate. APKs are sideloaded, so this is the only way to stop
+        // a faulty build: older phones get 426 APP_UPDATE_REQUIRED, keep their
+        // queue, and sync after the update.
+        'min_app_version' => env('DARAK_MIN_APP_VERSION'),
     ],
     // Public QR emergency form: per-site caps on top of the per-IP throttle.
     'emergency_reports' => [

@@ -82,7 +82,9 @@ components:
       description: |
         App version string (e.g. `0.3.0+3`). Stored on the device row (with
         `last_seen_at`, at most every 5 minutes) and shown to the owner.
-        Ignored when longer than 32 characters.
+        Ignored when longer than 32 characters. When `DARAK_MIN_APP_VERSION`
+        is set, a technician device reporting an older version (or none) gets
+        426 `APP_UPDATE_REQUIRED` on login and on every authenticated call.
       schema:
         type: string
         maxLength: 32
@@ -182,11 +184,37 @@ components:
         type: integer
 
   responses:
+    UpdateRequired:
+      description: |
+        `APP_UPDATE_REQUIRED` — this technician build is older than
+        `DARAK_MIN_APP_VERSION`. Not a sign-out and never a wipe: the app stops
+        syncing, keeps its queue, and shows the update screen until a newer APK
+        is installed over it.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, min_version]
+            properties:
+              code:
+                type: string
+                enum: [APP_UPDATE_REQUIRED]
+              message:
+                type: string
+              min_version:
+                type: string
+          example:
+            code: APP_UPDATE_REQUIRED
+            message: نسخة التطبيق قديمة ولم تعد مدعومة.
+            min_version: 0.3.1
     Unauthenticated:
       description: |
         `UNAUTHENTICATED` — no token, an expired token (30-day absolute or
         14-day idle) or a deleted one. The app signs in again and keeps its
-        local queue.
+        local queue. A token deleted by a device revocation, a rejected device
+        or a disabled account answers 403 `DEVICE_REVOKED` / `USER_INACTIVE`
+        instead (from a tombstone kept until the token would have expired), so
+        the phone wipes itself rather than keeping the data.
       headers:
         X-Request-ID:
           $ref: "#/components/headers/XRequestId"
@@ -256,17 +284,26 @@ components:
               - $ref: "#/components/schemas/ValidationError"
               - $ref: "#/components/schemas/IdempotencyError"
               - $ref: "#/components/schemas/PlainMessage"
-    DomainRefusalAsServerError:
+    FieldActionConflict:
       description: |
-        Known gap (0.3.0): domain refusals raised as plain `RuntimeException`
-        by StocktakeService / ProcurementService (session already closed,
-        transfer already processed, insufficient sender stock) are not mapped to
-        a 4xx and surface as a generic 500. The app's outbox treats 5xx as
-        transient and keeps retrying with backoff.
+        Either the first request under this `Idempotency-Key` is still running
+        (`IDEMPOTENCY_REQUEST_IN_PROGRESS`, retried), or a business rule refused
+        the action. Refusals carry a stable code and an Arabic `message` the app
+        shows as is; they are definitive, so the outbox parks the action as
+        failed (the technician can dismiss it) instead of retrying it:
+          * `TRANSFER_ALREADY_PROCESSED`, `TRANSFER_NOT_AWAITING_RELEASE`
+          * `SENDER_STOCK_INSUFFICIENT`, `TRANSFER_STOCK_REFUSED`
+          * `STOCKTAKE_CLOSED`, `STOCKTAKE_ALREADY_COMPLETED`, `STOCKTAKE_ALREADY_OPEN`
+        Bad input in the same family answers 422 with `STOCKTAKE_UNKNOWN_CODE`
+        or `STOCKTAKE_INVALID_QUANTITY`. (Until 0.3.1 these were bare 500s that
+        the app retried forever.)
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/PlainMessage"
+            $ref: "#/components/schemas/Error"
+          example:
+            code: SENDER_STOCK_INSUFFICIENT
+            message: الرصيد المتاح في سيارة المرسل لا يكفي للتحويل.
 
   schemas:
     PlainMessage:
@@ -1729,6 +1766,8 @@ paths:
                           code:
                             type: string
                             enum: [TWO_FACTOR_REQUIRED]
+        "426":
+          $ref: "#/components/responses/UpdateRequired"
         "429":
           description: |
             `ACCOUNT_TEMPORARILY_LOCKED` with `retry_after` seconds (password or
@@ -1843,7 +1882,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [server_time, visits]
+                required: [server_time, visits, vehicle_stock]
                 properties:
                   server_time:
                     type: string
@@ -1852,10 +1891,46 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/BootstrapVisit"
+                  vehicle_stock:
+                    description: |
+                      The caller's van and the parts it holds, for issuing
+                      parts (`part.issue`) with no network. Null when no van
+                      is assigned. No prices (allowlist C5); `qty` is on-hand
+                      and only a hint — the server still refuses an issue the
+                      van cannot cover (`STOCK_MOVE_REFUSED`).
+                    nullable: true
+                    type: object
+                    required: [location_id, name, parts]
+                    properties:
+                      location_id:
+                        type: integer
+                      name:
+                        type: string
+                      parts:
+                        type: array
+                        items:
+                          type: object
+                          required: [part_id, name, qty]
+                          properties:
+                            part_id:
+                              type: integer
+                            sku:
+                              type: string
+                            qr_code:
+                              type: string
+                              nullable: true
+                            name:
+                              type: string
+                            unit:
+                              type: string
+                            qty:
+                              type: number
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/AccessDenied"
+        "426":
+          $ref: "#/components/responses/UpdateRequired"
 
   /api/v1/sync/events:
     post:
@@ -1939,6 +2014,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ValidationError"
+        "426":
+          $ref: "#/components/responses/UpdateRequired"
         "429":
           $ref: "#/components/responses/Throttled"
 
@@ -2957,11 +3034,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/IdempotencyInProgress"
+          $ref: "#/components/responses/FieldActionConflict"
         "422":
           $ref: "#/components/responses/UnprocessableIdempotent"
-        "500":
-          $ref: "#/components/responses/DomainRefusalAsServerError"
 
   /api/v1/inventory/vehicle-transfers/{transfer}/accept:
     post:
@@ -2992,11 +3067,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/IdempotencyInProgress"
+          $ref: "#/components/responses/FieldActionConflict"
         "422":
           $ref: "#/components/responses/UnprocessableIdempotent"
-        "500":
-          $ref: "#/components/responses/DomainRefusalAsServerError"
 
   /api/v1/inventory/stocktakes:
     get:
@@ -3066,11 +3139,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/IdempotencyInProgress"
+          $ref: "#/components/responses/FieldActionConflict"
         "422":
           $ref: "#/components/responses/UnprocessableIdempotent"
-        "500":
-          $ref: "#/components/responses/DomainRefusalAsServerError"
 
   /api/v1/inventory/stocktakes/{session}/complete:
     post:
@@ -3101,11 +3172,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/IdempotencyInProgress"
+          $ref: "#/components/responses/FieldActionConflict"
         "422":
           $ref: "#/components/responses/UnprocessableIdempotent"
-        "500":
-          $ref: "#/components/responses/DomainRefusalAsServerError"
 
   /api/v1/inventory/locations/{location}/balances:
     get:

@@ -34,7 +34,7 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.text('توقيع مسؤول الموقع'), findsOneWidget);
 
-        final button = find.byType(TileButton);
+        final button = _signatureButton;
         expect(button, findsOneWidget);
         expect(find.text(signed ? 'إعادة' : 'توقيع'), findsOneWidget);
 
@@ -64,7 +64,7 @@ void main() {
     );
     await settleIo(tester);
     await _revealSignatureTile(tester);
-    await tester.tap(find.byType(TileButton));
+    await tester.tap(_signatureButton);
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -72,12 +72,19 @@ void main() {
   });
 }
 
+/// The signature tile's own button: the visit screen also has one for issuing
+/// parts, so "the" TileButton is no longer unique.
+final _signatureButton = find.descendant(
+  of: find.widgetWithText(ListTile, 'توقيع مسؤول الموقع'),
+  matching: find.byType(TileButton),
+);
+
 Future<void> _revealSignatureTile(WidgetTester tester) async {
   await tester.scrollUntilVisible(
-    find.byType(TileButton),
+    _signatureButton,
     200,
     scrollable: find.byType(Scrollable).first,
   );
-  await tester.ensureVisible(find.byType(TileButton));
+  await tester.ensureVisible(_signatureButton);
   await tester.pumpAndSettle();
 }

@@ -9,6 +9,7 @@ use App\Models\StockLocation;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\AuditLogger;
+use App\Services\RevokedTokens;
 use App\Support\BusinessReference;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
@@ -22,7 +23,11 @@ use Illuminate\View\View;
 
 class TeamController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit, private readonly TenantAccess $tenantAccess) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly TenantAccess $tenantAccess,
+        private readonly RevokedTokens $revokedTokens,
+    ) {}
 
     public function index(Request $request): View
     {
@@ -167,8 +172,12 @@ class TeamController extends Controller
         // a "disabled" technician kept syncing from a phone already in their hand
         // — the flag changed and nothing else did.
         if (! $user->is_active) {
-            $user->tokens()->delete();
+            // Tombstoned, not just deleted: the phone must hear USER_INACTIVE and
+            // wipe, not a 401 that reads as "sign in again, keep the data".
+            $this->revokedTokens->revoke($user->tokens(), RevokedTokens::USER_INACTIVE);
             DB::table('sessions')->where('user_id', $user->id)->delete();
+        } else {
+            $this->revokedTokens->forgetForUser($user->id, RevokedTokens::USER_INACTIVE);
         }
 
         return back()->with('ok', $user->is_active ? 'أُعيد تفعيل الحساب.' : 'أُوقف الحساب.');
@@ -190,7 +199,12 @@ class TeamController extends Controller
             'revoked_reason' => $data['reason'] ?? 'أُبطل من اللوحة',
         ])->save();
 
-        $device->user?->tokens()->where('name', 'device:'.$device->device_uuid)->delete();
+        if ($device->user !== null) {
+            $this->revokedTokens->revoke(
+                $device->user->tokens()->where('name', 'device:'.$device->device_uuid),
+                RevokedTokens::DEVICE_REVOKED,
+            );
+        }
 
         $this->audit->record('device.revoked', $device, null, ['reason' => $device->revoked_reason]);
 

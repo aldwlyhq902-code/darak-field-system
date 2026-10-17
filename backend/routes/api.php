@@ -19,9 +19,10 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::prefix('v1')->group(function () {
-    Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::post('auth/login', [AuthController::class, 'login'])->middleware(['throttle:login', 'app.version']);
 
-    Route::middleware(['auth:sanctum', 'device.active'])->group(function () {
+    // device.active runs first: a revoked phone must hear "wipe", not "update".
+    Route::middleware(['auth:sanctum', 'device.active', 'app.version'])->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::post('devices/{device}/revoke', [AuthController::class, 'revokeDevice']);

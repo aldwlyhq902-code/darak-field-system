@@ -13,6 +13,7 @@ import 'event_queue.dart';
 import 'evidence_cipher.dart';
 import 'evidence_store.dart';
 import 'local_db.dart';
+import 'parts.dart';
 import 'trusted_clock.dart';
 import 'visit_progress.dart';
 
@@ -310,6 +311,12 @@ class SyncEngine {
     final visits = (response['visits'] as List<dynamic>? ?? const [])
         .cast<Map<String, dynamic>>();
 
+    // What the van holds, for issuing parts with no network. Null means no
+    // van; a server too old to send the key leaves the last copy in place.
+    if (response.containsKey('vehicle_stock')) {
+      await VehicleStock.store(db, response['vehicle_stock']);
+    }
+
     // A visit with unsynced work survives a refresh even if the server's window
     // no longer returns it — past midnight it would otherwise vanish from under
     // a technician still standing on site.
@@ -596,10 +603,7 @@ class SyncEngine {
             deferredRetryable++;
           } else {
             rejected++;
-            await queue.markFailed(
-              id,
-              '${result['code'] ?? 'REJECTED'}: ${result['message'] ?? ''}',
-            );
+            await queue.markFailed(id, rejectionReason(result));
           }
         default:
           run.skippedEvents.add(id);
@@ -726,6 +730,40 @@ class SyncEngine {
   /// Per-event refusals that are the SERVER's failure, not the event's
   /// (they carry a request_id for the logs): retried with backoff.
   static const serverSideEventCodes = {'EVENT_FAILED', 'DB_ERROR'};
+
+  /// Separates the server's close blockers inside a stored rejection reason.
+  static const blockerSeparator = ' | ';
+
+  /// What a refused event keeps as its reason: "CODE: message". A refused
+  /// close keeps the server's own list of what is missing (in Arabic) instead
+  /// of its one-line English summary — the list is what the technician needs,
+  /// and it used to be thrown away here.
+  static String rejectionReason(Map<dynamic, dynamic> result) {
+    final code = result['code'] ?? 'REJECTED';
+    final blockers = (result['blockers'] as List? ?? const [])
+        .whereType<Map>()
+        .map((b) => '${b['message_ar'] ?? ''}'.trim())
+        .where((m) => m.isNotEmpty)
+        .toList();
+    if (code == 'VISIT_CLOSE_BLOCKED' && blockers.isNotEmpty) {
+      return '$code: ${blockers.join(blockerSeparator)}';
+    }
+    return '$code: ${result['message'] ?? ''}';
+  }
+
+  /// The server's missing items for a refused close, or empty for any other
+  /// stored reason.
+  static List<String> closeBlockersFrom(String? reason) {
+    const prefix = 'VISIT_CLOSE_BLOCKED:';
+    if (reason == null || !reason.startsWith(prefix)) return const [];
+    final list = reason.substring(prefix.length).trim();
+    if (list.isEmpty || !RegExp(r'[؀-ۿ]').hasMatch(list)) return const [];
+    return list
+        .split(blockerSeparator)
+        .map((m) => m.trim())
+        .where((m) => m.isNotEmpty)
+        .toList();
+  }
 
   /// The server's Retry-After when it sent one, otherwise our own backoff.
   DateTime _retryAt(ApiException e, int failures) {

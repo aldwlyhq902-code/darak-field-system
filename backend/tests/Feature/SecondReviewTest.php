@@ -242,7 +242,9 @@ class SecondReviewTest extends DarakTestCase
             ->post(route('panel.team.toggle', $this->technician))
             ->assertSessionHas('ok');
 
-        $this->asToken($token)->getJson('/api/v1/auth/me')->assertStatus(401);
+        $this->asToken($token)->getJson('/api/v1/auth/me')
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'USER_INACTIVE');
     }
 
     // --- relations cannot cross clients --------------------------------------

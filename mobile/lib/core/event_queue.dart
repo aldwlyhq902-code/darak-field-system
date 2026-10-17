@@ -418,6 +418,33 @@ class EventQueue {
     return cancelled > 0;
   }
 
+  /// Refused events of one visit, newest first.
+  Future<List<QueuedEvent>> failedFor(int visitId) async {
+    final rows = await _db.raw.query(
+      'pending_events',
+      where: 'status = ? AND visit_id = ?',
+      whereArgs: [QueuedStatus.failed.name, visitId],
+      orderBy: 'sequence DESC',
+    );
+
+    return rows.map(QueuedEvent.fromRow).toList();
+  }
+
+  /// The technician gives up on an event the server refused for good — a
+  /// visit reassigned to a colleague, a payload the server will never accept.
+  /// Retry was the only option before, so one such event blocked sign-out
+  /// until a supervisor revoked the phone. Only a refused event can be
+  /// abandoned: anything not yet answered still goes out.
+  Future<bool> abandon(String id) async {
+    final changed = await _db.raw.rawUpdate(
+      "UPDATE pending_events SET status = ?, "
+      "last_error = 'abandoned by the technician after: ' || COALESCE(last_error, '') "
+      'WHERE client_event_id = ? AND status = ?',
+      [QueuedStatus.cancelled.name, id, QueuedStatus.failed.name],
+    );
+    return changed > 0;
+  }
+
   /// Supervisor-approved retry of a rejected action.
   Future<void> requeue(String id) async {
     await _db.raw.update(

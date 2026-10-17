@@ -95,6 +95,33 @@ void main() {
       expect(outcome.sessionExpired, isTrue);
       expect(await queue.pending(), hasLength(1));
     });
+
+    test(
+      '426 halts the sync, keeps the queue, and is not a sign-out',
+      () async {
+        final server = FakeApi()
+          ..failWith = 426
+          ..failBody = {
+            'code': 'APP_UPDATE_REQUIRED',
+            'message': 'old',
+            'min_version': '0.3.1',
+          };
+        final engine = engineFor(server, db, queue, clock);
+        ApiException? reported;
+        engine.api.onAuthFailure = (error) => reported = error;
+
+        await queue.enqueue(visitId: 7, eventType: 'note.added');
+        final outcome = (await engine.sync())!;
+
+        expect(outcome.halted, isTrue);
+        expect(outcome.sessionExpired, isFalse);
+        expect(outcome.remoteWipe, isFalse);
+        expect(outcome.error, updateRequiredMessage);
+        expect(reported?.isUpdateRequired, isTrue);
+        expect(await queue.pending(), hasLength(1), reason: 'nothing is lost');
+        expect(await queue.failed(), isEmpty, reason: 'nothing is used up');
+      },
+    );
   });
 
   group('api client', () {

@@ -24,6 +24,7 @@ import 'core/geofence.dart';
 import 'core/local_db.dart';
 import 'core/location.dart';
 import 'core/login_session.dart';
+import 'core/parts.dart';
 import 'core/pinned_http.dart';
 import 'core/secure_token_store.dart';
 import 'core/sync_engine.dart';
@@ -76,6 +77,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool online = true;
   bool syncing = false;
   bool sessionExpired = false;
+
+  /// The server no longer serves this build (426). Everything stays on the
+  /// phone until the new APK is installed over this one.
+  bool updateRequired = false;
+  String? requiredVersion;
   String? lastSyncMessage;
   DateTime? lastSyncedAt;
   Locale locale = const Locale('ar');
@@ -357,6 +363,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void _onAuthFailure(ApiException error) {
     if (error.isRemoteWipe) {
       unawaited(_remoteWipe(error.code));
+    } else if (error.isUpdateRequired) {
+      requiredVersion = error.body['min_version'] as String?;
+      lastSyncMessage = updateRequiredMessage;
+      if (!updateRequired) {
+        updateRequired = true;
+        notifyListeners();
+      }
     } else if (error.isPendingApproval) {
       unawaited(_expireSession(notice: devicePendingApprovalMessage));
     } else if (error.isSessionExpired) {
@@ -384,6 +397,23 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         ? 'هذا الحساب معطّل، فمُسحت بيانات العمل من هذا الجهاز. تواصل مع المشرف.'
         : 'أُلغي اعتماد هذا الجهاز من المشرف، فمُسحت بيانات العمل منه. تواصل مع المشرف.';
     await _wipeAndRestart(notice: notice);
+  }
+
+  /// The update screen's "check again": a server that has lowered its minimum
+  /// (or a build that is now new enough) lets the phone straight back in.
+  Future<void> recheckAppVersion() async {
+    updateRequired = false;
+    notifyListeners();
+    try {
+      await api.me().timeout(const Duration(seconds: 10));
+      requestSync();
+    } on ApiException catch (error) {
+      // 426 sets the flag again through onAuthFailure; anything else (no
+      // network) leaves the app usable offline.
+      debugPrint('Version re-check: ${error.code}');
+    } catch (error) {
+      debugPrint('Version re-check failed: $error');
+    }
   }
 
   /// Unsynced items that would be lost by signing out.
@@ -486,7 +516,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   /// [manual]: the technician asked — retry backoffs are ignored.
   Future<void> runSync({bool manual = true, bool pull = true}) async {
-    if (!ready || _wiping || !isAuthenticated) return;
+    // An outdated build only earns 426s; the queue waits for the update.
+    if (!ready || _wiping || !isAuthenticated || updateRequired) return;
 
     // Coalesce concurrent calls. Every checklist tap fires a background sync;
     // one recorded while a sync is running makes it go round once more
@@ -529,6 +560,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _applyOutcome(SyncOutcome outcome) async {
     if (outcome.remoteWipe) {
       unawaited(_remoteWipe(outcome.remoteWipeCode!));
+      return;
+    }
+    // A 426 halts the run like a dead session — and the outbox files it as
+    // one — but it must never sign the technician out: the update screen is
+    // already up (onAuthFailure ran first) and the token is still good.
+    if (updateRequired) {
+      await refreshLocal();
       return;
     }
     if (outcome.pendingApproval) {
@@ -607,6 +645,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     );
     if (!applied) return false;
 
+    // A new close supersedes any close the server refused earlier: that one
+    // will never be sent again, and left "failed" it blocked sign-out forever.
+    if (target == 'completed') {
+      for (final refused in await queue.failedFor(visitId)) {
+        if (refused.eventType == 'visit.transition' &&
+            refused.payload['to'] == 'completed') {
+          await queue.abandon(refused.clientEventId);
+        }
+      }
+    }
+
     await refreshLocal();
     requestSync();
 
@@ -627,6 +676,49 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<List<String>> nextStates(int visitId) => progress.nextStates(visitId);
 
+  /// Close conditions only the server can judge: the client's answer on
+  /// additional work, and a visit with no asset to inspect. Everything else
+  /// the local gate already checks — and the server would still report it
+  /// missing while the evidence sits unsynced on the phone.
+  static const serverOnlyCloseBlockers = {
+    'ADDITIONAL_WORK_PENDING',
+    'NO_CHECKLIST',
+  };
+
+  /// Best effort, before a close: offline or slow, the local gate stands
+  /// alone and the server's refusal (if any) comes back through sync.
+  Future<List<String>> serverCloseBlockers(int visitId) async {
+    try {
+      final response = await api
+          .closeBlockers(visitId)
+          .timeout(const Duration(seconds: 6));
+      return (response['blockers'] as List? ?? const [])
+          .whereType<Map>()
+          .where((b) => serverOnlyCloseBlockers.contains(b['code']))
+          .map((b) => '${b['message_ar'] ?? ''}'.trim())
+          .where((m) => m.isNotEmpty)
+          .toList();
+    } catch (error) {
+      debugPrint('Close pre-check skipped: $error');
+      return const [];
+    }
+  }
+
+  /// The server's list from the latest refused close of this visit, if any.
+  Future<List<String>> refusedCloseBlockers(int visitId) async {
+    for (final refused in await queue.failedFor(visitId)) {
+      if (refused.eventType == 'visit.transition' &&
+          refused.payload['to'] == 'completed') {
+        return SyncEngine.closeBlockersFrom(refused.lastError);
+      }
+    }
+    return const [];
+  }
+
+  /// True while this visit's local state is ahead of the server.
+  Future<bool> hasUnconfirmedTransition(int visitId) async =>
+      (await progress.visitsWithPendingTransitions()).contains(visitId);
+
   /// Explicit per-visit declaration, decoupled from asset status.
   Future<void> declareNoParts(int visitId, bool value) async {
     await recorder.declareNoParts(
@@ -639,13 +731,44 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     requestSync();
   }
 
-  Future<bool> noPartsDeclared(int visitId) async {
-    final rows = await db.raw.rawQuery(
-      'SELECT COUNT(*) AS c FROM local_checklists WHERE visit_id = ? AND no_parts_used = 1',
-      [visitId],
-    );
+  Future<bool> noPartsDeclared(int visitId) =>
+      recorder.noPartsDeclared(visitId);
 
-    return ((rows.first['c'] as int?) ?? 0) > 0;
+  /// The van's parts as of the last refresh, or null with no van assigned.
+  Future<VehicleStock?> vehicleStock() => VehicleStock.load(db);
+
+  Future<List<IssuedPart>> issuedParts(int visitId) =>
+      recorder.issuedParts(visitId);
+
+  Future<List<IssuedPart>> unsentIssues() => recorder.unsentIssues();
+
+  Future<void> issuePart(
+    int visitId, {
+    required VanPart part,
+    required double qty,
+    required int fromLocationId,
+  }) async {
+    await recorder.issuePart(
+      visitId,
+      partId: part.partId,
+      qty: qty,
+      fromLocationId: fromLocationId,
+      idempotencyKey: const Uuid().v4(),
+      location: await location.quick(),
+      actorUserId: userId,
+    );
+    await refreshLocal();
+    requestSync();
+  }
+
+  /// Under the sync lock: a batch already on its way cannot carry the issue
+  /// while it is being withdrawn here.
+  Future<bool> withdrawIssue(String clientEventId) async {
+    final withdrawn = await sync.exclusive(
+      () => recorder.withdrawIssue(clientEventId),
+    );
+    await refreshLocal();
+    return withdrawn;
   }
 
   Future<void> setChecklist(
@@ -653,7 +776,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     int assetId, {
     required String status,
     String? note,
-    bool noPartsUsed = false,
+    bool? noPartsUsed,
   }) async {
     await recorder.setChecklist(
       visitId,

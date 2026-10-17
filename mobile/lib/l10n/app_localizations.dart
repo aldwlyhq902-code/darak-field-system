@@ -95,10 +95,27 @@ class AppLocalizations {
       (m) =>
           'You are about ${m[1]} m from the site (allowed ${m[2]} m). Enter a short reason to continue.',
     ),
+    (
+      RegExp(
+        r'^الكمية أكبر من المتوفر في السيارة \((\S+)\)\. صحّحها أو راجع المشرف\.$',
+      ),
+      (m) =>
+          'More than the van holds (${m[1]}). Correct it or check with the supervisor.',
+    ),
+    (RegExp(r'^صُرفت (\d+) قطعة$'), (m) => '${m[1]} part issue(s) recorded'),
+    (
+      RegExp(r'^نسختك: (\S+) · المطلوبة: (\S+)$'),
+      (m) => 'Your version: ${m[1]} · Required: ${m[2]}',
+    ),
+    (RegExp(r'^(.*) · المتوفر: (.*)$'), (m) => '${m[1]} · Available: ${m[2]}'),
   ];
 
   static const Map<String, String> _englishPrefixTemplates = {
     'تسجيل الخروج (': 'Sign out (',
+    'المتوفر في السيارة: ': 'Available in the van: ',
+    // The server's blocker list stays in Arabic (it is the server's wording).
+    'لم يقبل الخادم الإقفال. النواقص: ':
+        'The server did not accept the close. Missing: ',
     'عمليات مسح بانتظار الإرسال: ': 'Scans waiting to be sent: ',
     'آخر مزامنة ': 'Last sync ',
     'حالة الأصل: ': 'Asset status: ',
@@ -173,6 +190,40 @@ class AppLocalizations {
   };
 
   static const Map<String, String> _english = {
+    // Forced update (update_required_screen.dart).
+    'حدّث التطبيق': 'Update the app',
+    'هذه النسخة لم تعد مدعومة. اطلب ملف التحديث من المشرف وثبّته فوق هذه النسخة دون حذفها.':
+        'This version is no longer supported. Ask the supervisor for the update file and install it over this version without uninstalling it.',
+    'لديك عمل لم يُرسل بعد، وهو محفوظ على الجهاز. لا تحذف التطبيق — التحديث فوقه يحفظه ويرسله.':
+        'You have work that has not been sent yet; it is saved on the device. Do not uninstall the app — updating over it keeps it and sends it.',
+    'تحقّق مرة أخرى': 'Check again',
+    'نسخة التطبيق قديمة ولم تعد مدعومة. ثبّت النسخة الجديدة من المشرف — عملك محفوظ على الجهاز وسيُرسل بعد التحديث.':
+        'This app version is no longer supported. Install the new version from the supervisor — your work is saved on the device and will be sent after the update.',
+    // Parts issue (parts_screen.dart, visit_screen.dart).
+    'صرف قطع الغيار': 'Issue spare parts',
+    'مسح ملصق القطعة': 'Scan part label',
+    'هذه القطعة غير مسجلة في مخزون سيارتك. راجع المشرف.':
+        'This part is not in your van stock. Check with the supervisor.',
+    'الكمية المصروفة': 'Quantity issued',
+    'صرف': 'Issue',
+    'أدخل كمية أكبر من صفر.': 'Enter a quantity above zero.',
+    'سُجّل صرف القطعة محلياً وسيُرسل تلقائياً.':
+        'Part issue saved on the device; it will be sent automatically.',
+    'أُلغي صرف القطعة.': 'Part issue withdrawn.',
+    'أُرسل الصرف للخادم بالفعل. لإرجاع القطعة راجع المشرف.':
+        'The issue already reached the server. To return the part, contact the supervisor.',
+    'صُرفت لهذه الزيارة': 'Issued to this visit',
+    'لا يوجد مخزون سيارة مسجل لك على هذا الجهاز. حدّث البيانات عند توفر الشبكة، أو اطلب من المشرف ربط سيارة بحسابك.':
+        'No van stock is registered for you on this device. Refresh when online, or ask the supervisor to link a van to your account.',
+    'مخزون السيارة': 'Van stock',
+    'ابحث باسم القطعة أو رمزها': 'Search by part name or code',
+    'لا توجد قطع في مخزون سيارتك.': 'There are no parts in your van stock.',
+    'رفضه الخادم': 'Refused by the server',
+    'أُرسل': 'Sent',
+    'إلغاء الصرف': 'Withdraw issue',
+    'قطع الغيار المصروفة': 'Parts issued',
+    'لم تُصرف قطع لهذه الزيارة بعد': 'No parts issued to this visit yet',
+    'صرف قطعة': 'Issue a part',
     'دارك — تطبيق الفني': 'Darak — Technician app',
     'دارك': 'Darak',
     'تطبيق الفني الميداني': 'Field technician app',
@@ -248,8 +299,12 @@ class AppLocalizations {
     'الصفة (مدير الفرع، الكابتن…)': 'Role (branch manager, captain…)',
     'وقّع في المساحة أدناه:': 'Sign in the area below:',
     'حفظ التوقيع': 'Save signature',
-    'التوقيع واسم المسؤول مطلوبان.':
-        'Signature and representative name are required.',
+    'التوقيع واسم المسؤول وصفته مطلوبة.':
+        'Signature, representative name and role are required.',
+    'أكمل البند: الوصف، وكمية أكبر من صفر، وسعر صحيح.':
+        'Complete the item: a description, a quantity above zero and a valid price.',
+    'أكمل العنوان والوصف وأضف بنداً واحداً على الأقل.':
+        'Fill in the title and description and add at least one item.',
     'التشخيص المقترح': 'Suggested diagnosis',
     'كود العطل أو وصف مختصر': 'Fault code or short description',
     'اقتراح من التاريخ وقاعدة المعرفة':
@@ -513,6 +568,18 @@ class AppLocalizations {
     'العهد والجرد والتحويلات والتشخيص وطلبات العمل الإضافي والفحص. تُرسل تلقائياً عند توفر الشبكة.':
         'Custody, stocktake, transfers, diagnoses, additional-work requests and inspections. Sent automatically when a network is available.',
     'تجاهل': 'Dismiss',
+    'تجاهل العملية': 'Dismiss this operation',
+    'تجاهل هذه العملية؟': 'Dismiss this operation?',
+    'لن تُرسل إلى الخادم أبداً، ولا يمكن التراجع. استخدم هذا فقط إذا رفضها الخادم لسبب لن يتغير، أو بعد مراجعة المشرف.':
+        'It will never be sent to the server, and this cannot be undone. Use it only when the server refused it for a reason that will not change, or after checking with the supervisor.',
+    'لا توجد أصول مرتبطة بهذه الزيارة — اطلب من المشرف ربط أصل بها قبل الإقفال.':
+        'No assets are linked to this visit — ask the supervisor to link one before closing.',
+    'الزيارة مقفلة على الجهاز': 'Visit closed on this device',
+    'بانتظار تأكيد الخادم بعد المزامنة.':
+        'Waiting for the server to confirm after sync.',
+    'رفض الخادم الإقفال:': 'The server refused the close:',
+    'أكمل هذه النواقص ثم أعد الإقفال.':
+        'Complete these items, then close again.',
     'رفض الخادم الملف أو تعذّرت قراءته.':
         'The server refused the file, or it could not be read.',
     // Contract additions: lockout, idempotency in progress, per-event codes.

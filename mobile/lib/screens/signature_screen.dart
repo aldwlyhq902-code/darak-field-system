@@ -45,9 +45,14 @@ class _SignatureScreenState extends State<SignatureScreen> {
   }
 
   Future<void> _save() async {
-    if (_controller.isEmpty || _name.text.trim().isEmpty) {
+    // The server refuses a signature without the signer's role (it is what makes
+    // the sign-off mean something in a dispute). Optional here used to mean a
+    // signature that saved locally and was then rejected forever at sync.
+    if (_controller.isEmpty ||
+        _name.text.trim().isEmpty ||
+        _role.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: LText('التوقيع واسم المسؤول مطلوبان.')),
+        const SnackBar(content: LText('التوقيع واسم المسؤول وصفته مطلوبة.')),
       );
       return;
     }
@@ -92,6 +97,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
             TextField(
               controller: _name,
               textInputAction: TextInputAction.next,
+              maxLength: 190, // the server's limit for signer_name
               decoration: InputDecoration(
                 labelText: context.tr('اسم المسؤول'),
                 border: OutlineInputBorder(),
@@ -100,6 +106,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
             const SizedBox(height: 10),
             TextField(
               controller: _role,
+              maxLength: 120, // the server's limit for signer_role
               decoration: InputDecoration(
                 labelText: context.tr('الصفة (مدير الفرع، الكابتن…)'),
                 border: OutlineInputBorder(),

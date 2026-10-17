@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Services\AuditLogger;
+use App\Services\RevokedTokens;
 use App\Support\TenantAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -20,6 +21,7 @@ class DeviceApprovalController extends Controller
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly TenantAccess $tenantAccess,
+        private readonly RevokedTokens $revokedTokens,
     ) {}
 
     public function approve(Request $request, Device $device): RedirectResponse
@@ -52,7 +54,12 @@ class DeviceApprovalController extends Controller
             'revoked_at' => $device->revoked_at ?? CarbonImmutable::now(),
             'revoked_reason' => 'رُفض اعتماد الجهاز',
         ])->save();
-        $device->user?->tokens()->where('name', 'device:'.$device->device_uuid)->delete();
+        if ($device->user !== null) {
+            $this->revokedTokens->revoke(
+                $device->user->tokens()->where('name', 'device:'.$device->device_uuid),
+                RevokedTokens::DEVICE_REVOKED,
+            );
+        }
 
         $this->audit->record('device.rejected', $device, null, ['user_id' => $device->user_id]);
 

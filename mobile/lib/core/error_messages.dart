@@ -56,6 +56,13 @@ String friendlyError(Object error, {String? context}) {
 
 /// A rejection reason stored on a queued item, in the technician's language.
 String friendlyRejection(String? code, String? message) {
+  // A refused close carries the server's own list of what is missing; that
+  // list beats the generic "something is missing" line.
+  if (code == 'VISIT_CLOSE_BLOCKED' &&
+      message != null &&
+      _arabic.hasMatch(message)) {
+    return '$closeRefusedPrefix${message.split(' | ').join('، ')}';
+  }
   final byCode = _byCode[code];
   if (byCode != null) return byCode;
   final mapped = _serverMessage({'message': message});
@@ -75,6 +82,9 @@ String accountLockedMessage(Duration? retryAfter) {
 }
 
 const genericErrorMessage = 'تعذّر تنفيذ الطلب. أعد المحاولة لاحقاً.';
+const closeRefusedPrefix = 'لم يقبل الخادم الإقفال. النواقص: ';
+const updateRequiredMessage =
+    'نسخة التطبيق قديمة ولم تعد مدعومة. ثبّت النسخة الجديدة من المشرف — عملك محفوظ على الجهاز وسيُرسل بعد التحديث.';
 const sessionExpiredMessage =
     'انتهت الجلسة — سجّل الدخول مرة أخرى. عملك محفوظ ولم يضع منه شيء.';
 const devicePendingApprovalMessage =
@@ -87,6 +97,7 @@ const Map<String, String> _byCode = {
   'DEVICE_REVOKED': 'أُلغي اعتماد هذا الجهاز من المشرف.',
   'USER_INACTIVE': 'هذا الحساب معطّل. تواصل مع المشرف.',
   'DEVICE_PENDING_APPROVAL': devicePendingApprovalMessage,
+  'APP_UPDATE_REQUIRED': updateRequiredMessage,
   'DEVICE_BOUND_TO_ANOTHER_USER':
       'هذا الجهاز مسجل لحساب آخر. اطلب من المشرف إلغاء اعتماده أولًا.',
   'DEVICE_MISMATCH': 'هذا الجهاز مسجل لمستخدم آخر.',
