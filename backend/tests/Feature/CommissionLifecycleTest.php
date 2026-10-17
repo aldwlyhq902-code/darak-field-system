@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\CommercialService;
 use App\Services\CommissionService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -193,6 +194,55 @@ class CommissionLifecycleTest extends DarakTestCase
         $row = DB::table('commission_entries')->sole();
         $this->assertSame('accrued', $row->status);
         $this->assertSame('2026-01-05 09:00:00', substr((string) $row->accrued_at, 0, 19));
+    }
+
+    public function test_the_same_receipt_cannot_accrue_twice_by_hand(): void
+    {
+        $payment = $this->collect('400.00'); // accrues automatically
+        $this->assertSame(1, CommissionEntry::where('payment_id', $payment->id)->count());
+
+        $this->actingAs($this->owner, 'web')
+            ->post(route('panel.admin.commission-entry'), [
+                'commission_rule_id' => $this->rule->id,
+                'user_id' => $this->marketer->id,
+                'receipt_no' => $payment->receipt_no,
+            ])
+            ->assertSessionHas('err', 'سبق احتساب عمولة هذه السياسة لهذا المستند.');
+
+        $this->assertSame(1, CommissionEntry::where('payment_id', $payment->id)->count());
+    }
+
+    public function test_the_database_refuses_a_second_entry_for_the_same_source(): void
+    {
+        $payment = $this->collect('250.00');
+        $entry = CommissionEntry::where('payment_id', $payment->id)->sole();
+
+        $this->expectException(QueryException::class);
+        CommissionEntry::create($entry->only([
+            'commission_rule_id', 'user_id', 'contract_id', 'payment_id', 'basis_amount',
+            'commission_amount', 'status', 'entry_type', 'accrued_at',
+        ]));
+    }
+
+    public function test_nobody_accrues_their_own_commission_by_hand(): void
+    {
+        $this->marketer->forceFill([
+            'permissions' => ['admin'],
+            'two_factor_secret' => 'JBSWY3DPEHPK3PXP',
+            'two_factor_recovery_codes' => [],
+            'two_factor_confirmed_at' => now(),
+        ])->save();
+        $contract = $this->soldContract;
+
+        $this->actingAs($this->marketer, 'web')
+            ->post(route('panel.admin.commission-entry'), [
+                'commission_rule_id' => $this->rule->id,
+                'user_id' => $this->marketer->id,
+                'contract_no' => $contract->contract_no,
+            ])
+            ->assertSessionHas('err');
+
+        $this->assertSame(0, CommissionEntry::count());
     }
 
     private function collect(string $amount): Payment

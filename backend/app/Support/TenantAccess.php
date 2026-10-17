@@ -32,6 +32,44 @@ class TenantAccess
         $this->assertCompany($actor, $companyId, $status);
     }
 
+    /**
+     * Acting ON an account — disabling it, revoking its device, resetting its
+     * MFA, changing its panel permissions — honours the branch boundary that
+     * every data read already does. assertUser() checked the company only, so a
+     * branch-bound supervisor could disable the company-wide owner or another
+     * branch's staff, or reset their MFA (which also kills their sessions).
+     *
+     *  - a branch-bound actor manages only accounts of their own branch (404
+     *    otherwise, as for any record outside their scope);
+     *  - the company-wide owner and platform admins are managed only by a
+     *    company-wide owner or a platform admin (403).
+     */
+    public function assertManageableUser(User $actor, User $target): void
+    {
+        $this->assertUser($actor, $target);
+        if ($actor->isPlatformAdmin()) {
+            return;
+        }
+
+        $actorBranch = $actor->operating_branch_id;
+        abort_if(
+            $actorBranch !== null && (int) $target->operating_branch_id !== (int) $actorBranch,
+            404,
+        );
+
+        $protected = $target->isPlatformAdmin() || ($target->isOwner() && $target->operating_branch_id === null);
+        $companyWideOwner = $actor->isOwner() && $actorBranch === null;
+        abort_if($protected && ! $companyWideOwner, 403, 'هذا الحساب يديره مالك الشركة فقط.');
+    }
+
+    public function assertManageableDevice(User $actor, Device $device): void
+    {
+        $this->assertDevice($actor, $device);
+        $owner = User::query()->find($device->user_id);
+        abort_if($owner === null, 404);
+        $this->assertManageableUser($actor, $owner);
+    }
+
     public function assertPortalUser(User $actor, ClientPortalUser $portalUser, int $status = 404): void
     {
         $companyId = DB::table('clients')->where('id', $portalUser->client_id)->value('operating_company_id');

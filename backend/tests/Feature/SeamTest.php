@@ -241,6 +241,50 @@ class SeamTest extends DarakTestCase
         ])->assertOk()->json('token');
     }
 
+    /**
+     * The phone shows a visit closed the moment the button is tapped. When the
+     * server refuses, the same response must carry the visit's real state and
+     * the list of what is missing — before, rejected events were left out of
+     * `visits`, so the phone kept saying "closed" until its next pull.
+     */
+    public function test_a_refused_close_returns_the_real_state_and_the_missing_list(): void
+    {
+        $token = $this->deviceToken();
+        $sequence = 0;
+        $events = [];
+        foreach (['en_route', 'started', 'awaiting_close'] as $state) {
+            $events[] = $this->clientEvent('visit.transition', ['to' => $state], ++$sequence);
+        }
+        $this->asToken($token)->postJson('/api/v1/sync/events', [
+            'device_uuid' => $this->device->device_uuid,
+            'events' => $events,
+        ])->assertOk();
+
+        $close = $this->asToken($token)->postJson('/api/v1/sync/events', [
+            'device_uuid' => $this->device->device_uuid,
+            'events' => [$this->clientEvent('visit.transition', ['to' => 'completed'], ++$sequence)],
+        ])->assertOk();
+
+        $this->assertSame('rejected', $close->json('results.0.status'));
+        $this->assertSame('VISIT_CLOSE_BLOCKED', $close->json('results.0.code'));
+        $this->assertNotEmpty($close->json('results.0.blockers.0.message_ar'));
+        $this->assertSame(
+            [['id' => $this->visit->id, 'state' => Visit::STATE_AWAITING_CLOSE]],
+            collect($close->json('visits'))->map(fn ($v) => ['id' => $v['id'], 'state' => $v['state']])->all(),
+        );
+    }
+
+    public function test_an_invalid_transition_returns_the_real_state(): void
+    {
+        $response = $this->asToken($this->deviceToken())->postJson('/api/v1/sync/events', [
+            'device_uuid' => $this->device->device_uuid,
+            'events' => [$this->clientEvent('visit.transition', ['to' => 'completed'], 1)],
+        ])->assertOk();
+
+        $this->assertSame('INVALID_VISIT_TRANSITION', $response->json('results.0.code'));
+        $this->assertSame(Visit::STATE_SCHEDULED, $response->json('visits.0.state'));
+    }
+
     /** @param array<string, mixed> $payload */
     private function clientEvent(string $type, array $payload, int $sequence): array
     {

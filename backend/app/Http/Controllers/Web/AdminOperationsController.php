@@ -283,6 +283,11 @@ class AdminOperationsController extends Controller
         $data = $request->validate(['commission_rule_id' => ['required', 'exists:commission_rules,id'], 'user_id' => ['required', 'exists:users,id'], 'contract_id' => ['nullable', 'exists:contracts,id'], 'visit_id' => ['nullable', 'exists:visits,id'], 'payment_id' => ['nullable', 'exists:payments,id'], 'contract_no' => ['nullable', 'string', 'max:64'], 'receipt_no' => ['nullable', 'string', 'max:48']]);
         $targetUser = User::query()->findOrFail($data['user_id']);
         $this->tenantAccess->assertUser($request->user(), $targetUser);
+        // Nobody accrues their own commission by hand: the payout was the only
+        // gate, and an admin could queue entries for themselves without limit.
+        if ($targetUser->is($request->user())) {
+            return back()->with('err', 'لا يمكن تسجيل عمولة لنفسك. يسجلها مستخدم آخر أو تُحتسب آلياً.');
+        }
         // References typed by the user resolve through the tenant scope.
         $contract = filled($data['contract_no'] ?? null) ? Contract::query()->where('contract_no', trim($data['contract_no']))->firstOrFail()
             : (isset($data['contract_id']) ? Contract::find($data['contract_id']) : null);
@@ -334,7 +339,7 @@ class AdminOperationsController extends Controller
     public function permissions(Request $request, User $user): RedirectResponse
     {
         abort_unless($request->user()->isOwner(), 403);
-        $this->tenantAccess->assertUser($request->user(), $user);
+        $this->tenantAccess->assertManageableUser($request->user(), $user);
         $data = $request->validate(['permissions' => ['nullable', 'array'], 'permissions.*' => ['in:operations,clients,commercial,finance,inventory,intelligence,team,hr,fleet,performance,sales,admin'], 'full_access' => ['nullable', 'boolean']]);
         $before = $user->permissions;
         // Full access is an explicit choice. An empty selection means no panel

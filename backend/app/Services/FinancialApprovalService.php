@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Contract;
 use App\Models\ContractInstallment;
 use App\Models\FinancialApproval;
 use App\Models\Quotation;
@@ -82,6 +83,16 @@ class FinancialApprovalService
                 throw new RuntimeException('تغير سعر العرض بعد طلب الاعتماد؛ يلزم طلب اعتماد جديد.');
             }
             // Nothing changes on the quotation: the approved record is what lets it be sent.
+        } elseif ($approval->subject_type === 'contract' && $approval->action_type === QuotationPricingService::ACTION) {
+            $contract = Contract::lockForUpdate()->findOrFail($approval->subject_id);
+            if ($contract->status !== Contract::STATUS_PENDING_APPROVAL) {
+                throw new RuntimeException('اعتماد السعر يخص عقدًا ينتظر الاعتماد المالي فقط.');
+            }
+            if (bccomp((string) $approval->amount, (string) $contract->price_amount, 2) !== 0) {
+                throw new RuntimeException('تغير سعر العقد بعد طلب الاعتماد؛ يلزم طلب اعتماد جديد.');
+            }
+            // The second approval is what puts a directly entered contract live.
+            $contract->forceFill(['status' => 'active'])->save();
         } elseif ($approval->subject_type === 'installment' && $approval->action_type === 'settlement') {
             $installment = ContractInstallment::lockForUpdate()->findOrFail($approval->subject_id);
             if ($amount <= 0 || $amount > $installment->remaining()) {

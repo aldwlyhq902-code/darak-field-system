@@ -96,6 +96,35 @@ class NotificationTest extends DarakTestCase
         $this->assertSame('sent', $message->refresh()->status);
     }
 
+    public function test_unsent_manual_whatsapp_never_starves_the_rest_of_the_outbox(): void
+    {
+        $notifications = app(NotificationService::class);
+
+        // More waiting-for-a-human messages than one drain batch holds, all older
+        // than the in-app message behind them.
+        for ($i = 0; $i < 3; $i++) {
+            NotificationMessage::create([
+                'type' => NotificationMessage::TYPE_REPORT_READY,
+                'channel' => NotificationMessage::CHANNEL_WHATSAPP_MANUAL,
+                'recipient_kind' => 'client',
+                'visit_id' => $this->visit->id,
+                'body' => 'تقرير جاهز '.$i,
+                'status' => 'queued',
+                'idempotency_key' => 'manual-'.$i,
+            ]);
+        }
+        $inApp = $notifications->slaAtRisk($this->visit, 15);
+
+        $due = $notifications->due(2);
+        $this->assertSame([$inApp->id], $due->pluck('id')->all());
+        $this->assertSame(3, $notifications->awaitingHuman());
+
+        $this->artisan('darak:notifications-run', ['--limit' => 2])->assertSuccessful();
+        $this->assertSame('sent', $inApp->refresh()->status);
+        $this->assertSame(3, NotificationMessage::where('channel', NotificationMessage::CHANNEL_WHATSAPP_MANUAL)
+            ->where('status', 'queued')->count(), 'manual messages still wait for a person');
+    }
+
     public function test_repeated_failures_end_in_a_dead_letter_not_silence(): void
     {
         $notifications = app(NotificationService::class);

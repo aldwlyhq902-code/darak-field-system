@@ -15,6 +15,9 @@ class Contract extends Model
 {
     use HasFactory, ScopedToOperatingBranch, SoftDeletes;
 
+    /** Entered directly by a non-owner at a price outside the rules: not live until dual-approved. */
+    public const STATUS_PENDING_APPROVAL = 'pending_approval';
+
     protected $fillable = [
         'client_id', 'contract_no', 'package_code', 'price_amount', 'vat_rate',
         'billing_cycle', 'starts_on', 'ends_on',

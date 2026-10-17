@@ -64,9 +64,14 @@ class ApiException implements Exception {
   bool get isRemoteWipe =>
       statusCode == 403 && remoteWipeCodes.contains(body['code']);
 
+  /// This build is older than the server's DARAK_MIN_APP_VERSION. Not a sign
+  /// out and never a wipe: everything waits on the phone for the new APK.
+  bool get isUpdateRequired =>
+      statusCode == 426 || body['code'] == 'APP_UPDATE_REQUIRED';
+
   /// Nothing more can be sent under this session: stop the sync here.
   bool get stopsSession =>
-      isSessionExpired || isPendingApproval || isRemoteWipe;
+      isSessionExpired || isPendingApproval || isRemoteWipe || isUpdateRequired;
 
   /// The server understood this exact request and refused it. Only these count
   /// against an item's attempt budget — a basement must never "use up" a photo.

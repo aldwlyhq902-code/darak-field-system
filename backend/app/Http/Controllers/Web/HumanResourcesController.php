@@ -181,8 +181,9 @@ class HumanResourcesController extends Controller
 
     private function authorizeUser(Request $request, User $user): void
     {
-        $actor = $request->user();
-        $this->tenantAccess->assertUser($actor, $user);
-        abort_unless($actor->isPlatformAdmin() || $actor->isOwner() || $actor->operating_branch_id === null || $actor->operating_branch_id === $user->operating_branch_id, 403);
+        // Owners used to pass whatever their branch; a branch-bound owner now
+        // stays inside it like everyone else, and the company-wide owner's file
+        // is the company-wide owner's business.
+        $this->tenantAccess->assertManageableUser($request->user(), $user);
     }
 }

@@ -22,8 +22,13 @@ class EmergencyReport extends Model
         'public_reference', 'site_id', 'asset_id', 'client_portal_user_id',
         'work_order_id', 'reporter_name', 'reporter_phone', 'reporter_role',
         'category', 'severity', 'description', 'photo_path', 'photo_mime',
-        'photo_sha256', 'status', 'source', 'ip_hash',
+        'photo_sha256', 'status', 'source', 'ip_hash', 'flood_flagged',
     ];
+
+    protected function casts(): array
+    {
+        return ['flood_flagged' => 'boolean'];
+    }
 
     public function site(): BelongsTo
     {

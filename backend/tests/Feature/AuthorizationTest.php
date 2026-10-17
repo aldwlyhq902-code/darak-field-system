@@ -103,7 +103,11 @@ class AuthorizationTest extends DarakTestCase
             ->postJson("/api/v1/devices/{$deviceId}/revoke", ['reason' => 'lost handset'])
             ->assertOk();
 
-        $this->asToken($techToken)->getJson('/api/v1/auth/me')->assertStatus(401);
+        // 403 DEVICE_REVOKED, not 401: the app keeps its data on 401 and wipes on
+        // this. The token is still gone — the answer comes from its tombstone.
+        $this->asToken($techToken)->getJson('/api/v1/auth/me')
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'DEVICE_REVOKED');
 
         $this->assertNotNull(Device::find($deviceId)->revoked_at);
     }

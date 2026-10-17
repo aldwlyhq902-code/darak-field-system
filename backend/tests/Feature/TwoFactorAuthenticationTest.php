@@ -83,6 +83,40 @@ class TwoFactorAuthenticationTest extends DarakTestCase
         }
     }
 
+    public function test_the_enrolment_form_cannot_mint_new_recovery_codes_on_an_enrolled_account(): void
+    {
+        // A hijacked, already-enrolled session posting the setup form with a live
+        // TOTP code used to get eight fresh recovery codes — no password asked.
+        $before = $this->owner->refresh()->two_factor_recovery_codes;
+        $this->travel(1)->minutes(); // a fresh TOTP step
+
+        $this->actingAs($this->owner, 'web')
+            ->post(route('panel.two-factor.confirm'), [
+                'code' => app(TwoFactorService::class)->currentCode($this->owner),
+            ])
+            ->assertRedirect()
+            ->assertDontSee('رموز الاسترداد');
+
+        $this->assertSame($before, $this->owner->refresh()->two_factor_recovery_codes);
+    }
+
+    public function test_wrong_enrolment_codes_count_toward_the_mfa_lockout(): void
+    {
+        $admin = $this->unconfirmedAdmin();
+        $this->post(route('panel.login'), ['email' => $admin->email, 'password' => 'Strong-Test9!']);
+        $this->get(route('panel.two-factor.setup'))->assertOk();
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->post(route('panel.two-factor.confirm'), ['code' => '000000'])->assertSessionHasErrors('code');
+        }
+
+        // Locked: even the right code is refused until the window passes.
+        $this->post(route('panel.two-factor.confirm'), [
+            'code' => app(TwoFactorService::class)->currentCode($admin->refresh()),
+        ])->assertSessionHasErrors('code');
+        $this->assertFalse($admin->refresh()->hasConfirmedTwoFactor());
+    }
+
     public function test_password_alone_does_not_authenticate_a_confirmed_admin(): void
     {
         $this->post(route('panel.login'), [

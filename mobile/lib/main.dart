@@ -8,6 +8,7 @@ import 'core/device_platform.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/login_screen.dart';
 import 'screens/today_screen.dart';
+import 'screens/update_required_screen.dart';
 import 'theme.dart';
 
 /// Point this at the Laravel host. Overridden at build time:
@@ -50,7 +51,10 @@ class _DarakAppState extends State<DarakApp> {
   /// screen open on top of the login screen, still reading a database that
   /// may no longer exist.
   void _onSessionChange() {
-    final authenticated = state.ready && state.isAuthenticated;
+    // An outdated build is closed off like a dead session: no screen may stay
+    // open on top of the update screen and keep queueing work it cannot send.
+    final authenticated =
+        state.ready && state.isAuthenticated && !state.updateRequired;
     if (_wasAuthenticated && !authenticated) {
       _navigator.currentState?.popUntil((route) => route.isFirst);
     }
@@ -152,6 +156,10 @@ class _DarakAppState extends State<DarakApp> {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),
             );
+          }
+
+          if (state.updateRequired) {
+            return UpdateRequiredScreen(state: state);
           }
 
           // An expired token drops the technician back to the login screen

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\EmergencyReport;
+use App\Models\NotificationMessage;
 use App\Models\WebPushSubscription;
 use App\Services\SalesPushService;
 use GuzzleHttp\Client;
@@ -88,28 +89,58 @@ class PublicSurfaceHardeningTest extends DarakTestCase
 
     // --- item 11: QR emergency reports ---------------------------------------
 
-    public function test_a_site_stops_accepting_reports_after_its_hourly_cap(): void
+    public function test_a_site_past_its_hourly_cap_still_takes_the_report_but_flags_it(): void
     {
+        // Refusing here let anyone with a photo of the sticker silence a real
+        // gas report for an hour from a few addresses. Now it is kept.
+        Storage::fake('local');
         $token = $this->qrToken();
         for ($i = 0; $i < 10; $i++) {
             $this->existingReport(now()->subMinutes(5));
         }
 
-        $this->post(route('emergency.store', $token), $this->reportPayload())
-            ->assertSessionHasErrors('description');
-        $this->assertSame(10, EmergencyReport::count());
+        $this->post(route('emergency.store', $token), $this->reportPayload() + [
+            'photo' => UploadedFile::fake()->image('leak.jpg', 800, 600)->size(400),
+        ])->assertRedirect();
+
+        $report = EmergencyReport::latest('id')->first();
+        $this->assertSame(11, EmergencyReport::count());
+        $this->assertTrue($report->flood_flagged);
+        $this->assertNull($report->photo_path, 'a flood does not get to fill the disk');
+        $this->assertSame(0, NotificationMessage::where('idempotency_key', "emergency.reported:{$report->id}")->count());
     }
 
-    public function test_a_site_stops_accepting_reports_after_its_daily_cap(): void
+    public function test_a_flood_raises_one_summary_alert_per_site_hour(): void
     {
         $token = $this->qrToken();
         for ($i = 0; $i < 30; $i++) {
             $this->existingReport(now()->subHours(3));
         }
 
-        $this->post(route('emergency.store', $token), $this->reportPayload())
+        foreach (['0511111111', '0522222222', '0533333333'] as $i => $phone) {
+            $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.'.($i + 1)])
+                ->post(route('emergency.store', $token), ['reporter_phone' => $phone] + $this->reportPayload())
+                ->assertRedirect();
+        }
+
+        $this->assertSame(3, EmergencyReport::where('flood_flagged', true)->count());
+        $this->assertSame(1, NotificationMessage::where('idempotency_key', 'like', 'emergency.flood:%')->count());
+    }
+
+    public function test_one_reporter_is_refused_after_three_reports_in_an_hour(): void
+    {
+        $token = $this->qrToken();
+        foreach (['0501234567', '+966501234567', '966501234567'] as $i => $sameNumber) {
+            $this->withServerVariables(['REMOTE_ADDR' => '10.0.1.'.($i + 1)])
+                ->post(route('emergency.store', $token), ['reporter_phone' => $sameNumber] + $this->reportPayload())
+                ->assertSessionHasNoErrors();
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '10.0.1.9'])
+            ->post(route('emergency.store', $token), $this->reportPayload())
             ->assertSessionHasErrors('description');
-        $this->assertSame(30, EmergencyReport::count());
+        $this->assertSame(3, EmergencyReport::count());
+        $this->assertSame(['0501234567'], EmergencyReport::distinct()->pluck('reporter_phone')->all());
     }
 
     public function test_reports_below_the_cap_are_accepted_and_photos_are_limited_to_5mb(): void
@@ -176,7 +207,8 @@ class PublicSurfaceHardeningTest extends DarakTestCase
             'public_reference' => (string) Str::uuid(),
             'site_id' => $this->site->id,
             'reporter_name' => 'Worker',
-            'reporter_phone' => '0501234567',
+            // Many different people: the per-reporter cap must not be what trips.
+            'reporter_phone' => '05'.random_int(10000000, 99999999),
             'category' => 'ac',
             'severity' => 'urgent',
             'description' => 'The air conditioning stopped in the main dining room.',

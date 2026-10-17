@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../app_state.dart';
 import '../core/action_outbox.dart';
 import '../core/error_messages.dart';
+import '../core/numbers.dart';
 import 'action_feedback.dart';
 
 class VehicleInspectionScreen extends StatefulWidget {
@@ -96,7 +97,7 @@ class _VehicleInspectionScreenState extends State<VehicleInspectionScreen> {
   }
 
   Future<void> _submit() async {
-    final reading = double.tryParse(odometer.text);
+    final reading = parseLocalizedNumber(odometer.text);
     if (reading == null) {
       setState(() => error = 'أدخل قراءة عداد صحيحة.');
       return;

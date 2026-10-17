@@ -171,11 +171,21 @@ return [
         'sync_events_per_minute' => (int) env('DARAK_SYNC_EVENTS_PER_MINUTE', 120),
         // Idempotency-Key responses are replayable for this long, then pruned.
         'idempotency_ttl_hours' => (int) env('DARAK_IDEMPOTENCY_TTL_HOURS', 48),
+        // Oldest technician app build still served, e.g. "0.3.1" or "0.3.1+4".
+        // Empty = no gate. APKs are sideloaded, so this is the only way to stop
+        // a faulty build: older phones get 426 APP_UPDATE_REQUIRED, keep their
+        // queue, and sync after the update.
+        'min_app_version' => env('DARAK_MIN_APP_VERSION'),
     ],
     // Public QR emergency form: per-site caps on top of the per-IP throttle.
     'emergency_reports' => [
+        // Past these a site's reports are still accepted, but flagged as a flood:
+        // no photo kept and one summary alert per site-hour instead of one each.
         'per_site_hourly' => (int) env('DARAK_EMERGENCY_REPORTS_PER_SITE_HOURLY', 10),
         'per_site_daily' => (int) env('DARAK_EMERGENCY_REPORTS_PER_SITE_DAILY', 30),
+        // The only hard refusal: one phone number or one network reporting the
+        // same site more than this many times in an hour.
+        'per_reporter_hourly' => (int) env('DARAK_EMERGENCY_REPORTS_PER_REPORTER_HOURLY', 3),
     ],
     // Evidence images are inspected (header only) before GD decodes them.
     'media' => [

@@ -42,14 +42,26 @@ class TwoFactorController extends Controller
         ]);
     }
 
-    public function confirm(Request $request): View
+    public function confirm(Request $request): View|RedirectResponse
     {
         $data = $request->validate(['code' => ['required', 'string', 'regex:/^\d{6}$/']]);
         $user = $request->user();
         abort_if($user->isTechnician(), 403);
 
-        if (! $this->twoFactor->verify($user, $data['code'])) {
-            throw ValidationException::withMessages(['code' => 'رمز التحقق غير صحيح أو انتهت صلاحيته.']);
+        // Enrolment happens once. Re-posting this form on an enrolled account
+        // used to mint a fresh set of recovery codes from a TOTP code alone —
+        // no password — which is exactly what regenerateRecoveryCodes() refuses.
+        if ($user->hasConfirmedTwoFactor()) {
+            return redirect()->route($this->panelHomeRoute($user));
+        }
+
+        // attempt(), not verify(): wrong codes count toward the MFA lockout and
+        // alert the owner, as everywhere else a second factor is checked.
+        $attempt = $this->twoFactor->attempt($user, $data['code'], allowRecoveryCode: false);
+        if (! $attempt['valid']) {
+            throw ValidationException::withMessages(['code' => $attempt['locked_for'] > 0
+                ? TwoFactorService::lockedMessage($attempt['locked_for'])
+                : 'رمز التحقق غير صحيح أو انتهت صلاحيته.']);
         }
 
         $codes = $this->twoFactor->recoveryCodes();
@@ -155,7 +167,7 @@ class TwoFactorController extends Controller
     public function reset(Request $request, User $user): RedirectResponse
     {
         abort_unless($request->user()->isOwner(), 403);
-        $this->tenantAccess->assertUser($request->user(), $user);
+        $this->tenantAccess->assertManageableUser($request->user(), $user);
         abort_if($user->isTechnician(), 422, 'MFA applies to panel accounts only.');
 
         DB::transaction(function () use ($user): void {

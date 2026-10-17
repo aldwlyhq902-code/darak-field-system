@@ -11,11 +11,27 @@ class StocktakeSession extends Model
 {
     use ScopedToOperatingBranch;
 
-    protected $fillable = ['public_reference', 'stock_location_id', 'assigned_user_id', 'status', 'started_at', 'completed_at', 'created_by'];
+    public const STATUS_OPEN = 'open';
+
+    /** Counted on the phone; waiting for a back-office user to approve the variances. */
+    public const STATUS_SUBMITTED = 'submitted';
+
+    public const STATUS_COMPLETED = 'completed';
+
+    protected $fillable = [
+        'public_reference', 'stock_location_id', 'assigned_user_id', 'status', 'started_at', 'completed_at', 'created_by',
+        'submitted_at', 'submitted_by', 'approved_by',
+    ];
 
     protected function casts(): array
     {
-        return ['started_at' => 'datetime', 'completed_at' => 'datetime'];
+        return ['started_at' => 'datetime', 'completed_at' => 'datetime', 'submitted_at' => 'datetime'];
+    }
+
+    /** Lines the counter actually scanned. The rest were never counted, not counted as zero. */
+    public function scannedLines(): HasMany
+    {
+        return $this->lines()->whereNotNull('scan_code');
     }
 
     public function location(): BelongsTo

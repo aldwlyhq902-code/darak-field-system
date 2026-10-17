@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../app_state.dart';
 import '../core/action_outbox.dart';
 import '../core/error_messages.dart';
+import '../core/numbers.dart';
 import '../core/sync_engine.dart';
 import 'scanner_screen.dart';
 import 'tile_button.dart';
@@ -139,6 +140,34 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
     );
   }
 
+  Future<void> _submitStocktake(Map<String, dynamic> session) async {
+    final counted = (session['counted'] as List?)?.length ?? 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const LText('إرسال الجرد للمراجعة؟'),
+        content: LText(
+          'أصناف معدودة: $counted. بعد الإرسال لا يمكن مسح أصناف أخرى، ويعتمد المشرف الفروقات.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const LText('تراجع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const LText('إرسال'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _perform(
+      ActionRequest.completeStocktake(session['id'] as int),
+      'أُرسل الجرد للمراجعة. يعتمد المشرف الفروقات.',
+    );
+  }
+
   Future<void> _scan(Map<String, dynamic> session) async {
     final code = await Navigator.push<String>(
       context,
@@ -164,7 +193,7 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
           ),
           FilledButton(
             onPressed: () =>
-                Navigator.pop(context, double.tryParse(quantity.text)),
+                Navigator.pop(context, parseLocalizedNumber(quantity.text)),
             child: const LText('حفظ'),
           ),
         ],
@@ -280,9 +309,15 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
                         children: [
                           ListTile(
                             leading: const Icon(Icons.qr_code_scanner),
-                            title: LText('${row['reference'] ?? 'جلسة جرد'}'),
+                            // The API names it public_reference (a UUID);
+                            // `reference` never existed, so every session
+                            // used to show the same generic label.
+                            title: const LText('جلسة جرد'),
                             subtitle: LText(
-                              '${(row['location'] as Map?)?['name'] ?? ''}',
+                              _stocktakeLabel(
+                                row['location'] as Map?,
+                                row['public_reference'],
+                              ),
                             ),
                             trailing: waiting.isEmpty
                                 ? null
@@ -307,16 +342,14 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
                                     : () => _scan(row),
                                 child: const LText('مسح صنف'),
                               ),
+                              // A submission for review now, not a write-off:
+                              // the office approves the variances. Still one
+                              // deliberate step — no more scans after it.
                               FilledButton.tonal(
                                 onPressed: busy || closing
                                     ? null
-                                    : () => _perform(
-                                        ActionRequest.completeStocktake(
-                                          row['id'] as int,
-                                        ),
-                                        'تم إقفال الجرد وتسوية الفروقات.',
-                                      ),
-                                child: const LText('إقفال الجرد'),
+                                    : () => _submitStocktake(row),
+                                child: const LText('إرسال الجرد للمراجعة'),
                               ),
                             ],
                           ),
@@ -357,7 +390,7 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
     child: ListTile(
       leading: const Icon(Icons.swap_horiz),
       title: LText(
-        '${(row['part'] as Map?)?['name'] ?? 'صنف'} × ${row['qty']}',
+        '${(row['part'] as Map?)?['name'] ?? 'صنف'} × ${formatQuantity(row['qty'])}',
       ),
       subtitle: LText('${row['transfer_no']}'),
       trailing: _pendingFor(request.targetKey!).isNotEmpty
@@ -384,6 +417,15 @@ String custodyStatusLabel(String? status) => switch (status) {
   'returned' => 'مرجعة',
   _ => '—',
 };
+
+/// "Van 2 · 3f9a1c2e": the location, then enough of the session's UUID to tell
+/// two open sessions apart when talking to the office.
+String _stocktakeLabel(Map? location, Object? publicReference) {
+  final name = '${location?['name'] ?? ''}'.trim();
+  final reference = '${publicReference ?? ''}';
+  final short = reference.length > 8 ? reference.substring(0, 8) : reference;
+  return [name, short].where((part) => part.isNotEmpty).join(' · ');
+}
 
 class _PendingChip extends StatelessWidget {
   const _PendingChip();

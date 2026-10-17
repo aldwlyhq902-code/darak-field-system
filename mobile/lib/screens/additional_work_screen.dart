@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../app_state.dart';
 import '../core/action_outbox.dart';
 import '../core/error_messages.dart';
+import '../core/numbers.dart';
 import '../core/sync_engine.dart';
 import 'action_feedback.dart';
 
@@ -30,13 +31,14 @@ class _AdditionalWorkScreenState extends State<AdditionalWorkScreen> {
   bool busy = false;
 
   void _add() {
-    final quantity = double.tryParse(qty.text),
-        unitPrice = double.tryParse(price.text);
+    final quantity = parseLocalizedNumber(qty.text),
+        unitPrice = parseLocalizedNumber(price.text);
     if (item.text.trim().isEmpty ||
         quantity == null ||
         quantity <= 0 ||
         unitPrice == null ||
         unitPrice < 0) {
+      _tell('أكمل البند: الوصف، وكمية أكبر من صفر، وسعر صحيح.');
       return;
     }
     setState(() {
@@ -55,6 +57,7 @@ class _AdditionalWorkScreenState extends State<AdditionalWorkScreen> {
     if (title.text.trim().isEmpty ||
         description.text.trim().isEmpty ||
         items.isEmpty) {
+      _tell('أكمل العنوان والوصف وأضف بنداً واحداً على الأقل.');
       return;
     }
     setState(() => busy = true);
@@ -98,6 +101,12 @@ class _AdditionalWorkScreenState extends State<AdditionalWorkScreen> {
       if (mounted) setState(() => busy = false);
     }
   }
+
+  /// A refused tap says why. It used to return silently, which read as "the
+  /// button is broken".
+  void _tell(String message) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: LText(message)));
 
   @override
   Widget build(BuildContext context) {

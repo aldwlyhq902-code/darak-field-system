@@ -19,17 +19,20 @@ class NotificationsRunCommand extends Command
     public function handle(NotificationService $notifications): int
     {
         $delivered = 0;
-        $awaiting = 0;
         $failed = 0;
 
         foreach ($notifications->due((int) $this->option('limit')) as $message) {
             try {
-                $notifications->deliver($message) === 'sent' ? $delivered++ : $awaiting++;
+                if ($notifications->deliver($message) === 'sent') {
+                    $delivered++;
+                }
             } catch (Throwable $e) {
                 $notifications->recordFailure($message, $e->getMessage());
                 $failed++;
             }
         }
+
+        $awaiting = $notifications->awaitingHuman();
 
         $this->info("أُرسل {$delivered} · بانتظار إرسال يدوي {$awaiting} · أخفق {$failed}.");
 

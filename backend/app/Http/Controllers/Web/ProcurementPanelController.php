@@ -68,7 +68,14 @@ class ProcurementPanelController extends Controller
             'reservationWindowDays' => self::RESERVATION_WINDOW_DAYS,
             'replenishments' => ReplenishmentRequest::with(['part', 'location', 'supplier'])->where('status', 'open')->latest()->latest('id')->paginate(20, ['*'], 'replenishments_page')->withQueryString(),
             'lots' => InventoryLot::with(['part', 'supplier', 'location'])->where('qty_remaining', '>', 0)->latest()->latest('id')->paginate(25, ['*'], 'lots_page')->withQueryString(),
-            'stocktakes' => StocktakeSession::with(['location', 'assignedUser', 'lines'])->latest()->latest('id')->paginate(15, ['*'], 'stocktakes_page')->withQueryString(),
+            // Submitted counts carry their variances for review: expected (now),
+            // counted, difference — and how many catalogue lines nobody scanned.
+            'stocktakes' => StocktakeSession::with(['location', 'assignedUser'])->withCount('lines')->latest()->latest('id')
+                ->paginate(15, ['*'], 'stocktakes_page')->withQueryString()
+                ->through(fn (StocktakeSession $session) => [
+                    'session' => $session,
+                    'review' => $session->status === StocktakeSession::STATUS_COMPLETED ? null : $this->stocktakes->variances($session),
+                ]),
             'loadSuggestions' => $this->loadSuggestions->forTomorrow(),
             'supplierComparisons' => Part::with('suppliers')->whereHas('suppliers')->orderBy('name')
                 ->paginate(20, ['*'], 'comparisons_page')->withQueryString()
@@ -281,6 +288,6 @@ class ProcurementPanelController extends Controller
             return back()->with('err', $e->getMessage());
         }
 
-        return back()->with('ok', 'أُقفل الجرد وسُجلت فروقات المخزون بحركات تدقيق مستقلة.');
+        return back()->with('ok', 'اعتُمد الجرد وسُجلت فروقات الأصناف الممسوحة بحركات تدقيق مستقلة.');
     }
 }

@@ -8,6 +8,19 @@ import '../core/api_client.dart';
 import '../core/error_messages.dart';
 import 'action_feedback.dart';
 
+/// The server's limits (VisitController::recordDiagnosis). Enforced here so a
+/// diagnosis is never accepted on the phone and then refused at sync.
+const _codeMaxLength = 64;
+const _summaryMaxLength = 4000;
+
+/// [text] cut to [max] code points — the unit Laravel's `max:` counts.
+String _fit(String text, int max) {
+  final trimmed = text.trim();
+  return trimmed.runes.length <= max
+      ? trimmed
+      : String.fromCharCodes(trimmed.runes.take(max));
+}
+
 class DiagnosisScreen extends StatefulWidget {
   const DiagnosisScreen({
     super.key,
@@ -102,6 +115,7 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
       children: [
         TextField(
           controller: fault,
+          maxLength: _codeMaxLength,
           decoration: InputDecoration(
             labelText: context.tr('كود العطل أو وصف مختصر'),
           ),
@@ -118,8 +132,18 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
               title: LText('${row['title'] ?? row['diagnosis'] ?? 'اقتراح'}'),
               subtitle: LText('${row['solution'] ?? row['diagnosis'] ?? ''}'),
               onTap: () {
-                diagnosis.text = '${row['diagnosis'] ?? row['title'] ?? ''}';
-                summary.text = '${row['solution'] ?? ''}';
+                // The code field takes the suggestion's short name, never the
+                // article body: the server caps diagnosis_code at 64 characters,
+                // and a long body made every save of a suggestion fail.
+                final title = '${row['title'] ?? ''}'.trim();
+                diagnosis.text = _fit(
+                  title.isNotEmpty ? title : '${row['diagnosis'] ?? ''}',
+                  _codeMaxLength,
+                );
+                summary.text = _fit(
+                  '${row['solution'] ?? ''}',
+                  _summaryMaxLength,
+                );
               },
             ),
           ),
@@ -127,6 +151,7 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
         const SizedBox(height: 12),
         TextField(
           controller: diagnosis,
+          maxLength: _codeMaxLength,
           decoration: InputDecoration(
             labelText: context.tr('كود/اسم التشخيص المعتمد'),
           ),
@@ -135,6 +160,7 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
         TextField(
           controller: summary,
           maxLines: 5,
+          maxLength: _summaryMaxLength,
           decoration: InputDecoration(
             labelText: context.tr('ملخص الحل المنفذ'),
           ),

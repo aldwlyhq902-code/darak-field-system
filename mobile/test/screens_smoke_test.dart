@@ -1,12 +1,15 @@
 import 'dart:convert';
 
+import 'package:darak_field/core/parts.dart';
 import 'package:darak_field/screens/additional_work_screen.dart';
 import 'package:darak_field/screens/diagnosis_screen.dart';
 import 'package:darak_field/screens/field_tools_screen.dart';
 import 'package:darak_field/screens/login_screen.dart';
+import 'package:darak_field/screens/parts_screen.dart';
 import 'package:darak_field/screens/signature_screen.dart';
 import 'package:darak_field/screens/sync_screen.dart';
 import 'package:darak_field/screens/today_screen.dart';
+import 'package:darak_field/screens/update_required_screen.dart';
 import 'package:darak_field/screens/vehicle_inspection_screen.dart';
 import 'package:darak_field/screens/visit_screen.dart';
 import 'package:flutter/material.dart';
@@ -54,15 +57,27 @@ void main() {
           '/api/v1/inventory/stocktakes' => data([
             {
               'id': 3,
-              'reference': 'ST-2026-0002',
-              'location': {'name': 'مخزون السيارة 3'},
+              // StocktakeSessionResource: blind — what was counted, never the
+              // expected quantity.
+              'public_reference': '3f9a1c2e-7b4d-4e1a-9c2b-5d6e7f8a9b0c',
+              'status': 'open',
+              'location': {'id': 40, 'name': 'مخزون السيارة 3'},
+              'counted': [
+                {
+                  'part_id': 5,
+                  'sku': 'CAP-35',
+                  'name': 'مكثف',
+                  'unit': 'pcs',
+                  'counted_qty': 2.0,
+                },
+              ],
             },
           ]),
           '/api/v1/inventory/vehicle-transfer-releases' => data([
             {
               'id': 4,
               'transfer_no': 'VT-2026-0011',
-              'qty': 2,
+              'qty': 2.0,
               'part': {'name': 'مكثف تشغيل 35 ميكروفاراد'},
             },
           ]),
@@ -123,6 +138,13 @@ void main() {
     'additional work': (app) =>
         AdditionalWorkScreen(state: app.state, visitId: 7),
     'signature': (app) => const SignatureScreen(),
+    'parts (no van)': (app) => PartsScreen(state: app.state, visitId: 7),
+    'parts': (app) => PartsScreen(state: app.state, visitId: 7),
+    'update required': (app) => UpdateRequiredScreen(
+      state: app.state
+        ..appVersion = '0.3.0+3'
+        ..requiredVersion = '0.3.1',
+    ),
   };
 
   for (final locale in const [Locale('ar'), Locale('en')]) {
@@ -138,6 +160,31 @@ void main() {
           app.state
             ..locale = locale
             ..lastSyncedAt = DateTime(2026, 10, 7, 13, 40);
+          if (entry.key == 'parts') {
+            await tester.runAsync(
+              () => VehicleStock.store(app.state.db, {
+                'location_id': 40,
+                'name': 'مخزون السيارة 3',
+                'parts': [
+                  {
+                    'part_id': 5,
+                    'sku': 'CAP-35-440',
+                    'qr_code': 'PART-CAP-35-440',
+                    'name': 'مكثف تشغيل 35 ميكروفاراد بجهد 440 فولت للمكيفات',
+                    'unit': 'pcs',
+                    'qty': 3,
+                  },
+                  {
+                    'part_id': 6,
+                    'sku': 'FLT-DRY',
+                    'name': 'فلتر مجفف',
+                    'unit': 'pcs',
+                    'qty': 0.5,
+                  },
+                ],
+              }),
+            );
+          }
 
           await tester.pumpWidget(phoneApp(entry.value(app), locale: locale));
           await settleIo(tester);

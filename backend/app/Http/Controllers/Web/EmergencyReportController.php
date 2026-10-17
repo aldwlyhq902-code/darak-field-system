@@ -52,15 +52,6 @@ class EmergencyReportController extends Controller
         $site = $this->siteForToken($token);
         abort_if($request->filled('company'), 422);
 
-        // The per-IP throttle does nothing against a QR sticker photographed
-        // and scripted from many addresses. Cap what one site can receive, and
-        // say so neutrally: a genuine reporter is pointed to the phone.
-        if ($this->siteReportCapReached($site)) {
-            return back()->withInput($request->except('photo'))->withErrors([
-                'description' => 'استلمنا عددًا كبيرًا من البلاغات لهذا الموقع مؤخرًا. إن كانت الحالة طارئة فاتصل بنا مباشرة.',
-            ]);
-        }
-
         $data = $request->validate([
             'reporter_name' => ['required', 'string', 'max:100'],
             'reporter_phone' => ['required', 'regex:/^(?:\+?966|0)?5\d{8}$/'],
@@ -74,11 +65,26 @@ class EmergencyReportController extends Controller
             ],
             'photo' => ['nullable', 'file', 'mimetypes:image/jpeg,image/png,image/webp', 'max:5120'],
         ]);
+        $data['reporter_phone'] = self::canonicalPhone($data['reporter_phone']);
+        $ipHash = hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'));
+
+        // The one hard refusal is per reporter: the same number or network
+        // reporting this site again and again within the hour.
+        if ($this->reporterCapReached($site, $data['reporter_phone'], $ipHash)) {
+            return back()->withInput($request->except('photo'))->withErrors([
+                'description' => 'استلمنا منك عدة بلاغات لهذا الموقع خلال الساعة الأخيرة، وفريقنا يراجعها. إن كانت الحالة طارئة فاتصل بنا مباشرة.',
+            ]);
+        }
+
+        // A whole site past its cap used to refuse every report for up to a day:
+        // a sticker photographed and scripted from a few addresses silenced a real
+        // gas report. Now it is kept, flagged, photo-less, and summarised.
+        $flooded = $this->siteReportCapReached($site);
 
         $photoPath = null;
         $photoMime = null;
         $photoSha = null;
-        if ($request->hasFile('photo')) {
+        if ($request->hasFile('photo') && ! $flooded) {
             $photo = $request->file('photo');
             $photoMime = $photo->getMimeType();
             $photoSha = hash_file('sha256', $photo->getRealPath());
@@ -95,15 +101,19 @@ class EmergencyReportController extends Controller
             'photo_sha256' => $photoSha,
             'status' => EmergencyReport::STATUS_NEW,
             'source' => auth('client')->check() ? 'client_portal' : 'site_qr',
-            'ip_hash' => hash_hmac('sha256', (string) $request->ip(), (string) config('app.key')),
+            'ip_hash' => $ipHash,
+            'flood_flagged' => $flooded,
         ]);
 
         $this->audit->record('emergency.reported', $report, null, [
             'site_id' => $site->id,
             'category' => $report->category,
             'severity' => $report->severity,
+            'flood_flagged' => $flooded,
         ]);
-        $this->notifications->emergencyReported($report->load('site.client'));
+        $flooded
+            ? $this->notifications->emergencyFlood($site->loadMissing('client'))
+            : $this->notifications->emergencyReported($report->load('site.client'));
 
         return redirect()->route('emergency.received', $report->public_reference);
     }
@@ -263,6 +273,28 @@ class EmergencyReportController extends Controller
             ->count();
 
         return ($hourly > 0 && $recent(1) >= $hourly) || ($daily > 0 && $recent(24) >= $daily);
+    }
+
+    private function reporterCapReached(Site $site, string $phone, string $ipHash): bool
+    {
+        $limit = (int) config('darak.emergency_reports.per_reporter_hourly', 3);
+
+        return $limit > 0 && EmergencyReport::query()
+            ->where('site_id', $site->id)
+            ->where('created_at', '>=', now()->subHour())
+            ->where(fn ($query) => $query->where('reporter_phone', $phone)->orWhere('ip_hash', $ipHash))
+            ->count() >= $limit;
+    }
+
+    /** "+966 55…", "96655…", "55…" and "055…" are one reporter: kept as 05XXXXXXXX. */
+    public static function canonicalPhone(string $phone): string
+    {
+        $digits = preg_replace('/\D/', '', $phone) ?? '';
+        if (str_starts_with($digits, '966')) {
+            $digits = substr($digits, 3);
+        }
+
+        return str_starts_with($digits, '0') ? $digits : '0'.$digits;
     }
 
     private function siteForToken(string $token): Site
