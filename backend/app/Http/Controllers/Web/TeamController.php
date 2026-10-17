@@ -32,15 +32,16 @@ class TeamController extends Controller
     public function index(Request $request): View
     {
         $actor = $request->user();
-        $users = User::query()
-            ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->where('operating_company_id', $actor->operating_company_id));
+        // A branch-bound supervisor sees, and manages, their own branch's staff
+        // only — the same boundary as every record they read.
+        $users = $this->tenantAccess->scopeUsersToActor(User::query(), $actor);
 
         return view('panel.team', [
             'users' => (clone $users)->orderBy('role')->orderBy('name')->paginate(30, ['*'], 'users_page')->withQueryString(),
             // The custody form needs every active technician, not only the current page.
             'technicianOptions' => (clone $users)->where('role', User::ROLE_TECHNICIAN)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'devices' => Device::with('user')
-                ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('user', fn ($user) => $user->where('operating_company_id', $actor->operating_company_id)))
+                ->when(! $actor->isPlatformAdmin(), fn ($query) => $query->whereHas('user', fn ($user) => $this->tenantAccess->scopeUsersToActor($user, $actor)))
                 ->latest('last_seen_at')->latest('id')->paginate(30, ['*'], 'devices_page')->withQueryString(),
             'custodies' => Custody::with(['user', 'vehicle', 'stockLocation'])->latest('id')->paginate(30, ['*'], 'custodies_page')->withQueryString(),
             'vehicles' => Vehicle::with('stockLocation')->where('is_active', true)->get(),
@@ -160,7 +161,7 @@ class TeamController extends Controller
     public function toggleActive(Request $request, User $user): RedirectResponse
     {
         $this->requireOwner($request);
-        $this->tenantAccess->assertUser($request->user(), $user);
+        $this->tenantAccess->assertManageableUser($request->user(), $user);
 
         $user->forceFill([
             'is_active' => ! $user->is_active,
@@ -190,7 +191,7 @@ class TeamController extends Controller
     public function revokeDevice(Request $request, Device $device): RedirectResponse
     {
         $this->requireOwner($request);
-        $this->tenantAccess->assertDevice($request->user(), $device);
+        $this->tenantAccess->assertManageableDevice($request->user(), $device);
 
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:190']]);
 

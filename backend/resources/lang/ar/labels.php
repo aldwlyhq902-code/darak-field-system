@@ -74,6 +74,7 @@ return [
 
     'contract_status' => [
         'draft' => 'مسودة',
+        'pending_approval' => 'بانتظار الاعتماد المالي',
         'active' => 'ساري',
         'suspended' => 'موقوف',
         'ended' => 'منتهٍ',
@@ -141,6 +142,7 @@ return [
     'approval_subject' => [
         'quotation' => 'عرض سعر',
         'installment' => 'قسط',
+        'contract' => 'عقد',
     ],
 
     'lead_stage' => [

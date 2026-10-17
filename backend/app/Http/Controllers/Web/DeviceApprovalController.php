@@ -70,6 +70,6 @@ class DeviceApprovalController extends Controller
     {
         $actor = $request->user();
         abort_unless($actor->isOwner() || $actor->canPanel('team'), 403);
-        $this->tenantAccess->assertDevice($actor, $device);
+        $this->tenantAccess->assertManageableDevice($actor, $device);
     }
 }

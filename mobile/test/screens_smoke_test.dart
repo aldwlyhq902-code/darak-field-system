@@ -57,17 +57,27 @@ void main() {
           '/api/v1/inventory/stocktakes' => data([
             {
               'id': 3,
-              // The shape StocktakeSession serialises to: a UUID reference
-              // and decimal quantities as strings.
+              // StocktakeSessionResource: blind — what was counted, never the
+              // expected quantity.
               'public_reference': '3f9a1c2e-7b4d-4e1a-9c2b-5d6e7f8a9b0c',
-              'location': {'name': 'مخزون السيارة 3'},
+              'status': 'open',
+              'location': {'id': 40, 'name': 'مخزون السيارة 3'},
+              'counted': [
+                {
+                  'part_id': 5,
+                  'sku': 'CAP-35',
+                  'name': 'مكثف',
+                  'unit': 'pcs',
+                  'counted_qty': 2.0,
+                },
+              ],
             },
           ]),
           '/api/v1/inventory/vehicle-transfer-releases' => data([
             {
               'id': 4,
               'transfer_no': 'VT-2026-0011',
-              'qty': '2.000',
+              'qty': 2.0,
               'part': {'name': 'مكثف تشغيل 35 ميكروفاراد'},
             },
           ]),

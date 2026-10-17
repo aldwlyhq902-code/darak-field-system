@@ -160,7 +160,7 @@ class AuthController extends Controller
         if (! $request->user()->isOwner()) {
             return response()->json(['code' => 'FORBIDDEN', 'message' => 'Only the supervisor may revoke a device.'], 403);
         }
-        $this->tenantAccess->assertDevice($request->user(), $device);
+        $this->tenantAccess->assertManageableDevice($request->user(), $device);
 
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:190']]);
 

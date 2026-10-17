@@ -179,8 +179,13 @@ return [
     ],
     // Public QR emergency form: per-site caps on top of the per-IP throttle.
     'emergency_reports' => [
+        // Past these a site's reports are still accepted, but flagged as a flood:
+        // no photo kept and one summary alert per site-hour instead of one each.
         'per_site_hourly' => (int) env('DARAK_EMERGENCY_REPORTS_PER_SITE_HOURLY', 10),
         'per_site_daily' => (int) env('DARAK_EMERGENCY_REPORTS_PER_SITE_DAILY', 30),
+        // The only hard refusal: one phone number or one network reporting the
+        // same site more than this many times in an hour.
+        'per_reporter_hourly' => (int) env('DARAK_EMERGENCY_REPORTS_PER_REPORTER_HOURLY', 3),
     ],
     // Evidence images are inspected (header only) before GD decodes them.
     'media' => [

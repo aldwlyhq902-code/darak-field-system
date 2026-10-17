@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Api\StocktakeSessionResource;
+use App\Http\Resources\Api\VehicleTransferResource;
 use App\Models\StockLocation;
 use App\Models\StockMove;
 use App\Models\StocktakeSession;
@@ -118,24 +120,26 @@ class InventoryController extends Controller
         return response()->json(['data' => $move, 'credit_note' => $creditNote], 201);
     }
 
+    private const TRANSFER_RELATIONS = ['part', 'fromLocation.vehicle.assignedUser', 'toLocation.vehicle.assignedUser'];
+
     public function pendingVehicleTransfers(Request $request): JsonResponse
     {
-        $transfers = VehicleStockTransfer::with(['part', 'fromLocation.vehicle.assignedUser', 'toLocation.vehicle.assignedUser'])
+        $transfers = VehicleStockTransfer::with(self::TRANSFER_RELATIONS)
             ->whereIn('status', ['pending', 'pending_receive'])
             ->whereHas('toLocation.vehicle', fn ($query) => $query->where('assigned_user_id', $request->user()->id))
             ->latest()->get();
 
-        return response()->json(['data' => $transfers]);
+        return response()->json(['data' => VehicleTransferResource::collection($transfers)->resolve($request)]);
     }
 
     public function pendingVehicleTransferReleases(Request $request): JsonResponse
     {
-        $transfers = VehicleStockTransfer::with(['part', 'fromLocation.vehicle.assignedUser', 'toLocation.vehicle.assignedUser'])
+        $transfers = VehicleStockTransfer::with(self::TRANSFER_RELATIONS)
             ->where('status', 'pending_release')
             ->whereHas('fromLocation.vehicle', fn ($query) => $query->where('assigned_user_id', $request->user()->id))
             ->latest()->get();
 
-        return response()->json(['data' => $transfers]);
+        return response()->json(['data' => VehicleTransferResource::collection($transfers)->resolve($request)]);
     }
 
     public function releaseVehicleTransfer(Request $request, VehicleStockTransfer $transfer): JsonResponse
@@ -144,7 +148,7 @@ class InventoryController extends Controller
         abort_unless($transfer->fromLocation?->vehicle?->assigned_user_id === $request->user()->id, 403);
         $this->procurement->releaseTransfer($transfer, $request->user()->id);
 
-        return response()->json(['data' => $transfer->refresh()]);
+        return response()->json(['data' => (new VehicleTransferResource($transfer->refresh()->load(self::TRANSFER_RELATIONS)))->resolve($request)]);
     }
 
     public function acceptVehicleTransfer(Request $request, VehicleStockTransfer $transfer): JsonResponse
@@ -153,41 +157,53 @@ class InventoryController extends Controller
         abort_unless($transfer->toLocation?->vehicle?->assigned_user_id === $request->user()->id, 403);
         $this->procurement->acceptTransfer($transfer, $request->user()->id);
 
-        return response()->json(['data' => $transfer->refresh()]);
+        return response()->json(['data' => (new VehicleTransferResource($transfer->refresh()->load(self::TRANSFER_RELATIONS)))->resolve($request)]);
     }
 
     public function stocktakes(Request $request): JsonResponse
     {
-        $sessions = StocktakeSession::with(['location.vehicle', 'lines.part'])->where('status', 'open')
-            ->where(function ($query) use ($request) {
-                $query->where('assigned_user_id', $request->user()->id)
-                    ->orWhereHas('location.vehicle', fn ($vehicle) => $vehicle->where('assigned_user_id', $request->user()->id));
-            })->get();
+        $userId = $request->user()->id;
+        // Counted by the person it was assigned to; the van's driver only when
+        // nobody was assigned (a second pair of eyes on one's own van).
+        $sessions = StocktakeSession::with(['location', 'scannedLines.part'])
+            ->where('status', StocktakeSession::STATUS_OPEN)
+            ->where(fn ($query) => $query
+                ->where('assigned_user_id', $userId)
+                ->orWhere(fn ($unassigned) => $unassigned
+                    ->whereNull('assigned_user_id')
+                    ->whereHas('location.vehicle', fn ($vehicle) => $vehicle->where('assigned_user_id', $userId))))
+            ->get();
 
-        return response()->json(['data' => $sessions]);
+        return response()->json(['data' => StocktakeSessionResource::collection($sessions)->resolve($request)]);
     }
 
     public function scanStocktake(Request $request, StocktakeSession $session): JsonResponse
     {
         $this->authorizeStocktake($request, $session);
         $data = $request->validate(['code' => ['required', 'string', 'max:96'], 'qty' => ['required', 'numeric', 'min:0']]);
+        $session = $this->stocktakes->scan($session, $data['code'], (float) $data['qty']);
 
-        return response()->json(['data' => $this->stocktakes->scan($session, $data['code'], (float) $data['qty'])]);
+        return response()->json(['data' => (new StocktakeSessionResource($session->unsetRelation('scannedLines')))->resolve($request)]);
     }
 
+    /**
+     * The phone's "close" submits the count for review; it no longer posts the
+     * variances. A back-office user approves them in the panel.
+     */
     public function completeStocktake(Request $request, StocktakeSession $session): JsonResponse
     {
         $this->authorizeStocktake($request, $session);
 
-        return response()->json(['data' => $this->stocktakes->complete($session, $request->user()->id)]);
+        return response()->json(['data' => (new StocktakeSessionResource($this->stocktakes->submit($session, $request->user()->id)))->resolve($request)]);
     }
 
     private function authorizeStocktake(Request $request, StocktakeSession $session): void
     {
         $session->loadMissing('location.vehicle');
+        $userId = $request->user()->id;
         abort_unless(
-            $session->assigned_user_id === $request->user()->id
-            || $session->location?->vehicle?->assigned_user_id === $request->user()->id,
+            $session->assigned_user_id === $userId
+            || ($session->assigned_user_id === null && $session->location?->vehicle?->assigned_user_id === $userId),
             403,
         );
     }

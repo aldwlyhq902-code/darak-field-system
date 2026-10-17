@@ -104,6 +104,13 @@ class AppLocalizations {
     ),
     (RegExp(r'^صُرفت (\d+) قطعة$'), (m) => '${m[1]} part issue(s) recorded'),
     (
+      RegExp(
+        r'^أصناف معدودة: (\d+)\. بعد الإرسال لا يمكن مسح أصناف أخرى، ويعتمد المشرف الفروقات\.$',
+      ),
+      (m) =>
+          'Items counted: ${m[1]}. After submitting no more items can be scanned; the supervisor approves the variances.',
+    ),
+    (
       RegExp(r'^نسختك: (\S+) · المطلوبة: (\S+)$'),
       (m) => 'Your version: ${m[1]} · Required: ${m[2]}',
     ),
@@ -338,7 +345,8 @@ class AppLocalizations {
     'توقيع الاستلام': 'Sign receipt',
     'جلسة جرد': 'Stocktake session',
     'مسح صنف': 'Scan item',
-    'إقفال الجرد': 'Close stocktake',
+    'إرسال الجرد للمراجعة': 'Submit stocktake for review',
+    'إرسال الجرد للمراجعة؟': 'Submit the stocktake for review?',
     'صنف': 'Item',
     'الفلاش': 'Flash',
     'ضع الرمز داخل الإطار': 'Place the code inside the frame',
@@ -378,8 +386,8 @@ class AppLocalizations {
         'No transfers are waiting for your action.',
     'تأكيد التسليم': 'Confirm dispatch',
     'تأكيد الاستلام': 'Confirm receipt',
-    'تم إقفال الجرد وتسوية الفروقات.':
-        'The stocktake was closed and variances reconciled.',
+    'أُرسل الجرد للمراجعة. يعتمد المشرف الفروقات.':
+        'Stocktake submitted for review. The supervisor approves the variances.',
     'تم تسجيل الإجراء.': 'Action recorded.',
     'لن يُرفع هذا الملف ولن يمنع إقفال الزيارة بعد الآن. التقط بديلاً إن كان الدليل ما زال مطلوباً.':
         'This file will not be uploaded and will no longer block visit closure. Capture a replacement if the evidence is still required.',

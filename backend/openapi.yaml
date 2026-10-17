@@ -1318,88 +1318,94 @@ components:
     VehicleStockTransfer:
       type: object
       description: |
-        Eloquent serialisation with `part`, `from_location.vehicle.assigned_user`
-        and `to_location.vehicle.assigned_user` when listed. NOT allowlisted: the
-        nested users carry every non-hidden user column (email, phone,
-        hourly_cost, permissions…) — known 0.3.0 gap.
-      additionalProperties: true
+        VehicleTransferResource (allowlist C5). Until 0.3.1 this was the raw model
+        with nested users (email, phone, hourly cost, permissions) and the part's
+        prices. The other technician appears by name only.
+      required: [id, transfer_no, status, qty]
       properties:
         id:
           type: integer
         transfer_no:
           type: string
-        part_id:
-          type: integer
-        qty:
-          type: string
-        from_location_id:
-          type: integer
-        to_location_id:
-          type: integer
         status:
           type: string
           enum: [pending, pending_release, pending_receive, accepted]
           description: The app lists `pending`/`pending_receive` (to receive) and `pending_release` (to hand over).
+        qty:
+          type: number
+        part:
+          type: [object, "null"]
+          properties:
+            id:
+              type: integer
+            sku:
+              type: string
+            name:
+              type: string
+            unit:
+              type: string
+        from:
+          $ref: "#/components/schemas/TransferEnd"
+        to:
+          $ref: "#/components/schemas/TransferEnd"
         released_at:
           type: [string, "null"]
           format: date-time
         accepted_at:
           type: [string, "null"]
           format: date-time
-        note:
+    TransferEnd:
+      type: [object, "null"]
+      properties:
+        name:
+          type: string
+        technician:
           type: [string, "null"]
-        part:
-          $ref: "#/components/schemas/PartRaw"
-        from_location:
-          type: object
-          additionalProperties: true
-        to_location:
-          type: object
-          additionalProperties: true
     StocktakeSession:
       type: object
-      description: Eloquent serialisation with `location.vehicle` and `lines.part` (see PartRaw).
-      additionalProperties: true
+      description: |
+        StocktakeSessionResource: a blind count (allowlist C5). The counter sees
+        what they have counted so far — never the expected quantity, the
+        variance or any price. Until 0.3.1 every catalogue line went out with
+        `expected_qty`, so a count could be made to match whatever was taken.
+      required: [id, public_reference, status, counted]
       properties:
         id:
           type: integer
         public_reference:
           type: string
-        stock_location_id:
-          type: integer
-        assigned_user_id:
-          type: [integer, "null"]
+          format: uuid
         status:
           type: string
+          enum: [open, submitted, completed]
         started_at:
           type: [string, "null"]
           format: date-time
-        completed_at:
+        submitted_at:
           type: [string, "null"]
           format: date-time
         location:
-          type: object
-          additionalProperties: true
-        lines:
+          type: [object, "null"]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        counted:
           type: array
           items:
             type: object
-            additionalProperties: true
             properties:
-              id:
-                type: integer
               part_id:
                 type: integer
-              expected_qty:
+              sku:
+                type: string
+              name:
+                type: string
+              unit:
                 type: string
               counted_qty:
-                type: [string, "null"]
-              variance_qty:
-                type: [string, "null"]
-              scan_code:
-                type: [string, "null"]
-              part:
-                $ref: "#/components/schemas/PartRaw"
+                type: number
     Custody:
       type: object
       description: Eloquent serialisation (with `vehicle` and `stock_location` on the list).
@@ -3146,15 +3152,19 @@ paths:
   /api/v1/inventory/stocktakes/{session}/complete:
     post:
       tags: [Inventory]
-      summary: Close the stocktake and post the variances
-      description: Assigned user or the vehicle's technician. Accepts `Idempotency-Key`.
+      summary: Submit the count for review (nothing is posted)
+      description: |
+        The assigned counter, or the van's technician when nobody was assigned.
+        Moves the session to `submitted`; stock does not change. A back-office
+        user other than the counter approves the variances in the panel, and
+        only scanned lines are adjusted. Accepts `Idempotency-Key`.
       parameters:
         - $ref: "#/components/parameters/StocktakeSessionId"
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/AppVersion"
       responses:
         "200":
-          description: The closed session with its lines.
+          description: The submitted session (status `submitted`).
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"

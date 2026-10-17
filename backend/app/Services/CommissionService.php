@@ -16,6 +16,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -175,6 +176,19 @@ class CommissionService
         if ($payment?->isRefunded()) {
             throw new RuntimeException('لا تُحتسب عمولة على سند قبض مسترد.');
         }
+        // The source that counts is the one the policy's basis names. Extra ids
+        // used to ride along (a contract-value entry carrying a receipt), which
+        // also made the same contract look like a new source every time.
+        if ($rule->basis === 'contract_value') {
+            [$visit, $payment] = [null, null];
+        } elseif ($rule->basis === 'completed_visit') {
+            [$contract, $payment] = [null, null];
+        } elseif ($rule->basis === 'collected_payment') {
+            $visit = null;
+        }
+        if ($this->alreadyAccrued($rule, $contract, $visit, $payment)) {
+            throw new RuntimeException('سبق احتساب عمولة هذه السياسة لهذا المستند.');
+        }
         $basis = match ($rule->basis) {
             'contract_value' => $contract ? $contract->priceInclVat() : null,
             'collected_payment' => $payment ? Money::of($payment->amount) : null,
@@ -186,13 +200,37 @@ class CommissionService
         }
         $amount = Money::add(Money::percent($basis, $rule->rate), $rule->fixed_amount);
 
-        return CommissionEntry::create([
-            'commission_rule_id' => $rule->id, 'user_id' => $user->id,
-            'contract_id' => $contract?->id, 'visit_id' => $visit?->id, 'payment_id' => $payment?->id,
-            'basis_amount' => Money::of($basis), 'commission_amount' => $amount,
-            'status' => CommissionEntry::STATUS_ACCRUED, 'entry_type' => CommissionEntry::TYPE_COMMISSION,
-            'accrued_at' => CarbonImmutable::now(),
-        ]);
+        try {
+            return CommissionEntry::create([
+                'commission_rule_id' => $rule->id, 'user_id' => $user->id,
+                'contract_id' => $contract?->id, 'visit_id' => $visit?->id, 'payment_id' => $payment?->id,
+                'basis_amount' => Money::of($basis), 'commission_amount' => $amount,
+                'status' => CommissionEntry::STATUS_ACCRUED, 'entry_type' => CommissionEntry::TYPE_COMMISSION,
+                'accrued_at' => CarbonImmutable::now(),
+            ]);
+        } catch (QueryException $e) {
+            // The unique indexes settle a race the check above cannot see.
+            if (in_array($e->getCode(), ['23505', '23000'], true)) {
+                throw new RuntimeException('سبق احتساب عمولة هذه السياسة لهذا المستند.');
+            }
+            throw $e;
+        }
+    }
+
+    /** Mirrors the unique indexes on commission_entries (one per policy per source). */
+    private function alreadyAccrued(CommissionRule $rule, ?Contract $contract, ?Visit $visit, ?Payment $payment): bool
+    {
+        $existing = CommissionEntry::query()
+            ->where('commission_rule_id', $rule->id)
+            ->where('entry_type', CommissionEntry::TYPE_COMMISSION);
+
+        return match (true) {
+            $visit !== null => $existing->where('visit_id', $visit->id)->exists(),
+            $payment !== null => $existing->where('payment_id', $payment->id)->exists(),
+            $contract !== null => $existing->where('contract_id', $contract->id)
+                ->whereNull('payment_id')->whereNull('visit_id')->exists(),
+            default => false,
+        };
     }
 
     /**

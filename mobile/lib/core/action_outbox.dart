@@ -85,7 +85,7 @@ class ActionRequest {
     kind: 'stocktake.complete',
     path: '/api/v1/inventory/stocktakes/$sessionId/complete',
     targetKey: 'stocktake:$sessionId',
-    label: 'إقفال الجرد',
+    label: 'إرسال الجرد للمراجعة',
   );
 
   factory ActionRequest.releaseTransfer(int transferId) => ActionRequest(

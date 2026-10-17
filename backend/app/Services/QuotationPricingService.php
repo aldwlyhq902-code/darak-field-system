@@ -28,17 +28,31 @@ class QuotationPricingService
         // Renewal offers carry no author (the signed contract price); the owner
         // sets prices and is never gated.
         $author = $quotation->created_by ? User::query()->find($quotation->created_by) : null;
-        if ($author === null || $author->isOwner() || $author->isPlatformAdmin()) {
+        if ($author === null) {
             return null;
         }
 
-        $price = round((float) $quotation->price_amount, 2);
+        return $this->priceApprovalReason($author, $quotation->package_code, (float) $quotation->price_amount);
+    }
+
+    /**
+     * The same price rules for anything a non-owner prices: a quotation, or a
+     * contract entered directly from the client page (which used to skip them
+     * entirely — any price, zero included, went live at once).
+     */
+    public function priceApprovalReason(User $author, ?string $packageCode, float $amount): ?string
+    {
+        if ($author->isOwner() || $author->isPlatformAdmin()) {
+            return null;
+        }
+
+        $price = round($amount, 2);
         $floor = $this->number(config('darak.quotation_pricing.price_floor'));
         if ($floor !== null && $price < $floor) {
             return 'السعر أقل من الحد الأدنى المعتمد للتسعير.';
         }
 
-        $list = $this->number(config('darak.quotation_pricing.list_prices.'.$quotation->package_code));
+        $list = $this->number(config('darak.quotation_pricing.list_prices.'.$packageCode));
         if ($list === null) {
             return 'لا يوجد سعر قائمة معتمد لهذه الباقة.';
         }

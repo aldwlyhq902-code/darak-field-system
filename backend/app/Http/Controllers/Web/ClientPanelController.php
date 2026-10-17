@@ -7,10 +7,13 @@ use App\Models\Asset;
 use App\Models\Client;
 use App\Models\ClientPortalUser;
 use App\Models\Contract;
+use App\Models\FinancialApproval;
 use App\Models\Site;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\WorkOrder;
+use App\Services\AuditLogger;
+use App\Services\QuotationPricingService;
 use App\Services\SlaCalculator;
 use App\Support\BusinessReference;
 use App\Support\ClientTime;
@@ -30,7 +33,12 @@ use Illuminate\View\View;
  */
 class ClientPanelController extends Controller
 {
-    public function __construct(private readonly SlaCalculator $sla, private readonly TenantAccess $tenantAccess) {}
+    public function __construct(
+        private readonly SlaCalculator $sla,
+        private readonly TenantAccess $tenantAccess,
+        private readonly QuotationPricingService $pricing,
+        private readonly AuditLogger $audit,
+    ) {}
 
     public function index(Request $request): View
     {
@@ -137,6 +145,10 @@ class ClientPanelController extends Controller
             'site_ids.*' => [Rule::exists('sites', 'id')->where('client_id', $client->id)->whereNull('deleted_at')],
         ]);
 
+        // Priced by the owner: live now. By anyone else: the quotation price rules
+        // apply, and a price outside them waits for the dual financial approval.
+        $approvalReason = $this->pricing->priceApprovalReason($request->user(), $data['package_code'], (float) $data['price_amount']);
+
         $contract = $client->contracts()->create([
             'contract_no' => BusinessReference::make('DK', false),
             'package_code' => $data['package_code'],
@@ -159,10 +171,24 @@ class ClientPanelController extends Controller
                 'المعدات الساخنة (أفران وقلايات)',
                 'سقف زيارات الطوارئ لا يتراكم شهرياً',
             ],
-            'status' => 'active',
+            'status' => $approvalReason === null ? 'active' : Contract::STATUS_PENDING_APPROVAL,
         ]);
 
         $contract->sites()->sync($data['site_ids']);
+        $this->audit->record('contract.created_direct', $contract, null, [
+            'price_amount' => $contract->price_amount, 'status' => $contract->status,
+        ], $request->user()->id);
+
+        if ($approvalReason !== null) {
+            FinancialApproval::create([
+                'public_reference' => (string) Str::uuid(), 'action_type' => QuotationPricingService::ACTION,
+                'subject_type' => 'contract', 'subject_id' => $contract->id,
+                'amount' => $contract->price_amount, 'reason' => $approvalReason.' (العقد '.$contract->contract_no.')',
+                'status' => 'pending_first', 'requested_by' => $request->user()->id,
+            ]);
+
+            return back()->with('ok', "أُنشئ العقد {$contract->contract_no} بانتظار الاعتماد المالي الثنائي لسعره ({$approvalReason}). لا يسري قبل الاعتماد.");
+        }
 
         return back()->with('ok', "أُنشئ العقد {$contract->contract_no} بقيمة {$contract->price_amount} قبل الضريبة (شامل الضريبة: {$contract->priceInclVat()}).");
     }

@@ -9,6 +9,7 @@ use App\Models\EmergencyReport;
 use App\Models\ExternalDocument;
 use App\Models\NotificationMessage;
 use App\Models\OperatingBranch;
+use App\Models\Site;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\VisitFeedback;
@@ -112,6 +113,24 @@ class NotificationService
             key: "emergency.reported:{$report->id}",
             body: "بلاغ طارئ جديد: {$client} — {$site}. المبلّغ: {$report->reporter_name} ({$report->reporter_phone}).",
             context: ['emergency_report_id' => $report->id, 'severity' => $report->severity] + $this->tenantContext($report->site?->client),
+        );
+    }
+
+    /**
+     * One alert per site per hour once its QR reports pass the cap: the reports
+     * are all kept and listed (flagged), but a flood must not bury the inbox.
+     */
+    public function emergencyFlood(Site $site): ?NotificationMessage
+    {
+        $client = $site->client?->name ?? '';
+
+        return $this->queue(
+            type: NotificationMessage::TYPE_EMERGENCY_REPORTED,
+            channel: NotificationMessage::CHANNEL_IN_APP,
+            recipientKind: 'supervisor',
+            key: "emergency.flood:{$site->id}:".now()->format('YmdH'),
+            body: "بلاغات كثيرة من ملصق QR لموقع {$client} — {$site->name} خلال وقت قصير. قُبلت كلها ووُسمت «تدفّق» بلا تنبيه لكل بلاغ. راجعها في البلاغات الطارئة، وإن كانت إساءة فدوّر رمز الملصق.",
+            context: ['site_id' => $site->id, 'flood' => true] + $this->tenantContext($site->client),
         );
     }
 

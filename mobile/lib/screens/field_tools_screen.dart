@@ -140,6 +140,34 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
     );
   }
 
+  Future<void> _submitStocktake(Map<String, dynamic> session) async {
+    final counted = (session['counted'] as List?)?.length ?? 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const LText('إرسال الجرد للمراجعة؟'),
+        content: LText(
+          'أصناف معدودة: $counted. بعد الإرسال لا يمكن مسح أصناف أخرى، ويعتمد المشرف الفروقات.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const LText('تراجع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const LText('إرسال'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _perform(
+      ActionRequest.completeStocktake(session['id'] as int),
+      'أُرسل الجرد للمراجعة. يعتمد المشرف الفروقات.',
+    );
+  }
+
   Future<void> _scan(Map<String, dynamic> session) async {
     final code = await Navigator.push<String>(
       context,
@@ -314,16 +342,14 @@ class _FieldToolsScreenState extends State<FieldToolsScreen> {
                                     : () => _scan(row),
                                 child: const LText('مسح صنف'),
                               ),
+                              // A submission for review now, not a write-off:
+                              // the office approves the variances. Still one
+                              // deliberate step — no more scans after it.
                               FilledButton.tonal(
                                 onPressed: busy || closing
                                     ? null
-                                    : () => _perform(
-                                        ActionRequest.completeStocktake(
-                                          row['id'] as int,
-                                        ),
-                                        'تم إقفال الجرد وتسوية الفروقات.',
-                                      ),
-                                child: const LText('إقفال الجرد'),
+                                    : () => _submitStocktake(row),
+                                child: const LText('إرسال الجرد للمراجعة'),
                               ),
                             ],
                           ),

@@ -579,4 +579,17 @@ return [
     'البند' => 'Item',
     'سعر الوحدة' => 'Unit price',
     'جوجل' => 'Google',
+    // Wave two: direct-contract approval, stocktake review, QR flood flag.
+    'بانتظار الاعتماد المالي' => 'Awaiting financial approval',
+    'اعتماد سعر' => 'Price approval',
+    'عقد' => 'Contract',
+    'قيد العد' => 'Counting',
+    'بانتظار اعتماد الفروقات' => 'Variances awaiting approval',
+    'تدفّق' => 'Flood',
+    'المتوقع الآن' => 'Expected now',
+    'المعدود' => 'Counted',
+    'الفرق' => 'Difference',
+    'سائق السيارة' => 'Van driver',
+    'اعتماد الفروقات وتسوية المخزون' => 'Approve variances and adjust stock',
+    'لم يُمسح أي صنف بعد.' => 'No item scanned yet.',
 ];
